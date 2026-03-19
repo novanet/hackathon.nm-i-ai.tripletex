@@ -128,18 +128,51 @@ public class FallbackAgentHandler : ITaskHandler
         await HandleWithPromptAsync(api, extracted, "");
     }
 
-    public async Task HandleWithPromptAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt)
+    public async Task HandleWithPromptAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt, List<SolveFile>? files = null)
     {
         _logger.LogInformation("Fallback agent handling task type: {TaskType}", extracted.TaskType);
 
-        var userContent = string.IsNullOrEmpty(originalPrompt)
+        var textContent = string.IsNullOrEmpty(originalPrompt)
             ? $"Execute this task:\n\n{JsonSerializer.Serialize(extracted)}"
             : $"Original prompt:\n{originalPrompt}\n\nExtracted data:\n{JsonSerializer.Serialize(extracted)}";
+
+        // Build user message parts (text + optional file context)
+        var parts = new List<ChatMessageContentPart>();
+
+        // Add file context if present
+        if (files != null && files.Count > 0)
+        {
+            foreach (var file in files)
+            {
+                try
+                {
+                    var data = Convert.FromBase64String(file.ContentBase64);
+                    if (file.MimeType.StartsWith("image/"))
+                    {
+                        parts.Add(ChatMessageContentPart.CreateImagePart(
+                            BinaryData.FromBytes(data), file.MimeType));
+                    }
+                    else if (file.MimeType == "application/pdf")
+                    {
+                        using var doc = UglyToad.PdfPig.PdfDocument.Open(data);
+                        var pdfText = string.Join("\n", doc.GetPages().Select(p => p.Text));
+                        if (!string.IsNullOrWhiteSpace(pdfText))
+                            textContent = $"[Attached PDF: {file.Filename}]\n{pdfText}\n\n{textContent}";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Fallback agent: failed to process file {File}", file.Filename);
+                }
+            }
+        }
+
+        parts.Insert(0, ChatMessageContentPart.CreateTextPart(textContent));
 
         var messages = new List<ChatMessage>
         {
             new SystemChatMessage(AgentSystemPrompt),
-            new UserChatMessage(userContent)
+            new UserChatMessage(parts)
         };
 
         var chatOptions = new ChatCompletionOptions

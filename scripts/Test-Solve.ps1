@@ -32,6 +32,8 @@ param(
     [Parameter(Mandatory, Position = 0)]
     [string]$Prompt,
 
+    [string[]]$FilePaths,
+
     [string]$BaseUrl,
     [string]$SessionToken,
     [string]$ApiKey,
@@ -67,7 +69,30 @@ $body = @{
         base_url      = $BaseUrl
         session_token = $SessionToken
     }
-} | ConvertTo-Json -Depth 5
+}
+
+if ($FilePaths) {
+    $body.files = @(foreach ($fp in $FilePaths) {
+            $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $fp))
+            $ext = [System.IO.Path]::GetExtension($fp).ToLower()
+            $mime = switch ($ext) {
+                '.pdf' { 'application/pdf' }
+                '.png' { 'image/png' }
+                '.jpg' { 'image/jpeg' }
+                '.jpeg' { 'image/jpeg' }
+                '.gif' { 'image/gif' }
+                '.webp' { 'image/webp' }
+                default { 'application/octet-stream' }
+            }
+            @{
+                filename       = [System.IO.Path]::GetFileName($fp)
+                content_base64 = [Convert]::ToBase64String($bytes)
+                mime_type      = $mime
+            }
+        })
+}
+
+$body = $body | ConvertTo-Json -Depth 5
 
 $url = "http://localhost:$Port/solve"
 

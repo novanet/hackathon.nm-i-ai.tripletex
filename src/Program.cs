@@ -66,8 +66,8 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
 
     try
     {
-        // Step 1: Extract structured data from prompt via LLM
-        var extracted = await llm.ExtractAsync(request.Prompt);
+        // Step 1: Extract structured data from prompt via LLM (with file content if present)
+        var extracted = await llm.ExtractAsync(request.Prompt, request.Files);
         logger.LogInformation("Extracted task_type: {TaskType}, action: {Action}",
             extracted.TaskType, extracted.Action);
 
@@ -82,7 +82,7 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
         var api = new TripletexApiClient(baseUrl, sessionToken, apiLogger);
 
         // Step 3: Route to handler
-        var handled = await router.RouteAsync(api, extracted, request.Prompt);
+        var handled = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
 
         if (!handled)
         {
