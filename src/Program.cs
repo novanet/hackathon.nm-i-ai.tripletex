@@ -21,6 +21,11 @@ builder.Services.AddSingleton<DepartmentHandler>();
 builder.Services.AddSingleton<SupplierHandler>();
 builder.Services.AddSingleton<InvoiceHandler>();
 builder.Services.AddSingleton<PaymentHandler>();
+builder.Services.AddSingleton<ProjectHandler>();
+builder.Services.AddSingleton<TravelExpenseHandler>();
+builder.Services.AddSingleton<CreditNoteHandler>();
+builder.Services.AddSingleton<VoucherHandler>();
+builder.Services.AddSingleton<DeleteEntityHandler>();
 builder.Services.AddSingleton<TaskRouter>();
 
 // LLM extractor

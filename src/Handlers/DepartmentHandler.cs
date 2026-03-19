@@ -36,14 +36,14 @@ public class DepartmentHandler : ITaskHandler
 
                 var empResult = await api.GetAsync("/employee", searchParams);
                 if (empResult.TryGetProperty("values", out var emps) && emps.GetArrayLength() > 0)
-                    body["departmentManager"] = new { id = emps[0].GetProperty("id").GetInt32() };
+                    body["departmentManager"] = new { id = emps[0].GetProperty("id").GetInt64() };
             }
         }
 
         _logger.LogInformation("Creating department: {Name}", body.GetValueOrDefault("name"));
 
         var result = await api.PostAsync("/department", body);
-        var deptId = result.GetProperty("value").GetProperty("id").GetInt32();
+        var deptId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created department ID: {Id}", deptId);
     }

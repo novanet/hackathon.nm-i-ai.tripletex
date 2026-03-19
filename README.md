@@ -25,6 +25,7 @@ Build an AI agent that executes accounting tasks via the Tripletex API.
 Deploy an HTTPS endpoint at `/solve`. The platform will send a random accounting task as a JSON payload and score the result.
 
 To submit:
+
 1. Go to https://app.ainm.no/submit/tripletex
 2. Enter your **Endpoint URL** (e.g. `https://your-api.example.com/solve`)
 3. Optionally provide an **API Key** (Bearer token / API key for your endpoint)
@@ -32,15 +33,41 @@ To submit:
 
 ---
 
+## Local Testing
+
+A PowerShell script is included to send test prompts to your locally running agent:
+
+```powershell
+# Start the agent
+dotnet run --project src/TripletexAgent.csproj
+
+# In another terminal, send a test prompt
+.\scripts\Test-Solve.ps1 "Opprett en kunde med navn 'Test AS'"
+```
+
+The script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
+
+```powershell
+.\scripts\Test-Solve.ps1 -Prompt "Create an employee named Ola Nordmann" `
+    -BaseUrl "https://kkpqfuj-amager.tripletex.dev/v2" `
+    -SessionToken "<your-token>" `
+    -ApiKey "<your-key>" `
+    -Port 5000
+```
+
+After each request, the script prints the response and tails the latest log file for quick debugging.
+
+---
+
 ## Tripletex Sandbox API
 
 The contest uses a dedicated Tripletex sandbox environment.
 
-| | |
-|---|---|
-| **API Docs (Swagger UI)** | https://kkpqfuj-amager.tripletex.dev/v2-docs/ |
-| **Base URL** | `https://kkpqfuj-amager.tripletex.dev/v2` |
-| **OpenAPI spec** | `https://kkpqfuj-amager.tripletex.dev/v2/openapi.json` |
+|                           |                                                        |
+| ------------------------- | ------------------------------------------------------ |
+| **API Docs (Swagger UI)** | https://kkpqfuj-amager.tripletex.dev/v2-docs/          |
+| **Base URL**              | `https://kkpqfuj-amager.tripletex.dev/v2`              |
+| **OpenAPI spec**          | `https://kkpqfuj-amager.tripletex.dev/v2/openapi.json` |
 
 A free sandbox account can be requested from the submission page ("Get Sandbox Account") to explore the API and web interface before submitting.
 
@@ -60,23 +87,23 @@ The API uses **session token authentication** via Basic Auth:
 
 ### Key API Modules
 
-| Module | Description |
-|---|---|
-| `ledger/voucher` | Vouchers / journal entries |
-| `ledger/account` | Chart of accounts |
-| `ledger/posting` | Ledger postings |
-| `invoice` | Customer invoices |
-| `supplierInvoice` | Supplier invoices |
-| `customer` | Customers |
-| `supplier` | Suppliers |
-| `product` | Products |
-| `order` | Sales orders |
-| `project` | Projects |
-| `employee` | Employees |
-| `salary/payslip` | Payslips |
-| `bank/reconciliation` | Bank reconciliation |
-| `balanceSheet` | Balance sheet |
-| `token/session` | Session token management |
+| Module                | Description                |
+| --------------------- | -------------------------- |
+| `ledger/voucher`      | Vouchers / journal entries |
+| `ledger/account`      | Chart of accounts          |
+| `ledger/posting`      | Ledger postings            |
+| `invoice`             | Customer invoices          |
+| `supplierInvoice`     | Supplier invoices          |
+| `customer`            | Customers                  |
+| `supplier`            | Suppliers                  |
+| `product`             | Products                   |
+| `order`               | Sales orders               |
+| `project`             | Projects                   |
+| `employee`            | Employees                  |
+| `salary/payslip`      | Payslips                   |
+| `bank/reconciliation` | Bank reconciliation        |
+| `balanceSheet`        | Balance sheet              |
+| `token/session`       | Session token management   |
 
 ### API Conventions
 
@@ -107,6 +134,7 @@ The API uses **session token authentication** via Basic Auth:
 ### Rate Limiting
 
 Rate limit status is returned in response headers:
+
 - `X-Rate-Limit-Limit` — allowed requests in current period
 - `X-Rate-Limit-Remaining` — remaining requests
 - `X-Rate-Limit-Reset` — seconds until reset
@@ -123,25 +151,24 @@ HTTP `429` is returned when the limit is exceeded.
 
 **The four tasks:**
 
-| Task | Type | Submission |
-|---|---|---|
-| **Tripletex** | AI accounting agent | HTTPS API endpoint |
-| Grocery Bot | Real-time grocery store navigation | WebSocket agent |
-| Astar Island | Norse world prediction | REST API predictions |
-| NorgesGruppen Data | Grocery shelf object detection | Code upload (ZIP) |
+| Task               | Type                               | Submission           |
+| ------------------ | ---------------------------------- | -------------------- |
+| **Tripletex**      | AI accounting agent                | HTTPS API endpoint   |
+| Grocery Bot        | Real-time grocery store navigation | WebSocket agent      |
+| Astar Island       | Norse world prediction             | REST API predictions |
+| NorgesGruppen Data | Grocery shelf object detection     | Code upload (ZIP)    |
 
 ---
 
 ## Links
 
-| Resource | URL |
-|---|---|
-| Competition platform | https://app.ainm.no/tasks |
-| Submit endpoint | https://app.ainm.no/submit/tripletex |
-| Task docs | https://app.ainm.no/docs/tripletex/overview |
-| Sandbox API Swagger | https://kkpqfuj-amager.tripletex.dev/v2-docs/ |
-| Docs overview | https://app.ainm.no/docs |
-| Rules | https://app.ainm.no/rules |
-| Leaderboard | https://app.ainm.no/leaderboard |
-| MCP docs server | `claude mcp add --transport http nmiai https://mcp-docs.ainm.no/mcp` |
-
+| Resource             | URL                                                                  |
+| -------------------- | -------------------------------------------------------------------- |
+| Competition platform | https://app.ainm.no/tasks                                            |
+| Submit endpoint      | https://app.ainm.no/submit/tripletex                                 |
+| Task docs            | https://app.ainm.no/docs/tripletex/overview                          |
+| Sandbox API Swagger  | https://kkpqfuj-amager.tripletex.dev/v2-docs/                        |
+| Docs overview        | https://app.ainm.no/docs                                             |
+| Rules                | https://app.ainm.no/rules                                            |
+| Leaderboard          | https://app.ainm.no/leaderboard                                      |
+| MCP docs server      | `claude mcp add --transport http nmiai https://mcp-docs.ainm.no/mcp` |

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
@@ -48,18 +49,18 @@ public class ProductHandler : ITaskHandler
                 ["fields"] = "id"
             });
             if (accResult.TryGetProperty("values", out var accs) && accs.GetArrayLength() > 0)
-                body["account"] = new { id = accs[0].GetProperty("id").GetInt32() };
+                body["account"] = new { id = accs[0].GetProperty("id").GetInt64() };
         }
 
         _logger.LogInformation("Creating product: {Name}", body.GetValueOrDefault("name"));
 
         var result = await api.PostAsync("/product", body);
-        var productId = result.GetProperty("value").GetProperty("id").GetInt32();
+        var productId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created product ID: {Id}", productId);
     }
 
-    private async Task<int?> ResolveVatTypeId(TripletexApiClient api, string vatHint)
+    private async Task<long?> ResolveVatTypeId(TripletexApiClient api, string vatHint)
     {
         var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
         {
@@ -71,12 +72,12 @@ public class ProductHandler : ITaskHandler
             return null;
 
         // Try to match by percentage (e.g. "25" → 25%)
-        if (decimal.TryParse(vatHint, out var pct))
+        if (decimal.TryParse(vatHint, NumberStyles.Any, CultureInfo.InvariantCulture, out var pct))
         {
             foreach (var vt in vatTypes.EnumerateArray())
             {
                 if (vt.TryGetProperty("percentage", out var vtPct) && vtPct.GetDecimal() == pct)
-                    return vt.GetProperty("id").GetInt32();
+                    return vt.GetProperty("id").GetInt64();
             }
         }
 
@@ -84,14 +85,14 @@ public class ProductHandler : ITaskHandler
         foreach (var vt in vatTypes.EnumerateArray())
         {
             if (vt.TryGetProperty("number", out var num) && num.GetString() == vatHint)
-                return vt.GetProperty("id").GetInt32();
+                return vt.GetProperty("id").GetInt64();
         }
 
         // Return first non-zero if available
         foreach (var vt in vatTypes.EnumerateArray())
         {
             if (vt.TryGetProperty("percentage", out var vtPct) && vtPct.GetDecimal() > 0)
-                return vt.GetProperty("id").GetInt32();
+                return vt.GetProperty("id").GetInt64();
         }
 
         return null;

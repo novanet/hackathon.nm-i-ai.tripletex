@@ -96,6 +96,30 @@ These are the #1 source of failures. See `opening-strategy.md` §8 for the full 
 
 Prompts arrive in 7 languages: Norwegian bokmål, English, Spanish, Portuguese, Nynorsk, German, French. GPT-4o handles all natively. Extract field values VERBATIM — never translate names, emails, or organization numbers. See `opening-strategy.md` §5 for the complete LLM system prompt.
 
+## Dev Workflow (MANDATORY)
+
+**Starting / restarting the agent:** Always use the helper script — never manually `Get-Process | Kill` then `dotnet run`:
+
+```powershell
+.\scripts\Start-Agent.ps1              # foreground (blocks terminal)
+.\scripts\Start-Agent.ps1 -Background  # background (returns immediately)
+```
+
+The script kills any existing `TripletexAgent` process, waits for file locks to release, then starts fresh.
+
+**Testing prompts against the running agent:**
+
+```powershell
+.\scripts\Test-Solve.ps1 "Opprett en kunde med navn 'Test AS'"
+```
+
+Reads Tripletex credentials and API key from .NET user-secrets automatically. Prints the response and tails the latest log file.
+
+**Never do these:**
+
+- Don't run `dotnet run` without first stopping the old process — it will fail with a port/file lock
+- Don't manually `Get-Process -Name TripletexAgent | Kill` followed by `dotnet run` — use `Start-Agent.ps1` instead
+
 ## File Structure Convention
 
 ```

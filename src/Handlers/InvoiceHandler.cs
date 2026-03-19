@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
@@ -12,6 +13,11 @@ public class InvoiceHandler : ITaskHandler
 
     public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
+        await CreateInvoiceChainAsync(api, extracted);
+    }
+
+    public async Task<long> CreateInvoiceChainAsync(TripletexApiClient api, ExtractionResult extracted)
+    {
         // Full chain: Customer → Order (with OrderLines + VatType) → Invoice
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
@@ -23,12 +29,20 @@ public class InvoiceHandler : ITaskHandler
         SetIfPresent(custBody, cust, "email");
         SetIfPresent(custBody, cust, "organizationNumber");
 
+        // Also check invoice entity and relationships for customer name
+        if (!custBody.ContainsKey("name"))
+        {
+            var custName = GetStringField(invoice, "customer")
+                ?? extracted.Relationships.GetValueOrDefault("customer");
+            if (custName != null) custBody["name"] = custName;
+        }
+
         // Use a default name if none extracted
         if (!custBody.ContainsKey("name"))
             custBody["name"] = "Kunde";
 
         var custResult = await api.PostAsync("/customer", custBody);
-        var customerId = custResult.GetProperty("value").GetProperty("id").GetInt32();
+        var customerId = custResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created customer ID: {Id}", customerId);
 
         // Step 2: Resolve VAT type (need at least one for order lines)
@@ -51,7 +65,7 @@ public class InvoiceHandler : ITaskHandler
         };
 
         var orderResult = await api.PostAsync("/order", orderBody);
-        var orderId = orderResult.GetProperty("value").GetProperty("id").GetInt32();
+        var orderId = orderResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created order ID: {Id}", orderId);
 
         // Step 5: Create invoice
@@ -67,11 +81,13 @@ public class InvoiceHandler : ITaskHandler
         };
 
         var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
-        var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt32();
+        var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created invoice ID: {Id}", invoiceId);
+
+        return invoiceId;
     }
 
-    internal static List<Dictionary<string, object>> BuildOrderLines(ExtractionResult extracted, int vatTypeId)
+    internal static List<Dictionary<string, object>> BuildOrderLines(ExtractionResult extracted, long vatTypeId)
     {
         var lines = new List<Dictionary<string, object>>();
 
@@ -84,16 +100,28 @@ public class InvoiceHandler : ITaskHandler
                 // Each entry might be a line item serialized as JsonElement
                 if (val is JsonElement je && je.ValueKind == JsonValueKind.Object)
                 {
-                    var line = new Dictionary<string, object> { ["vatType"] = new { id = vatTypeId } };
-                    if (je.TryGetProperty("description", out var desc))
-                        line["description"] = desc.GetString()!;
-                    if (je.TryGetProperty("count", out var cnt))
-                        line["count"] = cnt.GetDouble();
-                    if (je.TryGetProperty("unitPrice", out var price))
-                        line["unitPriceExcludingVatCurrency"] = price.GetDouble();
-                    if (je.TryGetProperty("unitPriceExcludingVatCurrency", out var price2))
-                        line["unitPriceExcludingVatCurrency"] = price2.GetDouble();
+                    var line = ParseOrderLineFromJson(je, vatTypeId);
                     lines.Add(line);
+                }
+            }
+        }
+
+        // Also check for orderLines inside the invoice entity (LLM often puts them there)
+        if (lines.Count == 0)
+        {
+            var invoice = extracted.Entities.GetValueOrDefault("invoice");
+            if (invoice != null && invoice.TryGetValue("orderLines", out var olVal) && olVal is JsonElement olJson)
+            {
+                if (olJson.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in olJson.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.Object)
+                        {
+                            var line = ParseOrderLineFromJson(item, vatTypeId);
+                            lines.Add(line);
+                        }
+                    }
                 }
             }
         }
@@ -101,7 +129,7 @@ public class InvoiceHandler : ITaskHandler
         // If no lines parsed, try to build from raw amounts
         if (lines.Count == 0 && extracted.RawAmounts.Count > 0)
         {
-            if (decimal.TryParse(extracted.RawAmounts[0], out var amount))
+            if (decimal.TryParse(extracted.RawAmounts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out var amount))
             {
                 lines.Add(new Dictionary<string, object>
                 {
@@ -128,7 +156,24 @@ public class InvoiceHandler : ITaskHandler
         return lines;
     }
 
-    internal async Task<int> ResolveDefaultVatTypeId(TripletexApiClient api)
+    private static Dictionary<string, object> ParseOrderLineFromJson(JsonElement je, long vatTypeId)
+    {
+        var line = new Dictionary<string, object> { ["vatType"] = new { id = vatTypeId } };
+        if (je.TryGetProperty("description", out var desc))
+            line["description"] = desc.GetString()!;
+        if (je.TryGetProperty("count", out var cnt))
+            line["count"] = cnt.ValueKind == JsonValueKind.Number ? cnt.GetDouble()
+                : double.TryParse(cnt.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var cd) ? cd : 1.0;
+        if (je.TryGetProperty("unitPrice", out var price))
+            line["unitPriceExcludingVatCurrency"] = price.ValueKind == JsonValueKind.Number ? price.GetDouble()
+                : double.TryParse(price.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var pd) ? pd : 0.0;
+        if (je.TryGetProperty("unitPriceExcludingVatCurrency", out var price2))
+            line["unitPriceExcludingVatCurrency"] = price2.ValueKind == JsonValueKind.Number ? price2.GetDouble()
+                : double.TryParse(price2.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var pd2) ? pd2 : 0.0;
+        return line;
+    }
+
+    internal async Task<long> ResolveDefaultVatTypeId(TripletexApiClient api)
     {
         var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
         {
@@ -142,17 +187,17 @@ public class InvoiceHandler : ITaskHandler
             foreach (var vt in vatTypes.EnumerateArray())
             {
                 if (vt.TryGetProperty("number", out var num) && num.GetString() == "3")
-                    return vt.GetProperty("id").GetInt32();
+                    return vt.GetProperty("id").GetInt64();
             }
             // Fallback: first with percentage > 0
             foreach (var vt in vatTypes.EnumerateArray())
             {
                 if (vt.TryGetProperty("percentage", out var pct) && pct.GetDecimal() > 0)
-                    return vt.GetProperty("id").GetInt32();
+                    return vt.GetProperty("id").GetInt64();
             }
             // Last resort: first one
             foreach (var vt in vatTypes.EnumerateArray())
-                return vt.GetProperty("id").GetInt32();
+                return vt.GetProperty("id").GetInt64();
         }
 
         return 1; // absolute fallback

@@ -39,7 +39,7 @@ public class EmployeeHandler : ITaskHandler
         body["userType"] = needsAdmin ? "EXTENDED" : "STANDARD";
 
         // Handle department — required field in Tripletex
-        int? deptId = null;
+        long? deptId = null;
         if (extracted.Relationships.TryGetValue("department", out var deptName) && !string.IsNullOrEmpty(deptName))
         {
             var deptResult = await api.GetAsync("/department", new Dictionary<string, string>
@@ -50,7 +50,7 @@ public class EmployeeHandler : ITaskHandler
             });
             if (deptResult.TryGetProperty("values", out var depts) && depts.GetArrayLength() > 0)
             {
-                deptId = depts[0].GetProperty("id").GetInt32();
+                deptId = depts[0].GetProperty("id").GetInt64();
             }
         }
 
@@ -64,7 +64,7 @@ public class EmployeeHandler : ITaskHandler
             });
             if (allDepts.TryGetProperty("values", out var defaultDepts) && defaultDepts.GetArrayLength() > 0)
             {
-                deptId = defaultDepts[0].GetProperty("id").GetInt32();
+                deptId = defaultDepts[0].GetProperty("id").GetInt64();
             }
         }
 
@@ -77,7 +77,7 @@ public class EmployeeHandler : ITaskHandler
             body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"));
 
         var result = await api.PostAsync("/employee", body);
-        var employeeId = result.GetProperty("value").GetProperty("id").GetInt32();
+        var employeeId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created employee ID: {Id}", employeeId);
 
@@ -91,7 +91,7 @@ public class EmployeeHandler : ITaskHandler
                 queryParams: new Dictionary<string, string>
                 {
                     ["employeeId"] = employeeId.ToString(),
-                    ["template"] = "administrator"
+                    ["template"] = "ALL_PRIVILEGES"
                 });
         }
     }
@@ -116,8 +116,8 @@ public class EmployeeHandler : ITaskHandler
         }
 
         var existing = employees[0];
-        var id = existing.GetProperty("id").GetInt32();
-        var version = existing.GetProperty("version").GetInt32();
+        var id = existing.GetProperty("id").GetInt64();
+        var version = existing.GetProperty("version").GetInt64();
 
         var updateBody = new Dictionary<string, object>
         {

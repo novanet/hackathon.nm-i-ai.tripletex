@@ -52,6 +52,10 @@ public class LlmExtractor
         - For employee tasks, extract "roles" as an array (e.g. ["administrator"])
         - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates
         - For travel expense, extract employee reference, title, travel details, and cost items
+        - If the prompt mentions registering/recording a payment ("betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "innbetaling"), use "register_payment" even if it also describes creating the invoice
+        - For credit notes ("kreditnota", "credit note", "nota de crédito", "Gutschrift", "note de crédit"), use "create_credit_note"
+        - For vouchers/journal entries ("bilag", "voucher", "journal entry", "asiento", "lançamento", "Buchung", "écriture"), use "create_voucher"
+        - For deleting entities, use "delete_entity" and set action to "delete"
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)

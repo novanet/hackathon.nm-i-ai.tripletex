@@ -37,7 +37,7 @@ public class CustomerHandler : ITaskHandler
         _logger.LogInformation("Creating customer: {Name}", body.GetValueOrDefault("name"));
 
         var result = await api.PostAsync("/customer", body);
-        var customerId = result.GetProperty("value").GetProperty("id").GetInt32();
+        var customerId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created customer ID: {Id}", customerId);
     }
@@ -49,7 +49,7 @@ public class CustomerHandler : ITaskHandler
         SetIfPresent(addr, cust, "postalCode");
         SetIfPresent(addr, cust, "city");
         if (cust.TryGetValue("countryId", out var countryId))
-            addr["country"] = new { id = int.Parse(countryId.ToString()!) };
+            addr["country"] = new { id = long.Parse(countryId.ToString()!) };
         return addr;
     }
 

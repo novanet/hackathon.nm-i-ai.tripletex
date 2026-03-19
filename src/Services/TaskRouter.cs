@@ -22,6 +22,12 @@ public class TaskRouter
             ["create_supplier"] = services.GetRequiredService<SupplierHandler>(),
             ["create_invoice"] = services.GetRequiredService<InvoiceHandler>(),
             ["register_payment"] = services.GetRequiredService<PaymentHandler>(),
+            ["create_project"] = services.GetRequiredService<ProjectHandler>(),
+            ["create_travel_expense"] = services.GetRequiredService<TravelExpenseHandler>(),
+            ["delete_travel_expense"] = services.GetRequiredService<TravelExpenseHandler>(),
+            ["create_credit_note"] = services.GetRequiredService<CreditNoteHandler>(),
+            ["create_voucher"] = services.GetRequiredService<VoucherHandler>(),
+            ["delete_entity"] = services.GetRequiredService<DeleteEntityHandler>(),
         };
     }
 

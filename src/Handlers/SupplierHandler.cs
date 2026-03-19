@@ -18,9 +18,9 @@ public class SupplierHandler : ITaskHandler
         SetIfPresent(body, sup, "name");
         SetIfPresent(body, sup, "email");
         SetIfPresent(body, sup, "organizationNumber");
+        SetIfPresent(body, sup, "supplierNumber");
         SetIfPresent(body, sup, "phoneNumber");
         SetIfPresent(body, sup, "phoneNumberMobile");
-        SetIfPresent(body, sup, "bankAccountNumber");
 
         // Handle address if present
         var address = new Dictionary<string, object>();
@@ -33,7 +33,7 @@ public class SupplierHandler : ITaskHandler
         _logger.LogInformation("Creating supplier: {Name}", body.GetValueOrDefault("name"));
 
         var result = await api.PostAsync("/supplier", body);
-        var supplierId = result.GetProperty("value").GetProperty("id").GetInt32();
+        var supplierId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created supplier ID: {Id}", supplierId);
     }
