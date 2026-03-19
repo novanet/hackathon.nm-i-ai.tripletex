@@ -1,0 +1,155 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+
+namespace TripletexAgent.Services;
+
+public class ApiCallEntry
+{
+    public string Method { get; set; } = "";
+    public string Path { get; set; } = "";
+    public int Status { get; set; }
+    public string? Error { get; set; }
+}
+
+public class TripletexApiClient
+{
+    private readonly HttpClient _http;
+    private readonly string _baseUrl;
+    private readonly ILogger<TripletexApiClient> _logger;
+    private int _callCount;
+    private int _errorCount;
+    private readonly List<ApiCallEntry> _callLog = new();
+
+    public int CallCount => _callCount;
+    public int ErrorCount => _errorCount;
+    public IReadOnlyList<ApiCallEntry> CallLog => _callLog;
+
+    public TripletexApiClient(string baseUrl, string sessionToken, ILogger<TripletexApiClient> logger)
+    {
+        _baseUrl = baseUrl.TrimEnd('/');
+        _logger = logger;
+        _http = new HttpClient();
+        var authBytes = Encoding.ASCII.GetBytes($"0:{sessionToken}");
+        _http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+    }
+
+    public async Task<JsonElement> GetAsync(string path, Dictionary<string, string>? queryParams = null)
+    {
+        var url = BuildUrl(path, queryParams);
+        return await SendAsync(HttpMethod.Get, url);
+    }
+
+    public async Task<JsonElement> PostAsync(string path, object body)
+    {
+        var url = BuildUrl(path);
+        return await SendAsync(HttpMethod.Post, url, body);
+    }
+
+    public async Task<JsonElement> PutAsync(string path, object? body = null, Dictionary<string, string>? queryParams = null)
+    {
+        var url = BuildUrl(path, queryParams);
+        return await SendAsync(HttpMethod.Put, url, body);
+    }
+
+    public async Task DeleteAsync(string path)
+    {
+        var url = BuildUrl(path);
+        await SendAsync(HttpMethod.Delete, url);
+    }
+
+    private string BuildUrl(string path, Dictionary<string, string>? queryParams = null)
+    {
+        var url = $"{_baseUrl}{path}";
+        if (queryParams is { Count: > 0 })
+        {
+            var qs = string.Join("&", queryParams.Select(
+                kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+            url += $"?{qs}";
+        }
+        return url;
+    }
+
+    private async Task<JsonElement> SendAsync(HttpMethod method, string url, object? body = null)
+    {
+        Interlocked.Increment(ref _callCount);
+
+        // Extract path from full URL for logging
+        var path = url.StartsWith(_baseUrl) ? url[_baseUrl.Length..] : url;
+
+        using var request = new HttpRequestMessage(method, url);
+        if (body is not null)
+        {
+            var json = JsonSerializer.Serialize(body);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        }
+
+        _logger.LogInformation("API {Method} {Path}", method, path);
+
+        var response = await _http.SendAsync(request);
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        var entry = new ApiCallEntry
+        {
+            Method = method.ToString(),
+            Path = path,
+            Status = (int)response.StatusCode
+        };
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Interlocked.Increment(ref _errorCount);
+            string errorDetail = responseBody;
+            try
+            {
+                var errDoc = JsonDocument.Parse(responseBody);
+                var root = errDoc.RootElement;
+                if (root.TryGetProperty("validationMessages", out var vms) && vms.GetArrayLength() > 0)
+                {
+                    var msgs = new List<string>();
+                    foreach (var vm in vms.EnumerateArray())
+                    {
+                        var field = vm.TryGetProperty("field", out var f) ? f.GetString() : "";
+                        var msg = vm.TryGetProperty("message", out var m) ? m.GetString() : "";
+                        msgs.Add($"{field}: {msg}");
+                    }
+                    errorDetail = string.Join("; ", msgs);
+                }
+                else if (root.TryGetProperty("developerMessage", out var dm))
+                {
+                    errorDetail = dm.GetString() ?? responseBody;
+                }
+            }
+            catch { }
+
+            entry.Error = errorDetail;
+            _callLog.Add(entry);
+
+            _logger.LogWarning("API {Method} {Path} → {Status}: {Error}",
+                method, path, (int)response.StatusCode, errorDetail);
+
+            throw new TripletexApiException((int)response.StatusCode, errorDetail, responseBody);
+        }
+
+        _callLog.Add(entry);
+
+        if (string.IsNullOrWhiteSpace(responseBody))
+            return default;
+
+        return JsonDocument.Parse(responseBody).RootElement;
+    }
+}
+
+public class TripletexApiException : Exception
+{
+    public int StatusCode { get; }
+    public string ResponseBody { get; }
+
+    public TripletexApiException(int statusCode, string message, string responseBody)
+        : base(message)
+    {
+        StatusCode = statusCode;
+        ResponseBody = responseBody;
+    }
+}

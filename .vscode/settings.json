@@ -1,0 +1,119 @@
+{
+  // Editor settings
+  "editor.formatOnSave": true,
+  "editor.renderWhitespace": "all",
+  "diffEditor.ignoreTrimWhitespace": false,
+
+  // Terminal settings
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+
+  // C# and .NET settings
+  "dotnet.defaultSolution": "Cato/Cato.slnx",
+  "omnisharp.enableEditorConfigSupport": true,
+
+  // File associations and formatters
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csharp"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[xml]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[razor]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": "ms-dotnettools.csharp"
+  },
+  "[aspnetcorerazor]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": "ms-dotnettools.csharp"
+  },
+
+  // Exclude build artifacts from explorer
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/.vs": true,
+    "**/node_modules": true
+  },
+
+  // Search exclusions
+  "search.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/node_modules": true,
+    "**/.vs": true
+  },
+
+  // Git settings
+  "git.openRepositoryInParentFolders": "never",
+
+  // Disable unnecessary prompts/surveys
+  "azureFunctions.showProjectWarning": false,
+  "azureFunctions.showCoreToolsWarning": false,
+  "bicep.enableSurveys": false,
+
+  // CSS linting
+  "css.lint.unknownAtRules": "ignore",
+
+  // MSSQL - shared LocalDB connection for Cato
+  "mssql.connections": [
+    {
+      "authenticationType": "Integrated",
+      "server": "(LocalDB)\\MSSQLLocalDB",
+      "database": "Cato",
+      "trustServerCertificate": true,
+      "profileName": "Cato LocalDB",
+      "password": ""
+    }
+  ],
+
+  // GitHub Copilot and Chat settings
+  "github.copilot.nextEditSuggestions.enabled": true,
+  "chat.mcp.gallery.enabled": true,
+  // Auto-approve Copilot agent tool calls (reads, edits, MCP tools).
+  // Terminal commands use targeted regex patterns — not blanket approval.
+  // Agent-level safety guardrails (safety.instructions.md) handle destructive op confirmation.
+  "chat.tools.autoApprove": true,
+  "chat.tools.terminal.autoApprove": {
+    "/^git /": true,
+    "/^dotnet /": true,
+    "/^code /": true,
+    "/\\.ps1/": true,
+    "/^foreach /": true,
+    "/^Remove-Item/": true,
+    "/^Move-Item/": true,
+    "/^New-Item/": true,
+    "/^Get-/": true,
+    "/^Invoke-RestMethod/": true
+  },
+  "chat.promptFiles.autoAllow": "repository",
+
+  "chat.agent.defaultMode": "autopilot",
+  "chat.useAgentSkills": true,
+  "chat.agent.maxRequests": 100,
+  "github.copilot.chat.backgroundCompaction": true,
+  "github.copilot.chat.tools.memory.enabled": true,
+  "git.addAICoAuthor": "all",
+  "chat.autopilot.enabled": true,
+  "github.copilot.chat.terminalChatAutoApproval.allowedCommands": [
+    "curl",
+    "Invoke-RestMethod"
+  ]
+}

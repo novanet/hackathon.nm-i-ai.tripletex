@@ -9,11 +9,15 @@ build/
 venv/
 env/
 
+# .NET
+src/bin/
+src/obj/
+logs/
+
 # Environment
 .env
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
