@@ -26,6 +26,7 @@ builder.Services.AddSingleton<TravelExpenseHandler>();
 builder.Services.AddSingleton<CreditNoteHandler>();
 builder.Services.AddSingleton<VoucherHandler>();
 builder.Services.AddSingleton<DeleteEntityHandler>();
+builder.Services.AddSingleton<EnableModuleHandler>();
 builder.Services.AddSingleton<TaskRouter>();
 
 // LLM extractor
@@ -81,7 +82,7 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
         var api = new TripletexApiClient(baseUrl, sessionToken, apiLogger);
 
         // Step 3: Route to handler
-        var handled = await router.RouteAsync(api, extracted);
+        var handled = await router.RouteAsync(api, extracted, request.Prompt);
 
         if (!handled)
         {

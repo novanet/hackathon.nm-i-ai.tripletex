@@ -7,6 +7,7 @@ namespace TripletexAgent.Services;
 public class TaskRouter
 {
     private readonly Dictionary<string, ITaskHandler> _handlers;
+    private readonly FallbackAgentHandler _fallback;
     private readonly ILogger<TaskRouter> _logger;
 
     public TaskRouter(IServiceProvider services, ILogger<TaskRouter> logger)
@@ -28,10 +29,16 @@ public class TaskRouter
             ["create_credit_note"] = services.GetRequiredService<CreditNoteHandler>(),
             ["create_voucher"] = services.GetRequiredService<VoucherHandler>(),
             ["delete_entity"] = services.GetRequiredService<DeleteEntityHandler>(),
+            ["enable_module"] = services.GetRequiredService<EnableModuleHandler>(),
         };
+
+        var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
+            ?? services.GetRequiredService<IConfiguration>()["GitHubToken"]
+            ?? "";
+        _fallback = new FallbackAgentHandler(githubToken, services.GetRequiredService<ILogger<FallbackAgentHandler>>());
     }
 
-    public async Task<bool> RouteAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<bool> RouteAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt = "")
     {
         if (_handlers.TryGetValue(extracted.TaskType, out var handler))
         {
@@ -40,7 +47,8 @@ public class TaskRouter
             return true;
         }
 
-        _logger.LogWarning("No handler found for task type: {TaskType}", extracted.TaskType);
-        return false;
+        _logger.LogInformation("No deterministic handler for {TaskType} — using fallback agent", extracted.TaskType);
+        await _fallback.HandleWithPromptAsync(api, extracted, originalPrompt);
+        return true;
     }
 }
