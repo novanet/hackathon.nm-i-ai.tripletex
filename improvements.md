@@ -29,14 +29,17 @@ Batch run: 20:36:57 – 20:45:48 | Daily usage: 89 → 98 / 180
 - **Root cause**: `SetIfPresent` looked for key `"organizationNumber"` but LLM extracts as `"orgNumber"`. Added fallback key lookup.
 - **Local validation after fix**: 5/5 (100%) — POST body now includes `"organizationNumber":"975630749"`
 
-### P1: ProductHandler doesn't send price (Run 2 — 5/7)
+### P1: ProductHandler doesn't send price (Run 2 — 5/7) ✅ FIXED
 
 - **Prompt** (pt): "Crie o produto 'Manutenção' com número de produto 9664. O preço é 5500 NOK sem IVA, utilizando a taxa padrão de 25 %."
 - **LLM extraction**: Correctly extracted `unitPrice: 5500`
 - **POST body sent**: `{"name":"Manutenção","number":"9664","vatType":{"id":1}}` — **no price field!**
 - **Response confirmed**: `"priceExcludingVatCurrency":0,"priceIncludingVatCurrency":0`
 - **Impact**: The `price` competition check fails every time.
-- **Fix**: In `ProductHandler.cs`, add `priceExcludingVatCurrency` (and/or `priceIncludingVatCurrency`) to the POST body from the extracted `unitPrice`.
+- **Fix 1**: Added `"unitPrice"` alias to `SetWithAlias` in ProductHandler.cs for `priceExcludingVatCurrency`.
+- **Fix 2**: Removed default vatType — only set when explicitly extracted. Retry POST without vatType on 422 "vatTypeId" error (local sandbox rejects ALL vatType IDs for /product).
+- **Fix 3**: SandboxValidator now aliases `"productNumber"` → `"number"` and `"price"`/`"unitPrice"` → `"priceExcludingVatCurrency"` for correct check counting.
+- **Local validation after fix**: 6/6 (100%) — product created with `priceExcludingVatCurrency:5500`
 
 ### P2: Invoice VAT mapping for non-standard rates (Run 8 — 5/8)
 

@@ -216,10 +216,24 @@ public class SandboxValidator
 
         report.Checks.Add(new ValidationCheck("product_found", "true", "true", true, 2));
         CheckStringField(val, entity, "name", report, 2);
-        CheckStringField(val, entity, "number", report, 1);
 
-        if (entity.ContainsKey("priceExcludingVatCurrency"))
-            CheckDecimalField(val, entity, "priceExcludingVatCurrency", report, 1);
+        // LLM may extract as "number" or "productNumber"
+        var numberKey = entity.ContainsKey("number") ? "number" : entity.ContainsKey("productNumber") ? "productNumber" : null;
+        if (numberKey != null)
+        {
+            var normalizedForNumber = new Dictionary<string, object>(entity) { ["number"] = entity[numberKey] };
+            CheckStringField(val, normalizedForNumber, "number", report, 1);
+        }
+
+        // Check price — LLM may extract as price, unitPrice, priceExcludingVAT, or priceExcludingVatCurrency
+        var priceKey = new[] { "priceExcludingVatCurrency", "price", "unitPrice", "priceExcludingVAT" }
+            .FirstOrDefault(k => entity.ContainsKey(k));
+        if (priceKey != null)
+        {
+            // Normalize entity key to API field name for comparison
+            var normalizedEntity = new Dictionary<string, object>(entity) { ["priceExcludingVatCurrency"] = entity[priceKey] };
+            CheckDecimalField(val, normalizedEntity, "priceExcludingVatCurrency", report, 1);
+        }
 
         if (entity.ContainsKey("priceIncludingVatCurrency"))
             CheckDecimalField(val, entity, "priceIncludingVatCurrency", report, 1);

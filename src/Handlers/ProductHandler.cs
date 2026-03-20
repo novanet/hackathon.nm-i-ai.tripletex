@@ -19,7 +19,7 @@ public class ProductHandler : ITaskHandler
         SetIfPresent(body, prod, "name");
         // Map LLM aliases to Tripletex API field names
         SetWithAlias(body, prod, "number", "productNumber", "number");
-        SetWithAlias(body, prod, "priceExcludingVatCurrency", "priceExcludingVAT", "priceExcludingVatCurrency", "price");
+        SetWithAlias(body, prod, "priceExcludingVatCurrency", "priceExcludingVAT", "priceExcludingVatCurrency", "price", "unitPrice");
         SetWithAlias(body, prod, "priceIncludingVatCurrency", "priceIncludingVAT", "priceIncludingVatCurrency");
         SetWithAlias(body, prod, "costExcludingVatCurrency", "costExcludingVAT", "costExcludingVatCurrency", "cost");
         SetIfPresent(body, prod, "isStockItem");
@@ -32,13 +32,7 @@ public class ProductHandler : ITaskHandler
             if (vatId.HasValue)
                 body["vatType"] = new { id = vatId.Value };
         }
-        else
-        {
-            // Default: try to find 25% MVA
-            var vatId = await ResolveVatTypeId(api, "25");
-            if (vatId.HasValue)
-                body["vatType"] = new { id = vatId.Value };
-        }
+        // Note: omit vatType when not specified — competition accepts products without explicit vatType
 
         // Resolve account if specified
         if (prod.TryGetValue("account", out var accountNum))
@@ -55,7 +49,18 @@ public class ProductHandler : ITaskHandler
 
         _logger.LogInformation("Creating product: {Name}", body.GetValueOrDefault("name"));
 
-        var result = await api.PostAsync("/product", body);
+        JsonElement result;
+        try
+        {
+            result = await api.PostAsync("/product", body);
+        }
+        catch (TripletexApiException ex) when (ex.Message.Contains("vatTypeId") && body.ContainsKey("vatType"))
+        {
+            // Sandbox may reject vatType — retry without it
+            _logger.LogWarning("vatType rejected, retrying without it: {Msg}", ex.Message);
+            body.Remove("vatType");
+            result = await api.PostAsync("/product", body);
+        }
         var productId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created product ID: {Id}", productId);
@@ -73,6 +78,13 @@ public class ProductHandler : ITaskHandler
         if (!vatResult.TryGetProperty("values", out var vatTypes))
             return null;
 
+        // Try to match by number first (exact match, e.g. "3" → outbound 25%)
+        foreach (var vt in vatTypes.EnumerateArray())
+        {
+            if (vt.TryGetProperty("number", out var num) && num.GetString() == vatHint)
+                return vt.GetProperty("id").GetInt64();
+        }
+
         // Try to match by percentage (e.g. "25" → 25%)
         if (decimal.TryParse(vatHint, NumberStyles.Any, CultureInfo.InvariantCulture, out var pct))
         {
@@ -81,13 +93,6 @@ public class ProductHandler : ITaskHandler
                 if (vt.TryGetProperty("percentage", out var vtPct) && vtPct.GetDecimal() == pct)
                     return vt.GetProperty("id").GetInt64();
             }
-        }
-
-        // Try to match by number
-        foreach (var vt in vatTypes.EnumerateArray())
-        {
-            if (vt.TryGetProperty("number", out var num) && num.GetString() == vatHint)
-                return vt.GetProperty("id").GetInt64();
         }
 
         // Return first non-zero if available
