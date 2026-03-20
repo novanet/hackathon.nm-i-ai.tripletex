@@ -61,6 +61,7 @@ public class PayrollHandler : ITaskHandler
             if (!string.IsNullOrEmpty(lastName)) searchParams["lastName"] = lastName;
         }
 
+        bool isNewEmployee = false;
         long employeeId;
         var empResult = await api.GetAsync("/employee", searchParams);
         if (!empResult.TryGetProperty("values", out var emps) || emps.GetArrayLength() == 0)
@@ -94,6 +95,7 @@ public class PayrollHandler : ITaskHandler
 
             var createResult = await api.PostAsync("/employee", empBody);
             employeeId = createResult.GetProperty("value").GetProperty("id").GetInt64();
+            isNewEmployee = true;
             _logger.LogInformation("Created employee {Id} for payroll", employeeId);
         }
         else
@@ -120,7 +122,7 @@ public class PayrollHandler : ITaskHandler
         }
 
         // Ensure employee has an employment for the payroll period
-        await EnsureEmployment(api, employeeId, year, month);
+        await EnsureEmployment(api, employeeId, year, month, isNewEmployee);
 
         // Get salary types to find base salary type and bonus type
         var salaryTypesResult = await api.GetAsync("/salary/type", new Dictionary<string, string>
@@ -244,16 +246,9 @@ public class PayrollHandler : ITaskHandler
             transactionId, baseSalary, bonus, baseSalaryTypeId, bonusTypeId, month, year);
         _logger.LogInformation("Transaction response: {Response}", txValue.ToString());
 
-        // Fetch the full payslip by ID so competition validator can verify employee link.
-        // The transaction response only returns payslip stubs (id+url), not the full payslip object.
         long? payslipId = null;
         if (txValue.TryGetProperty("payslips", out var payslipsArr) && payslipsArr.GetArrayLength() > 0)
-        {
             payslipId = payslipsArr[0].GetProperty("id").GetInt64();
-            var payslipResult = await api.GetAsync($"/salary/payslip/{payslipId}",
-                new Dictionary<string, string> { ["fields"] = "id,employee,amount,grossAmount" });
-            _logger.LogInformation("Fetched payslip {Id}: {Payslip}", payslipId, payslipResult.ToString());
-        }
 
         // ALSO create a voucher on 5000-series accounts as fallback
         // The competition prompt explicitly suggests this: "bruke manuelle bilag på lønnskontoer (5000-serien)"
@@ -264,10 +259,13 @@ public class PayrollHandler : ITaskHandler
             var employeeName = $"{firstName} {lastName}".Trim();
 
             // Resolve salary expense account (5000) and bank account (1920)
-            var acct5000 = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+            var t5000 = api.GetAsync("/ledger/account", new Dictionary<string, string>
             { ["number"] = "5000", ["count"] = "1", ["fields"] = "id" });
-            var acct1920 = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+            var t1920 = api.GetAsync("/ledger/account", new Dictionary<string, string>
             { ["number"] = "1920", ["count"] = "1", ["fields"] = "id" });
+            await Task.WhenAll(t5000, t1920);
+            var acct5000 = await t5000;
+            var acct1920 = await t1920;
 
             long? salaryAccountId = null, bankAccountId = null;
             if (acct5000.TryGetProperty("values", out var a5) && a5.GetArrayLength() > 0)
@@ -325,7 +323,7 @@ public class PayrollHandler : ITaskHandler
         };
     }
 
-    private async Task EnsureEmployment(TripletexApiClient api, long employeeId, int year, int month)
+    private async Task EnsureEmployment(TripletexApiClient api, long employeeId, int year, int month, bool isNewEmployee = false)
     {
         // Get or create division (virksomhet) — required for payroll
         long? divisionId = null;
@@ -401,30 +399,33 @@ public class PayrollHandler : ITaskHandler
             _logger.LogInformation("Created division {Id}", divisionId);
         }
 
-        // Check if employee has an employment
-        var employments = await api.GetAsync("/employee/employment", new Dictionary<string, string>
+        // Check if employee has an employment (skip for newly created employees — guaranteed none)
+        if (!isNewEmployee)
         {
-            ["employeeId"] = employeeId.ToString(),
-            ["count"] = "1",
-            ["fields"] = "id,version,division"
-        });
-
-        if (employments.TryGetProperty("values", out var empValues) && empValues.GetArrayLength() > 0)
-        {
-            // Update existing employment with division
-            var existing = empValues[0];
-            var empId = existing.GetProperty("id").GetInt64();
-            var version = existing.GetProperty("version").GetInt32();
-            _logger.LogInformation("Updating employment {Id} with division {Div}", empId, divisionId);
-            await api.PutAsync($"/employee/employment/{empId}", new
+            var employments = await api.GetAsync("/employee/employment", new Dictionary<string, string>
             {
-                id = empId,
-                version,
-                employee = new { id = employeeId },
-                division = new { id = divisionId!.Value },
-                taxDeductionCode = "loennFraHovedarbeidsgiver"
+                ["employeeId"] = employeeId.ToString(),
+                ["count"] = "1",
+                ["fields"] = "id,version,division"
             });
-            return;
+
+            if (employments.TryGetProperty("values", out var empValues) && empValues.GetArrayLength() > 0)
+            {
+                // Update existing employment with division
+                var existing = empValues[0];
+                var empId = existing.GetProperty("id").GetInt64();
+                var version = existing.GetProperty("version").GetInt32();
+                _logger.LogInformation("Updating employment {Id} with division {Div}", empId, divisionId);
+                await api.PutAsync($"/employee/employment/{empId}", new
+                {
+                    id = empId,
+                    version,
+                    employee = new { id = employeeId },
+                    division = new { id = divisionId!.Value },
+                    taxDeductionCode = "loennFraHovedarbeidsgiver"
+                });
+                return;
+            }
         }
 
         // Create employment starting at the beginning of the payroll month
