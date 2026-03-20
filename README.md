@@ -35,20 +35,33 @@ To submit:
 
 ## Local Testing
 
-A PowerShell script is included to send test prompts to your locally running agent:
+PowerShell scripts are included for the full dev-to-submission workflow:
 
 ```powershell
-# Start the agent
+# 1. Start the agent
 .\scripts\Start-Agent.ps1 -Background
 
-# Start HTTPS tunnel (in a separate terminal)
-.\scripts\Start-Tunnel.ps1
-
-# In another terminal, send a test prompt
+# 2. Test a prompt locally
 .\scripts\Test-Solve.ps1 "Opprett en kunde med navn 'Test AS'"
+
+# 3. Start HTTPS tunnel (in a separate terminal)
+.\scripts\Start-Tunnel.ps1              # ngrok
+.\scripts\Start-Cloudflared.ps1         # or cloudflare (no account needed)
+
+# 4. Submit a competition run
+$env:AINM_TOKEN = "<access_token from browser cookies>"
+.\scripts\Submit-Run.ps1
 ```
 
-For real submissions, copy the ngrok HTTPS URL and enter it at https://app.ainm.no/submit/tripletex as `https://xxxx.ngrok-free.app/solve` with your API key.
+### Scripts
+
+| Script | Description |
+| --- | --- |
+| `Start-Agent.ps1` | Kill existing agent + rebuild + start. Supports `-Background` flag. |
+| `Test-Solve.ps1` | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets. |
+| `Start-Tunnel.ps1` | Start ngrok HTTPS tunnel to localhost:5000. |
+| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`. |
+| `Submit-Run.ps1` | Auto-detect tunnel, health check, submit to competition API, poll for results. Supports `-NoWait`. |
 
 The test script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
 
@@ -56,11 +69,21 @@ The test script reads Tripletex credentials and the API key from .NET user-secre
 .\scripts\Test-Solve.ps1 -Prompt "Create an employee named Ola Nordmann" `
     -BaseUrl "https://kkpqfuj-amager.tripletex.dev/v2" `
     -SessionToken "<your-token>" `
-    -ApiKey "<your-key>" `
     -Port 5000
 ```
 
 After each request, the script prints the response and tails the latest log file for quick debugging.
+
+### Competition Submission
+
+The `Submit-Run.ps1` script handles the full submission flow:
+1. Verifies agent is running
+2. Finds active tunnel URL (cloudflared → ngrok fallback)
+3. Sends a health check ping to the endpoint
+4. POSTs to `https://api.ainm.no/tasks/{taskId}/submissions`
+5. Polls for results every 10s (up to 10 min)
+
+**Constraints:** Max 32 submissions/day, max 3 concurrent (HTTP 429 if exceeded).
 
 ---
 

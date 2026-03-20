@@ -115,6 +115,28 @@ The script kills any existing `TripletexAgent` process, waits for file locks to 
 
 Reads Tripletex credentials and API key from .NET user-secrets automatically. Prints the response and tails the latest log file.
 
+**Starting a tunnel for competition submissions:**
+
+Two tunnel options are available. Prefer ngrok (cloudflared has TLS issues on some ISPs like Telenor):
+
+```powershell
+.\scripts\Start-Tunnel.ps1             # ngrok tunnel (requires ngrok installed)
+.\scripts\Start-Cloudflared.ps1        # cloudflare quick tunnel (no account needed)
+.\scripts\Start-Cloudflared.ps1 -Kill  # stop cloudflared
+```
+
+**Submitting a competition run:**
+
+```powershell
+$env:AINM_TOKEN = "<access_token from browser cookies>"
+.\scripts\Submit-Run.ps1               # auto-detects tunnel, submits, polls for results
+.\scripts\Submit-Run.ps1 -NoWait       # submit without polling
+```
+
+The script checks that the agent is running, finds the active tunnel URL (tries cloudflared first, falls back to ngrok), sends a health check ping, then submits to the competition API. After submission it polls for results every 10s for up to 10 minutes.
+
+**Competition constraints:** Max 32 submissions/day, max 3 concurrent (429 if exceeded).
+
 **Never do these:**
 
 - Don't run `dotnet run` without first stopping the old process — it will fail with a port/file lock
@@ -123,23 +145,39 @@ Reads Tripletex credentials and API key from .NET user-secrets automatically. Pr
 ## File Structure Convention
 
 ```
+scripts/
+  Start-Agent.ps1               — Kill + restart agent (supports -Background)
+  Start-Tunnel.ps1              — Start ngrok HTTPS tunnel
+  Start-Cloudflared.ps1         — Start cloudflare quick tunnel (supports -Kill)
+  Test-Solve.ps1                — Send test prompt to agent, tail logs
+  Submit-Run.ps1                — Submit competition run, poll for results
 src/
-  Program.cs                    — Minimal API setup, /solve endpoint
+  Program.cs                    — Minimal API setup, /solve endpoint, ping fast-path
   Models/
     SolveRequest.cs             — Request DTOs
     ExtractionResult.cs         — LLM extraction output model
   Services/
     TripletexApiClient.cs       — HTTP client wrapper (auth, logging, errors)
-    LlmExtractor.cs             — GPT-4o structured extraction
+    LlmExtractor.cs             — GPT-4o structured extraction (3-retry + regex fallback)
     TaskRouter.cs               — Routes task_type to handler
     ReferenceDataService.cs     — Lazy-loaded VAT types, payment types, accounts
   Handlers/
     ITaskHandler.cs             — Handler interface
     EmployeeHandler.cs          — Create/update employee + role assignment
-    CustomerHandler.cs          — Create customer
+    CustomerHandler.cs          — Create customer (with address parsing)
+    SupplierHandler.cs          — Create supplier
     ProductHandler.cs           — Create product
-    DepartmentHandler.cs        — Create department
-    InvoiceHandler.cs           — Full invoice chain (customer → order → invoice)
-    PaymentHandler.cs           — Register payment on invoice
+    DepartmentHandler.cs        — Create department (with collision retry)
+    ProjectHandler.cs           — Create project (customer + PM resolution)
+    InvoiceHandler.cs           — Full invoice chain (customer → order → invoice → send)
+    PaymentHandler.cs           — Register payment (optimized: 7 calls)
+    CreditNoteHandler.cs        — Create credit note on existing invoice
+    ContactHandler.cs           — Create contact person for customer
+    TravelExpenseHandler.cs     — Create travel expense with cost lines
+    FallbackAgentHandler.cs     — LLM tool-use loop for unmapped tasks
     ...                         — One handler per task type
+  logs/
+    sandbox.jsonl               — Sandbox test submission logs
+    submissions.jsonl           — Competition submission logs
+    agent-*.log                 — Serilog application logs
 ```
