@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
 
@@ -28,19 +29,73 @@ public class TravelExpenseHandler : ITaskHandler
 
         // First try: use the employee entity with proper firstName/lastName
         var empEntity = extracted.Entities.GetValueOrDefault("employee") ?? new();
-        var empFirstName = GetStringField(empEntity, "firstName");
-        var empLastName = GetStringField(empEntity, "lastName");
-        var empEmail = GetStringField(empEntity, "email");
+        var empFirstName = GetScalarString(empEntity, "firstName");
+        var empLastName = GetScalarString(empEntity, "lastName");
+        var empEmail = GetScalarString(empEntity, "email");
 
         // Fallback: extract nested employee object from travelExpense entity
         if (empFirstName == null && empLastName == null && empEmail == null
-            && travel.TryGetValue("employee", out var nestedEmp) && nestedEmp is JsonElement empJe
-            && empJe.ValueKind == JsonValueKind.Object)
+            && travel.TryGetValue("employee", out var nestedEmp))
         {
-            if (empJe.TryGetProperty("firstName", out var fn)) empFirstName = fn.GetString();
-            if (empJe.TryGetProperty("lastName", out var ln)) empLastName = ln.GetString();
-            if (empJe.TryGetProperty("email", out var em)) empEmail = em.GetString();
-            _logger.LogInformation("Extracted nested employee: {First} {Last} ({Email})", empFirstName, empLastName, empEmail);
+            if (nestedEmp is JsonElement empJe)
+            {
+                if (empJe.ValueKind == JsonValueKind.Object)
+                {
+                    if (empJe.TryGetProperty("firstName", out var fn)) empFirstName = fn.GetString();
+                    if (empJe.TryGetProperty("lastName", out var ln)) empLastName = ln.GetString();
+                    if (empJe.TryGetProperty("email", out var em)) empEmail = em.GetString();
+                }
+                else if (empJe.ValueKind == JsonValueKind.String)
+                {
+                    var raw = empJe.GetString();
+                    if (raw != null && raw.TrimStart().StartsWith('{'))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(raw);
+                            var root = doc.RootElement;
+                            if (root.TryGetProperty("firstName", out var fn2)) empFirstName = fn2.GetString();
+                            if (root.TryGetProperty("lastName", out var ln2)) empLastName = ln2.GetString();
+                            if (root.TryGetProperty("email", out var em2)) empEmail = em2.GetString();
+                        }
+                        catch { }
+                    }
+                    else if (raw != null)
+                    {
+                        var parts = raw.Split(' ', 2);
+                        empFirstName = parts[0];
+                        empLastName = parts.Length > 1 ? parts[1] : null;
+                    }
+                }
+            }
+            else if (nestedEmp is Dictionary<string, object> empDict)
+            {
+                empFirstName = GetScalarString(empDict, "firstName");
+                empLastName = GetScalarString(empDict, "lastName");
+                empEmail = GetScalarString(empDict, "email");
+            }
+            if (empFirstName != null || empLastName != null || empEmail != null)
+                _logger.LogInformation("Extracted nested employee: {First} {Last} ({Email})", empFirstName, empLastName, empEmail);
+        }
+
+        // Fallback: regex from raw prompt (handles all 7 languages)
+        if (empFirstName == null && empLastName == null && extracted.RawPrompt != null)
+        {
+            var nameMatch = Regex.Match(extracted.RawPrompt,
+                @"(?:for|pour|para|für|f[oö]r)\s+([A-ZÆØÅÄÖÜ][a-zæøåäöüéèêëàáâãíìîïóòôõúùûü]+)\s+([A-ZÆØÅÄÖÜ][a-zæøåäöüéèêëàáâãíìîïóòôõúùûü]+)",
+                RegexOptions.None, TimeSpan.FromMilliseconds(200));
+            if (nameMatch.Success)
+            {
+                empFirstName = nameMatch.Groups[1].Value;
+                empLastName = nameMatch.Groups[2].Value;
+                _logger.LogInformation("Extracted employee from prompt regex: {First} {Last}", empFirstName, empLastName);
+            }
+        }
+        if (empEmail == null && extracted.RawPrompt != null)
+        {
+            var emailMatch = Regex.Match(extracted.RawPrompt, @"[\w.+-]+@[\w.-]+\.\w+",
+                RegexOptions.None, TimeSpan.FromMilliseconds(200));
+            if (emailMatch.Success) empEmail = emailMatch.Value;
         }
 
         if (empFirstName != null && empLastName != null)
@@ -70,9 +125,14 @@ public class TravelExpenseHandler : ITaskHandler
             var empBody = new Dictionary<string, object>
             {
                 ["firstName"] = empFirstName,
-                ["lastName"] = empLastName
+                ["lastName"] = empLastName,
+                ["userType"] = "STANDARD"
             };
             if (empEmail != null) empBody["email"] = empEmail;
+            // Department may be required if module is active
+            var depts = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
+            if (depts.TryGetProperty("values", out var deptVals) && deptVals.GetArrayLength() > 0)
+                empBody["department"] = new { id = deptVals[0].GetProperty("id").GetInt64() };
             var empResult = await api.PostAsync("/employee", empBody);
             employeeId = empResult.GetProperty("value").GetProperty("id").GetInt64();
         }
@@ -381,6 +441,7 @@ public class TravelExpenseHandler : ITaskHandler
         return null;
     }
 
+    /// <summary>Get a string value, returning GetRawText() for Object types (use for general fields).</summary>
     private static string? GetStringField(Dictionary<string, object> dict, string key)
     {
         if (dict.TryGetValue(key, out var val) && val is not null)
@@ -396,6 +457,29 @@ public class TravelExpenseHandler : ITaskHandler
                 };
             }
             return val.ToString();
+        }
+        return null;
+    }
+
+    /// <summary>Get a scalar string value only (String or Number). Returns null for Object/Array types
+    /// to avoid accidentally using JSON text as query parameter values.</summary>
+    private static string? GetScalarString(Dictionary<string, object> dict, string key)
+    {
+        if (dict.TryGetValue(key, out var val) && val is not null)
+        {
+            if (val is JsonElement je)
+            {
+                return je.ValueKind switch
+                {
+                    JsonValueKind.String => je.GetString(),
+                    JsonValueKind.Number => je.GetRawText(),
+                    _ => null // Don't return raw JSON for Objects/Arrays
+                };
+            }
+            var s = val.ToString();
+            // Guard: don't return JSON objects as scalar strings
+            if (s != null && s.TrimStart().StartsWith('{')) return null;
+            return s;
         }
         return null;
     }

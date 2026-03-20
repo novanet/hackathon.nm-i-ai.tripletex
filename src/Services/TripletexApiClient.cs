@@ -10,6 +10,8 @@ public class ApiCallEntry
     public string Path { get; set; } = "";
     public int Status { get; set; }
     public string? Error { get; set; }
+    public string? RequestBody { get; set; }
+    public string? ResponseSnippet { get; set; }
 }
 
 public class TripletexApiClient
@@ -79,10 +81,11 @@ public class TripletexApiClient
         var path = url.StartsWith(_baseUrl) ? url[_baseUrl.Length..] : url;
 
         using var request = new HttpRequestMessage(method, url);
+        string? requestBodyJson = null;
         if (body is not null)
         {
-            var json = JsonSerializer.Serialize(body);
-            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            requestBodyJson = JsonSerializer.Serialize(body);
+            request.Content = new StringContent(requestBodyJson, Encoding.UTF8, "application/json");
         }
 
         _logger.LogInformation("API {Method} {Path}", method, path);
@@ -94,7 +97,9 @@ public class TripletexApiClient
         {
             Method = method.ToString(),
             Path = path,
-            Status = (int)response.StatusCode
+            Status = (int)response.StatusCode,
+            RequestBody = requestBodyJson,
+            ResponseSnippet = responseBody?.Length > 500 ? responseBody[..500] : responseBody
         };
 
         if (!response.IsSuccessStatusCode)

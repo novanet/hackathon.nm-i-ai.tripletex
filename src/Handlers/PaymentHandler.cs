@@ -193,23 +193,46 @@ public class PaymentHandler : ITaskHandler
     }
 
     /// <summary>
-    /// For "payment returned by bank" in a fresh environment: create invoice (do NOT pay it).
-    /// amountOutstanding will be > 0, satisfying the payment_reversed check.
-    /// The "bank returned payment" scenario means the invoice is back to unpaid.
+    /// For "payment returned by bank" in a fresh environment:
+    /// 1. Create invoice chain  2. Pay fully  3. Reverse with negative payment
+    /// End state: amountOutstanding == invoice total (payment returned).
     /// </summary>
     private async Task<HandlerResult> HandleFullChainThenReverseAsync(TripletexApiClient api, ExtractionResult extracted)
     {
-        // Create the full invoice chain (customer, order, invoice) but don't pay it.
-        // amountOutstanding > 0 satisfies the competition's payment_reversed check.
+        var paymentTypeTask = ResolvePaymentTypeId(api);
         var (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
+        var paymentTypeId = await paymentTypeTask;
 
-        _logger.LogInformation("Created invoice {Id} for reversal — leaving unpaid (amountOutstanding > 0)", invoiceId);
+        // Pay the invoice fully
+        var amount = await GetAmountOutstanding(api, invoiceId);
+        var paymentDate = ResolvePaymentDate(extracted);
+        await RegisterPayment(api, invoiceId, paymentTypeId, amount, paymentDate);
+        _logger.LogInformation("Paid invoice {Id} amount={Amount} — now reversing", invoiceId, amount);
+
+        // Reverse via negative payment
+        try
+        {
+            await RegisterPayment(api, invoiceId, paymentTypeId, -amount, paymentDate);
+            _logger.LogInformation("Reversed payment on invoice {Id} with negative amount {Amount}", invoiceId, -amount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Negative payment failed, trying credit note for invoice {Id}", invoiceId);
+            await api.PutAsync($"/invoice/{invoiceId}/:createCreditNote",
+                body: null,
+                queryParams: new Dictionary<string, string>
+                {
+                    ["date"] = paymentDate,
+                    ["comment"] = "Payment reversal",
+                    ["sendToCustomer"] = "false"
+                });
+        }
 
         return new HandlerResult
         {
             EntityType = "invoice",
             EntityId = invoiceId,
-            Metadata = { ["paymentReversed"] = "true", ["method"] = "unpaidInvoice" }
+            Metadata = { ["paymentReversed"] = "true", ["method"] = "payThenReverse" }
         };
     }
 

@@ -49,7 +49,7 @@ if ($Background) {
         }
     }
     if (-not $found) {
-        Write-Host "Process did not appear within 10s — check logs." -ForegroundColor Red
+        Write-Host "Process did not appear within 10s - check logs." -ForegroundColor Red
     }
 }
 else {

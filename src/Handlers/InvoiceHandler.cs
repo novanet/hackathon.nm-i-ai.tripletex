@@ -570,7 +570,8 @@ public class InvoiceHandler : ITaskHandler
         var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
         {
             ["count"] = "100",
-            ["fields"] = "id,number,percentage"
+            ["fields"] = "id,number,percentage",
+            ["typeOfVat"] = "OUTGOING"
         });
 
         long defaultId = 1;

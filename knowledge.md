@@ -10,7 +10,8 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 - **Employee `startDate` is NOT a field on `/employee`** — use `POST /employee/employment` as a separate call after creating the employee. The employee POST will 422 with "Feltet eksisterer ikke i objektet" if you include `startDate`. _(2026-03-20)_
 - **Employee `dateOfBirth` must be set** before creating employment — otherwise 422 "Feltet må fylles ut". Always extract DOB from prompt. _(2026-03-20)_
-- **Employee `userType` must not be `"0"` or empty** — use `"STANDARD"`. Error: "Brukertype kan ikke være «0» eller tom." _(2026-03-20)_
+- **Employee `userType` must not be `"0"` or empty** — use `"STANDARD"`. Error: "Brukertype kan ikke være «0» eller tom." Must be set when creating employees anywhere (specifically in TravelExpenseHandler and other handlers, not just EmployeeHandler). _(2026-03-20)_
+- **Employee `department.id` required when department module active** — query `GET /department?count=1` and use first available ID. Sandbox has department module enabled. Competition may or may not have it. _(2026-03-20)_
 - **Employee `email` is required** for Tripletex users — 422 "Må angis for Tripletex-brukere" if missing. _(2026-03-20)_
 - **Employment `division` required in some environments** — sandbox requires `division.id` on `POST /employee/employment` ("Arbeidsforholdet må knyttes til en virksomhet/underenhet"), but competition environments work without it. Handler retries with division lookup on failure. _(2026-03-20)_
 - **Project `startDate` is required** — defaults to today if not specified in prompt. Error: "Feltet må fylles ut." _(2026-03-20)_
@@ -26,7 +27,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 - **firstName/lastName sometimes not extracted** — happened with German, Spanish, Portuguese, and Nynorsk prompts. The LLM returned only `email` without name fields. Root cause: extraction prompt needs explicit required-field emphasis. _(2026-03-20)_
 - **Employee entity sometimes missing email** — even when clearly stated in the prompt (Portuguese prompts). Ensure extraction schema marks email as required. _(2026-03-20)_
-- **Full JSON object serialized as query param** — bug where the entire employee JSON was URL-encoded into `firstName=` and `lastName=` search params instead of just the string values. Check handler code carefully when using extracted nested objects. _(2026-03-20)_
+- **Full JSON object serialized as query param** — bug where the entire employee JSON was URL-encoded into `firstName=` and `lastName=` search params instead of just the string values. Check handler code carefully when using extracted nested objects. Use `GetScalarString` (returns null for Object/Array types) instead of `GetStringField` when extracting name/email fields that may be nested objects. _(2026-03-20)_
 - **Travel expense misrouted to VoucherHandler** — extraction returned `create_voucher` instead of `create_travel_expense`. Ensure LLM system prompt clearly distinguishes the two task types. _(2026-03-20)_
 - **Handler name logging race condition** — `TaskRouter.LastHandlerName` was shared singleton state, corrupted by concurrent requests. Fixed: `RouteAsync` now returns handler name in tuple. Previous competition logs showing "TravelExpenseHandler" for employee tasks were false — actual routing was correct. _(2026-03-20)_
 - **Composite task extraction varies** — LLM may put employee/activity data under `timeRegistration` entity OR as separate `employee`/`project.activity` entities. Handler must check both paths. _(2026-03-20)_
@@ -51,7 +52,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Order line `count` defaults to 0 in Tripletex** — if you omit `count` on an order line, Tripletex treats it as 0 and the invoice amount becomes 0. Always set `count = 1` as default. _(2026-03-20)_
 - **Composite invoice tasks (project + time + invoice)** — competition checks 8 points across 4 checks: project/timesheet + invoice. Our local validator only checks invoice (5/5). Must create project, link activity, register timesheet hours, AND create invoice. _(2026-03-20)_
 - **Credit note validation**: only checks `credit_note_created` (3 pts). _(2026-03-20)_
-- **Supplier invoice vouchers require INPUT VAT (inbound)** — expense account defaults may return outbound/output VAT type (e.g., DB ID 3 for 25% outbound). For supplier invoices, must explicitly look up INPUT VAT type: number=1 (25% inbound), number=11 (15%), number=13 (12%). Wrong VAT direction causes Tripletex to NOT create a `supplierInvoice` entity, so competition checker finds nothing → 0/4. _(2026-03-20)_
+- **Voucher account lock detection requires `vatType(id,number)` fields** — use `fields=id,number,vatType(id,number)` when fetching account. If `vatType.number == 0`, account is locked to no-VAT (do NOT add vatType to posting). If `vatType` object exists at all, account is locked to that type. Competition confirmed: account 7100 locked to code 0 → must omit vatType field from posting or get 422. _(2026-03-20)_
 - **Delete entity validation**: only checks `entity_deleted` (3 pts). _(2026-03-20)_
 - **All 14 validation tasks achieved 100% correctness** in latest sandbox run. _(2026-03-20)_
 

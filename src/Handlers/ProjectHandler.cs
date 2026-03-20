@@ -87,9 +87,9 @@ public class ProjectHandler : ITaskHandler
         var pmEntity = extracted.Entities.GetValueOrDefault("projectManager");
         if (pmEntity != null && pmEntity.Count > 0)
         {
-            managerFirstName = GetStringField(pmEntity, "firstName");
-            managerLastName = GetStringField(pmEntity, "lastName");
-            managerEmail = GetStringField(pmEntity, "email");
+            managerFirstName = GetScalarString(pmEntity, "firstName");
+            managerLastName = GetScalarString(pmEntity, "lastName");
+            managerEmail = GetScalarString(pmEntity, "email");
         }
 
         // Then check inside project entity
@@ -239,9 +239,9 @@ public class ProjectHandler : ITaskHandler
         var empEntity = extracted.Entities.GetValueOrDefault("employee");
         if (empEntity != null)
         {
-            var fn = GetStringField(empEntity, "firstName");
-            var ln = GetStringField(empEntity, "lastName");
-            var em = GetStringField(empEntity, "email");
+            var fn = GetScalarString(empEntity, "firstName");
+            var ln = GetScalarString(empEntity, "lastName");
+            var em = GetScalarString(empEntity, "email");
             if (fn != null)
                 employeeId = await ResolveEmployeeByFields(api, fn, ln, em);
 
@@ -665,6 +665,18 @@ public class ProjectHandler : ITaskHandler
             if (val is JsonElement je)
                 return je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText();
             return val.ToString();
+        }
+        return null;
+    }
+
+    private static string? GetScalarString(Dictionary<string, object> dict, string key)
+    {
+        if (dict.TryGetValue(key, out var val) && val is not null)
+        {
+            if (val is JsonElement je)
+                return je.ValueKind == JsonValueKind.String ? je.GetString() : null;
+            var s = val.ToString();
+            return s != null && !s.TrimStart().StartsWith('{') ? s : null;
         }
         return null;
     }

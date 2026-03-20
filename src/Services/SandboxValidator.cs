@@ -355,11 +355,17 @@ public class SandboxValidator
                 hasInvoice = true;
             else
             {
-                // Check via /order?projectId=X (order-linked to project gives invoice)
+                // Check via /order?projectId=X (order-linked to project gives invoice; requires date range)
                 try
                 {
                     var orderSearch = await api.GetAsync("/order", new Dictionary<string, string>
-                    { ["projectId"] = result.EntityId.Value.ToString(), ["count"] = "5", ["fields"] = "id" });
+                    {
+                        ["projectId"] = result.EntityId.Value.ToString(),
+                        ["count"] = "5",
+                        ["fields"] = "id",
+                        ["orderDateFrom"] = "2020-01-01",
+                        ["orderDateTo"] = "2030-12-31"
+                    });
                     if (orderSearch.TryGetProperty("values", out var ordVals) && ordVals.GetArrayLength() > 0)
                         hasInvoice = true;
                 }

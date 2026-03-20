@@ -306,7 +306,7 @@ static void LogSubmission(SolveRequest request, ExtractionResult? extracted, Tri
             success,
             error,
             elapsed_ms = elapsedMs,
-            api_calls = api?.CallLog.Select(c => new { c.Method, c.Path, c.Status, c.Error }),
+            api_calls = api?.CallLog.Select(c => new { c.Method, c.Path, c.Status, c.Error, c.RequestBody, c.ResponseSnippet }),
             call_count = api?.CallCount ?? 0,
             error_count = api?.ErrorCount ?? 0
         };
