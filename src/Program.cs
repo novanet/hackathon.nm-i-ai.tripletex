@@ -66,10 +66,13 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
     logger.LogInformation("Received /solve request ({PromptLength} chars, {FileCount} files)",
         request.Prompt.Length, request.Files?.Count ?? 0);
 
+    ExtractionResult? extracted = null;
+    TripletexApiClient? api = null;
+
     try
     {
         // Step 1: Extract structured data from prompt via LLM (with file content if present)
-        var extracted = await llm.ExtractAsync(request.Prompt, request.Files);
+        extracted = await llm.ExtractAsync(request.Prompt, request.Files);
 
         // Post-processing: fix common LLM misclassifications
         var promptLower = request.Prompt.ToLowerInvariant();
@@ -99,7 +102,7 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
             ?? app.Configuration["Tripletex:SessionToken"]
             ?? throw new InvalidOperationException("No Tripletex session token provided");
         var apiLogger = app.Services.GetRequiredService<ILogger<TripletexApiClient>>();
-        var api = new TripletexApiClient(baseUrl, sessionToken, apiLogger);
+        api = new TripletexApiClient(baseUrl, sessionToken, apiLogger);
 
         // Step 3: Route to handler
         var handled = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
@@ -122,7 +125,7 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
     {
         sw.Stop();
         logger.LogError(ex, "Error processing /solve request");
-        LogSubmission(request, null, null, null, sw.ElapsedMilliseconds, success: false, error: ex.Message);
+        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: false, error: ex.Message);
         return Results.Json(new { status = "completed" });
     }
 });

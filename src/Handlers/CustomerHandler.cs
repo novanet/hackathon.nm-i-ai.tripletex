@@ -12,8 +12,24 @@ public class CustomerHandler : ITaskHandler
 
     public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
-        var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
+        // Collect all customer entities (support multi-entity: customer, customer1, customer2, ...)
+        var customerEntities = new List<Dictionary<string, object>>();
+        foreach (var kvp in extracted.Entities)
+        {
+            if (kvp.Key == "customer" || kvp.Key.StartsWith("customer"))
+                customerEntities.Add(kvp.Value);
+        }
+        if (customerEntities.Count == 0)
+            customerEntities.Add(new());
 
+        foreach (var cust in customerEntities)
+        {
+            await CreateSingleCustomer(api, cust);
+        }
+    }
+
+    private async Task CreateSingleCustomer(TripletexApiClient api, Dictionary<string, object> cust)
+    {
         var body = new Dictionary<string, object> { ["isCustomer"] = true };
 
         SetIfPresent(body, cust, "name");
@@ -41,7 +57,6 @@ public class CustomerHandler : ITaskHandler
 
         _logger.LogInformation("Created customer ID: {Id}", customerId);
     }
-
     private static Dictionary<string, object> BuildAddress(Dictionary<string, object> cust)
     {
         var addr = new Dictionary<string, object>();

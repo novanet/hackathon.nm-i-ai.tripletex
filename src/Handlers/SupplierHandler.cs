@@ -12,8 +12,24 @@ public class SupplierHandler : ITaskHandler
 
     public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
-        var sup = extracted.Entities.GetValueOrDefault("supplier") ?? new();
+        // Collect all supplier entities (support multi-entity: supplier, supplier1, supplier2, ...)
+        var supplierEntities = new List<Dictionary<string, object>>();
+        foreach (var kvp in extracted.Entities)
+        {
+            if (kvp.Key == "supplier" || kvp.Key.StartsWith("supplier"))
+                supplierEntities.Add(kvp.Value);
+        }
+        if (supplierEntities.Count == 0)
+            supplierEntities.Add(new());
 
+        foreach (var sup in supplierEntities)
+        {
+            await CreateSingleSupplier(api, sup);
+        }
+    }
+
+    private async Task CreateSingleSupplier(TripletexApiClient api, Dictionary<string, object> sup)
+    {
         var body = new Dictionary<string, object>();
         SetIfPresent(body, sup, "name");
         SetIfPresent(body, sup, "email");
@@ -37,7 +53,6 @@ public class SupplierHandler : ITaskHandler
 
         _logger.LogInformation("Created supplier ID: {Id}", supplierId);
     }
-
     private static void SetIfPresent(Dictionary<string, object> body, Dictionary<string, object> source, string key)
     {
         if (source.TryGetValue(key, out var val) && val is not null)

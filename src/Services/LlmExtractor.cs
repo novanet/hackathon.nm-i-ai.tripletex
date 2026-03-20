@@ -53,6 +53,7 @@ public class LlmExtractor
         - For credit notes, use "create_credit_note"
         - For vouchers/journal entries/postings, use "create_voucher"
         - For deleting entities, use "delete_entity" and set action to "delete"
+        - When creating MULTIPLE entities of the same type (e.g. "create 3 departments"), use separate entity keys: "department1": {"name": "A"}, "department2": {"name": "B"}, etc. Each entity gets its own key with a numeric suffix.
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)
