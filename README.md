@@ -60,7 +60,7 @@ $env:AINM_TOKEN = "<access_token from browser cookies>"
 | `Start-Agent.ps1`       | Kill existing agent + rebuild + start. Supports `-Background` flag.                                     |
 | `Test-Solve.ps1`        | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets. |
 | `Start-Tunnel.ps1`      | Start ngrok HTTPS tunnel to localhost:5000.                                                             |
-| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`.                   |
+| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`, `-FixDns`.        |
 | `Submit-Run.ps1`        | Auto-detect tunnel, health check, submit to competition API, poll for results. Supports `-NoWait`.      |
 
 The test script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
@@ -85,6 +85,33 @@ The `Submit-Run.ps1` script handles the full submission flow:
 5. Polls for results every 10s (up to 10 min)
 
 **Constraints:** Max 32 submissions/day, max 3 concurrent (HTTP 429 if exceeded).
+
+### Cloudflared DNS Issues
+
+Some ISPs (notably **Telenor** in Norway) have DNS resolvers that fail to resolve `*.trycloudflare.com` domains. Symptoms:
+
+- cloudflared starts and prints a tunnel URL, but requests to it time out or return DNS errors
+- `nslookup <your-tunnel>.trycloudflare.com` fails or returns NXDOMAIN
+- The tunnel works fine on mobile data or other networks
+
+**Fix — run these commands in an elevated (Admin) PowerShell:**
+
+```powershell
+# 1. Add a static hosts entry for the cloudflared API endpoint
+Add-Content -Path "C:\Windows\System32\drivers\etc\hosts" -Value "`n104.16.230.132 api.trycloudflare.com"
+
+# 2. Switch DNS to Cloudflare + Google (IPv4 + IPv6)
+Set-DnsClientServerAddress -InterfaceAlias "Wi-Fi" -ServerAddresses ("1.1.1.1","8.8.8.8")
+Set-DnsClientServerAddress -InterfaceAlias "Wi-Fi" -ServerAddresses ("1.1.1.1","8.8.8.8","2606:4700:4700::1111","2606:4700:4700::1001")
+
+# 3. Restart cloudflared
+Get-Process -Name cloudflared | Stop-Process -Force
+.\scripts\Start-Cloudflared.ps1
+```
+
+Alternatively, run `Start-Cloudflared.ps1 -FixDns` which will attempt the DNS fix automatically (requires Admin).
+
+> **Note:** Replace `"Wi-Fi"` with your actual network adapter name if different (use `Get-NetAdapter` to check).
 
 ---
 

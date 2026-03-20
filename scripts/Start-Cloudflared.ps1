@@ -8,10 +8,15 @@
     Local port to tunnel (default: 5000).
 .PARAMETER Kill
     Stop any running cloudflared process and exit.
+.PARAMETER FixDns
+    Fix DNS resolution issues for *.trycloudflare.com (requires Admin).
+    Some ISPs (e.g. Telenor) fail to resolve these domains. This adds a
+    hosts entry for api.trycloudflare.com and switches DNS to 1.1.1.1/8.8.8.8.
 #>
 param(
     [int]$Port = 5000,
-    [switch]$Kill
+    [switch]$Kill,
+    [switch]$FixDns
 )
 
 # --- Kill mode ---
@@ -24,6 +29,42 @@ if ($Kill) {
     else {
         Write-Host "cloudflared is not running." -ForegroundColor Gray
     }
+    return
+}
+
+# --- DNS fix mode ---
+# Some ISPs (e.g. Telenor in Norway) have DNS resolvers that can't resolve
+# *.trycloudflare.com. This adds a static hosts entry and switches to public DNS.
+if ($FixDns) {
+    $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Host "ERROR: -FixDns requires an elevated (Admin) PowerShell session." -ForegroundColor Red
+        return
+    }
+
+    $hostsFile = "C:\Windows\System32\drivers\etc\hosts"
+    $hostsEntry = "104.16.230.132 api.trycloudflare.com"
+    $hostsContent = Get-Content $hostsFile -Raw -ErrorAction SilentlyContinue
+    if ($hostsContent -notmatch [regex]::Escape("api.trycloudflare.com")) {
+        Add-Content -Path $hostsFile -Value "`n$hostsEntry"
+        Write-Host "Added hosts entry: $hostsEntry" -ForegroundColor Green
+    }
+    else {
+        Write-Host "Hosts entry for api.trycloudflare.com already exists." -ForegroundColor Gray
+    }
+
+    # Detect active network adapter
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
+    if ($adapter) {
+        $alias = $adapter.Name
+        Set-DnsClientServerAddress -InterfaceAlias $alias -ServerAddresses ("1.1.1.1","8.8.8.8","2606:4700:4700::1111","2606:4700:4700::1001")
+        Write-Host "DNS servers set to 1.1.1.1 / 8.8.8.8 on adapter '$alias'" -ForegroundColor Green
+    }
+    else {
+        Write-Host "WARNING: No active network adapter found. Set DNS manually." -ForegroundColor Yellow
+    }
+
+    Write-Host "DNS fix applied. Restart cloudflared now." -ForegroundColor Cyan
     return
 }
 
