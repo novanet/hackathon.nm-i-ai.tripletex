@@ -73,6 +73,9 @@ Keep entries short (1–2 lines). Include the date discovered.
 | create_credit_note    | 6             | Find invoice + create credit note                                 |
 | delete_entity         | 2             | Find entity + DELETE                                              |
 
+- **Tripletex `fields=*` does NOT expand nested objects** — `GET /customer/{id}?fields=*` returns `physicalAddress` as a reference `{id, url}` without field data. Must use `fields=*,physicalAddress(*),postalAddress(*)` to get actual address fields. This pattern applies to ALL entity types with nested object references. _(2026-03-20)_
+- **Employee creation requires `department.id` in some environments** — when department module is active, `POST /employee` without `department` → 422 "department.id: Feltet må fylles ut". Always look up first department with `GET /department?count=1&fields=id` and include it. _(2026-03-20)_
+
 ## Reference Documents
 
 - **`entity-model.md`** — Complete entity relationship reference: all entity schemas, required fields, cross-references, dependency chains per task type, action endpoints, and common pitfalls. Consult when implementing handlers or debugging entity relationship issues. _(2026-03-20)_
@@ -90,6 +93,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 - **SalaryTransaction has NO `employee` field** — valid fields: `id`, `version`, `date`, `year`, `month`, `payslips`, `paySlipsAvailableDate`, `isHistorical`. Employee is on the payslip, not the transaction. Querying with `fields=employee` → 400. _(2026-03-20)_
 - **Employment enrichment with full details** — set `taxDeductionCode = "loennFraHovedarbeidsgiver"`, `employmentDetails` with `employmentType=ORDINARY`, `employmentForm=PERMANENT`, `remunerationType=MONTHLY_WAGE`, `workingHoursScheme=NOT_SHIFT`, `percentageOfFullTimeEquivalent=100.0`. These are UPPERCASE enum values. _(2026-03-20)_
+- **Employee `bankAccountNumber` required for payroll** — Tripletex shows "Bankkontonummer mangler" warning. Set `bankAccountNumber = "86011117947"` on employee when creating for payroll or when patching existing employee. Same dummy number used for company bank account on ledger account 1920. _(2026-03-20)_
 
 ## Fixed-Price Project Invoicing (create_project with invoice)
 

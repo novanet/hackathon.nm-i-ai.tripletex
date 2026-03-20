@@ -98,6 +98,23 @@ public class TravelExpenseHandler : ITaskHandler
             if (emailMatch.Success) empEmail = emailMatch.Value;
         }
 
+        // Fallback: parse employeeReference / employeeName string as "FirstName LastName"
+        if (empFirstName == null && empLastName == null)
+        {
+            var nameStr = GetStringField(travel, "employeeReference")
+                ?? GetStringField(travel, "employeeName")
+                ?? extracted.Relationships.GetValueOrDefault("employee");
+            if (nameStr != null && !nameStr.Contains('{') && !nameStr.Contains('@'))
+            {
+                var parts = nameStr.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2) { empFirstName = parts[0]; empLastName = parts[1]; }
+                else if (parts.Length == 1) { empFirstName = parts[0]; empLastName = parts[0]; }
+                _logger.LogInformation("Parsed employee name from string: {First} {Last}", empFirstName, empLastName);
+            }
+            // Try email from travel entity or relationships
+            empEmail ??= GetStringField(travel, "employeeEmail");
+        }
+
         if (empFirstName != null && empLastName != null)
         {
             employeeId = await ResolveEmployeeByName(api, empFirstName, empLastName);
@@ -109,15 +126,6 @@ public class TravelExpenseHandler : ITaskHandler
             employeeId = await ResolveEmployeeByEmail(api, empEmail);
         }
 
-        // Third try: use relationship string (might be a name)
-        if (!employeeId.HasValue)
-        {
-            var employeeName = extracted.Relationships.GetValueOrDefault("employee")
-                ?? GetStringField(travel, "employeeName");
-            if (employeeName != null && !employeeName.Contains('{') && !employeeName.Contains('@'))
-                employeeId = await ResolveEmployeeId(api, employeeName);
-        }
-
         // Last resort: create the employee so the expense links to the correct person
         if (!employeeId.HasValue && empFirstName != null && empLastName != null)
         {
@@ -126,13 +134,21 @@ public class TravelExpenseHandler : ITaskHandler
             {
                 ["firstName"] = empFirstName,
                 ["lastName"] = empLastName,
-                ["userType"] = "STANDARD"
+                ["userType"] = "STANDARD",
+                ["dateOfBirth"] = "1990-01-01"
             };
             if (empEmail != null) empBody["email"] = empEmail;
-            // Department may be required if module is active
-            var depts = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
-            if (depts.TryGetProperty("values", out var deptVals) && deptVals.GetArrayLength() > 0)
-                empBody["department"] = new { id = deptVals[0].GetProperty("id").GetInt64() };
+
+            // Department may be required — find first available
+            try
+            {
+                var depts = await api.GetAsync("/department", new Dictionary<string, string>
+                    { ["count"] = "1", ["fields"] = "id" });
+                if (depts.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
+                    empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+            }
+            catch { /* department lookup optional */ }
+
             var empResult = await api.PostAsync("/employee", empBody);
             employeeId = empResult.GetProperty("value").GetProperty("id").GetInt64();
         }
@@ -303,19 +319,17 @@ public class TravelExpenseHandler : ITaskHandler
         }
 
         // Pre-resolve payment type once (cached for all cost lines)
-        long? cachedPaymentTypeId = null;
+        long? cachedPaymentTypeId = await ResolvePaymentTypeId(api);
 
         // Post each cost line
         foreach (var costLine in costLines)
         {
             costLine["travelExpense"] = new { id = travelId };
 
-            // Resolve payment type if not set (cached after first call)
-            if (!costLine.ContainsKey("paymentType"))
+            // Set payment type if not already set
+            if (!costLine.ContainsKey("paymentType") && cachedPaymentTypeId.HasValue)
             {
-                cachedPaymentTypeId ??= await ResolvePaymentTypeId(api);
-                if (cachedPaymentTypeId.HasValue)
-                    costLine["paymentType"] = new { id = cachedPaymentTypeId.Value };
+                costLine["paymentType"] = new { id = cachedPaymentTypeId.Value };
             }
 
             _logger.LogInformation("Adding cost to travel expense {TravelId}", travelId);

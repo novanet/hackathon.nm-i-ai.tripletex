@@ -106,8 +106,15 @@ Prompts arrive in 7 languages: Norwegian bokmål, English, Spanish, Portuguese, 
 
 ## Dev Workflow (MANDATORY)
 
-**Starting / restarting the agent:** Always use the helper script — never manually `Get-Process | Kill` then `dotnet run`:
+**Starting / restarting the agent:** Always use the helper script — never manually kill processes then `dotnet run`:
 
+*macOS / Linux:*
+```bash
+./scripts/start-agent.sh              # foreground (blocks terminal)
+./scripts/start-agent.sh --background # background (returns immediately)
+```
+
+*Windows (PowerShell):*
 ```powershell
 .\scripts\Start-Agent.ps1              # foreground (blocks terminal)
 .\scripts\Start-Agent.ps1 -Background  # background (returns immediately)
@@ -117,6 +124,12 @@ The script kills any existing `TripletexAgent` process, waits for file locks to 
 
 **Testing prompts against the running agent:**
 
+*macOS / Linux:*
+```bash
+./scripts/test-solve.sh "Opprett en kunde med navn 'Test AS'"
+```
+
+*Windows (PowerShell):*
 ```powershell
 .\scripts\Test-Solve.ps1 "Opprett en kunde med navn 'Test AS'"
 ```
@@ -127,6 +140,14 @@ Reads Tripletex credentials and API key from .NET user-secrets automatically. Pr
 
 Two tunnel options are available. Prefer ngrok (cloudflared has TLS issues on some ISPs like Telenor):
 
+*macOS / Linux:*
+```bash
+./scripts/start-tunnel.sh             # ngrok tunnel (requires ngrok installed)
+./scripts/start-cloudflared.sh        # cloudflare quick tunnel (no account needed)
+./scripts/start-cloudflared.sh --kill # stop cloudflared
+```
+
+*Windows (PowerShell):*
 ```powershell
 .\scripts\Start-Tunnel.ps1             # ngrok tunnel (requires ngrok installed)
 .\scripts\Start-Cloudflared.ps1        # cloudflare quick tunnel (no account needed)
@@ -135,6 +156,15 @@ Two tunnel options are available. Prefer ngrok (cloudflared has TLS issues on so
 
 **Submitting a competition run:**
 
+*macOS / Linux:*
+```bash
+export AINM_TOKEN="<access_token from browser cookies>"
+./scripts/submit-run.sh               # auto-starts agent + tunnel, submits, polls 2 min, replays locally
+./scripts/submit-run.sh --no-wait     # submit without polling or replay
+./scripts/submit-run.sh --no-replay   # submit + poll but skip local replay
+```
+
+*Windows (PowerShell):*
 ```powershell
 $env:AINM_TOKEN = "<access_token from browser cookies>"
 .\scripts\Submit-Run.ps1               # auto-starts agent + tunnel, submits, polls 2 min, replays locally
@@ -144,11 +174,11 @@ $env:AINM_TOKEN = "<access_token from browser cookies>"
 
 The script:
 
-1. Checks agent is running — auto-starts via `Start-Agent.ps1 -Background` if not
+1. Checks agent is running — auto-starts via `start-agent.sh --background` / `Start-Agent.ps1 -Background` if not
 2. Checks tunnel is running — auto-starts cloudflared if no tunnel found
 3. Sends a health check ping, then submits to the competition API
 4. Polls for results every 10s for up to 2 minutes
-5. After completion, replays new requests from `submissions.jsonl` locally via `Test-Solve.ps1` and prints a summary
+5. After completion, replays new requests from `submissions.jsonl` locally via `test-solve.sh` / `Test-Solve.ps1` and prints a summary
 
 **Competition constraints:** Max 32 submissions/day, max 3 concurrent (429 if exceeded).
 
@@ -157,11 +187,11 @@ The script:
 **Never do these:**
 
 - Don't run `dotnet run` without first stopping the old process — it will fail with a port/file lock
-- Don't manually `Get-Process -Name TripletexAgent | Kill` followed by `dotnet run` — use `Start-Agent.ps1` instead
+- Don't manually kill processes then `dotnet run` — use `start-agent.sh` / `Start-Agent.ps1` instead
 
 ## Validation Feedback Loop (MANDATORY)
 
-`SandboxValidator.cs` is our local mirror of the competition validator. It runs after every local `Test-Solve.ps1` call and logs scores to `logs/validations.jsonl`. **The sole purpose is to predict competition scores accurately so we know when a fix is real before spending a submission.**
+`SandboxValidator.cs` is our local mirror of the competition validator. It runs after every local `test-solve.sh` / `Test-Solve.ps1` call and logs scores to `logs/validations.jsonl`. **The sole purpose is to predict competition scores accurately so we know when a fix is real before spending a submission.**
 
 ### Process — After Every Competition Submission
 
@@ -191,11 +221,11 @@ The script:
 
 **A local score of 100% means nothing if competition disagrees.** When competition fails a check we pass locally, stop and fix the validator BEFORE fixing the handler. The validator is the ground truth for local development.
 
-Start-Agent.ps1 — Kill + restart agent (supports -Background)
-Start-Tunnel.ps1 — Start ngrok HTTPS tunnel
-Start-Cloudflared.ps1 — Start cloudflare quick tunnel (supports -Kill)
-Test-Solve.ps1 — Send test prompt to agent, tail logs
-Submit-Run.ps1 — Full submission flow: auto-start, submit, poll, replay
+start-agent.sh / Start-Agent.ps1 — Kill + restart agent (supports --background / -Background)
+start-tunnel.sh / Start-Tunnel.ps1 — Start ngrok HTTPS tunnel
+start-cloudflared.sh / Start-Cloudflared.ps1 — Start cloudflare quick tunnel (supports --kill / -Kill)
+test-solve.sh / Test-Solve.ps1 — Send test prompt to agent, tail logs
+submit-run.sh / Submit-Run.ps1 — Full submission flow: auto-start, submit, poll, replay
 src/
 Program.cs — Minimal API setup, /solve endpoint, ping fast-path
 Models/

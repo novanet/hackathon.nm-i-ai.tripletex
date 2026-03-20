@@ -50,11 +50,31 @@ public class CustomerHandler : ITaskHandler
         if (!body.ContainsKey("organizationNumber"))
             SetIfPresent(body, cust, "orgNumber", "organizationNumber");
 
-        // Parse combined address string into structured fields if needed
+        // Parse address: could be a string ("Street 1, 0001 Oslo") or structured object
         if (!cust.ContainsKey("addressLine1") && cust.TryGetValue("address", out var addrObj))
         {
-            var addrStr = (addrObj is JsonElement je ? je.GetString() : addrObj?.ToString()) ?? "";
-            ParseAddressString(cust, addrStr);
+            if (addrObj is JsonElement je)
+            {
+                if (je.ValueKind == JsonValueKind.Object)
+                {
+                    // Structured address: {"addressLine1": "...", "postalCode": "...", "city": "..."}
+                    if (je.TryGetProperty("addressLine1", out var al)) cust["addressLine1"] = al.GetString()!;
+                    if (je.TryGetProperty("postalCode", out var pc)) cust["postalCode"] = pc.GetString()!;
+                    if (je.TryGetProperty("city", out var ci)) cust["city"] = ci.GetString()!;
+                }
+                else if (je.ValueKind == JsonValueKind.String)
+                {
+                    ParseAddressString(cust, je.GetString() ?? "");
+                }
+            }
+            else if (addrObj is string s)
+            {
+                ParseAddressString(cust, s);
+            }
+            else
+            {
+                ParseAddressString(cust, addrObj.ToString() ?? "");
+            }
         }
 
         // Handle address if present

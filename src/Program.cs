@@ -56,6 +56,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
     var sw = Stopwatch.StartNew();
     logger.LogInformation("Received /solve request ({PromptLength} chars, {FileCount} files)",
         request.Prompt.Length, request.Files?.Count ?? 0);
+    logger.LogInformation("Prompt text: {PromptText}", request.Prompt);
 
     ExtractionResult? extracted = null;
     TripletexApiClient? api = null;
