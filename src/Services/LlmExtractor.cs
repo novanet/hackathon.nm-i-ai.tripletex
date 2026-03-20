@@ -54,6 +54,8 @@ public class LlmExtractor
         - For vouchers/journal entries/postings, use "create_voucher"
         - For deleting entities, use "delete_entity" and set action to "delete"
         - When creating MULTIPLE entities of the same type (e.g. "create 3 departments"), use separate entity keys: "department1": {"name": "A"}, "department2": {"name": "B"}, etc. Each entity gets its own key with a numeric suffix.
+        - For projects referencing a customer like "Fjordkraft AS (org.nr 944845712)", put the CUSTOMER NAME in relationships.customer ("Fjordkraft AS") and the org number in the project entity as "customerOrgNumber": "944845712"
+        - For projects, extract the project manager as a nested object: "projectManager": {"firstName": "...", "lastName": "...", "email": "..."}
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)

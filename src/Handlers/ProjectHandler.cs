@@ -32,6 +32,10 @@ public class ProjectHandler : ITaskHandler
         if (!body.ContainsKey("endDate") && extracted.Dates.Count > 1)
             body["endDate"] = extracted.Dates[1];
 
+        // Default startDate to today if still missing (API requires it)
+        if (!body.ContainsKey("startDate"))
+            body["startDate"] = DateTime.Today.ToString("yyyy-MM-dd");
+
         // Set boolean flags
         if (project.TryGetValue("isInternal", out var isInt))
             body["isInternal"] = bool.Parse(isInt.ToString()!);
@@ -40,23 +44,81 @@ public class ProjectHandler : ITaskHandler
 
         // Resolve customer if referenced
         var customerName = extracted.Relationships.GetValueOrDefault("customer")
-            ?? GetStringField(project, "customer");
-        if (customerName != null)
+            ?? GetStringField(project, "customer")
+            ?? GetStringField(project, "customerName");
+        var orgNumber = GetStringField(project, "organizationNumber")
+            ?? GetStringField(project, "orgNumber")
+            ?? GetStringField(project, "customerOrgNumber");
+        // If customerName looks like an org number (all digits), treat it as one
+        if (!string.IsNullOrEmpty(customerName) && System.Text.RegularExpressions.Regex.IsMatch(customerName, @"^\d{9,}$"))
         {
-            var customerId = await ResolveCustomerId(api, customerName);
+            orgNumber ??= customerName;
+            customerName = null;
+        }
+        if (customerName != null || orgNumber != null)
+        {
+            var customerId = await ResolveCustomerId(api, customerName, orgNumber);
             if (customerId.HasValue)
                 body["customer"] = new { id = customerId.Value };
         }
 
         // Resolve project manager (required field)
-        var managerName = extracted.Relationships.GetValueOrDefault("projectManager")
-            ?? GetStringField(project, "projectManager")
-            ?? GetStringField(project, "manager");
-        if (managerName != null)
+        // The LLM may return projectManager as a nested object {firstName, lastName, email} or as a string name
+        string? managerFirstName = null, managerLastName = null, managerEmail = null;
+        if (project.TryGetValue("projectManager", out var pmVal) || project.TryGetValue("manager", out pmVal))
         {
-            var managerId = await ResolveEmployeeId(api, managerName);
-            if (managerId.HasValue)
-                body["projectManager"] = new { id = managerId.Value };
+            if (pmVal is JsonElement pmElem && pmElem.ValueKind == JsonValueKind.Object)
+            {
+                managerFirstName = pmElem.TryGetProperty("firstName", out var fn) ? fn.GetString() : null;
+                managerLastName = pmElem.TryGetProperty("lastName", out var ln) ? ln.GetString() : null;
+                managerEmail = pmElem.TryGetProperty("email", out var em) ? em.GetString() : null;
+            }
+            else
+            {
+                var nameStr = pmVal?.ToString();
+                if (!string.IsNullOrEmpty(nameStr))
+                {
+                    var parts = nameStr.Split(' ', 2);
+                    managerFirstName = parts[0];
+                    managerLastName = parts.Length > 1 ? parts[1] : null;
+                }
+            }
+        }
+        else
+        {
+            var nameFromRel = extracted.Relationships.GetValueOrDefault("projectManager");
+            if (!string.IsNullOrEmpty(nameFromRel))
+            {
+                var parts = nameFromRel.Split(' ', 2);
+                managerFirstName = parts[0];
+                managerLastName = parts.Length > 1 ? parts[1] : null;
+            }
+        }
+
+        // Try to find the manager employee, or create them
+        if (managerFirstName != null)
+        {
+            var managerId = await ResolveEmployeeByFields(api, managerFirstName, managerLastName, managerEmail);
+            if (!managerId.HasValue)
+            {
+                // Create the employee so we can assign them as manager
+                var empBody = new Dictionary<string, object> { ["firstName"] = managerFirstName };
+                if (managerLastName != null) empBody["lastName"] = managerLastName;
+                if (managerEmail != null) empBody["email"] = managerEmail;
+                empBody["userType"] = "EXTENDED";
+                // Need a department
+                var deptResult = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
+                if (deptResult.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
+                    empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+                empBody["dateOfBirth"] = "1990-01-01";
+                var empResult = await api.PostAsync("/employee", empBody);
+                managerId = empResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created employee {First} {Last} (ID: {Id}) as project manager", managerFirstName, managerLastName, managerId);
+            }
+            // Always grant entitlements so they can be project manager
+            try { await api.PutAsync($"/employee/entitlement/:grantEntitlementsByTemplate?employeeId={managerId}&template=ALL_PRIVILEGES", null); }
+            catch { /* may already have entitlements */ }
+            body["projectManager"] = new { id = managerId.Value };
         }
         // If no manager specified, use the first employee as fallback
         if (!body.ContainsKey("projectManager"))
@@ -84,18 +146,59 @@ public class ProjectHandler : ITaskHandler
         _logger.LogInformation("Created project ID: {Id}", projectId);
     }
 
-    private async Task<long?> ResolveCustomerId(TripletexApiClient api, string name)
+    private async Task<long?> ResolveCustomerId(TripletexApiClient api, string? name, string? orgNumber)
     {
-        var result = await api.GetAsync("/customer", new Dictionary<string, string>
+        // Try by organization number first (more precise)
+        if (!string.IsNullOrEmpty(orgNumber))
         {
-            ["name"] = name,
-            ["count"] = "1",
-            ["fields"] = "id,name"
-        });
-        if (result.TryGetProperty("values", out var vals))
+            var result = await api.GetAsync("/customer", new Dictionary<string, string>
+            {
+                ["organizationNumber"] = orgNumber,
+                ["count"] = "1",
+                ["fields"] = "id,name"
+            });
+            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+                return vals[0].GetProperty("id").GetInt64();
+        }
+        // Then try by name
+        if (!string.IsNullOrEmpty(name))
         {
-            foreach (var v in vals.EnumerateArray())
-                return v.GetProperty("id").GetInt64();
+            var result = await api.GetAsync("/customer", new Dictionary<string, string>
+            {
+                ["name"] = name,
+                ["count"] = "1",
+                ["fields"] = "id,name"
+            });
+            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+                return vals[0].GetProperty("id").GetInt64();
+        }
+        // Customer not found — create it
+        var custBody = new Dictionary<string, object>();
+        if (!string.IsNullOrEmpty(name)) custBody["name"] = name;
+        else if (!string.IsNullOrEmpty(orgNumber)) custBody["name"] = orgNumber;
+        else return null;
+        if (!string.IsNullOrEmpty(orgNumber)) custBody["organizationNumber"] = orgNumber;
+        var createResult = await api.PostAsync("/customer", custBody);
+        return createResult.GetProperty("value").GetProperty("id").GetInt64();
+    }
+
+    private async Task<long?> ResolveEmployeeByFields(TripletexApiClient api, string firstName, string? lastName, string? email)
+    {
+        var query = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" };
+        query["firstName"] = firstName;
+        if (!string.IsNullOrEmpty(lastName))
+            query["lastName"] = lastName;
+        var result = await api.GetAsync("/employee", query);
+        if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+            return vals[0].GetProperty("id").GetInt64();
+
+        // Try by email if name search failed
+        if (!string.IsNullOrEmpty(email))
+        {
+            var query2 = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id", ["email"] = email };
+            var result2 = await api.GetAsync("/employee", query2);
+            if (result2.TryGetProperty("values", out var vals2) && vals2.GetArrayLength() > 0)
+                return vals2[0].GetProperty("id").GetInt64();
         }
         return null;
     }
