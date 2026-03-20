@@ -93,6 +93,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 - **SalaryTransaction has NO `employee` field** — valid fields: `id`, `version`, `date`, `year`, `month`, `payslips`, `paySlipsAvailableDate`, `isHistorical`. Employee is on the payslip, not the transaction. Querying with `fields=employee` → 400. _(2026-03-20)_
 - **Employment enrichment with full details** — set `taxDeductionCode = "loennFraHovedarbeidsgiver"`, `employmentDetails` with `employmentType=ORDINARY`, `employmentForm=PERMANENT`, `remunerationType=MONTHLY_WAGE`, `workingHoursScheme=NOT_SHIFT`, `percentageOfFullTimeEquivalent=100.0`. These are UPPERCASE enum values. _(2026-03-20)_
+- **Employee `bankAccountNumber` required for payroll** — Tripletex shows "Bankkontonummer mangler" warning. Set `bankAccountNumber = "86011117947"` on employee when creating for payroll or when patching existing employee. Same dummy number used for company bank account on ledger account 1920. _(2026-03-20)_
 
 ## Fixed-Price Project Invoicing (create_project with invoice)
 

@@ -52,7 +52,7 @@ public class PayrollHandler : ITaskHandler
         }
 
         // Search for employee
-        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,dateOfBirth,version" };
+        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,dateOfBirth,bankAccountNumber,version" };
         if (!string.IsNullOrEmpty(email))
             searchParams["email"] = email;
         else
@@ -79,7 +79,8 @@ public class PayrollHandler : ITaskHandler
                 ["firstName"] = firstName ?? "Unknown",
                 ["lastName"] = lastName ?? "Unknown",
                 ["userType"] = "STANDARD",
-                ["dateOfBirth"] = "1990-01-01"
+                ["dateOfBirth"] = "1990-01-01",
+                ["bankAccountNumber"] = "86011117947"
             };
             if (!string.IsNullOrEmpty(email)) empBody["email"] = email;
             if (deptId != null) empBody["department"] = new { id = deptId.Value };
@@ -94,20 +95,32 @@ public class PayrollHandler : ITaskHandler
             employeeId = empEl.GetProperty("id").GetInt64();
             _logger.LogInformation("Found employee {Id} for payroll", employeeId);
 
-            // Employment requires dateOfBirth — patch if missing
+            // Employment requires dateOfBirth and bankAccountNumber — patch if missing
             var hasDob = empEl.TryGetProperty("dateOfBirth", out var dobProp)
                 && dobProp.ValueKind != JsonValueKind.Null
                 && !string.IsNullOrEmpty(dobProp.GetString());
-            if (!hasDob)
+            var hasBankAcct = empEl.TryGetProperty("bankAccountNumber", out var bankProp)
+                && bankProp.ValueKind != JsonValueKind.Null
+                && !string.IsNullOrEmpty(bankProp.GetString());
+            if (!hasDob || !hasBankAcct)
             {
                 var version = empEl.TryGetProperty("version", out var vProp) ? vProp.GetInt32() : 1;
-                _logger.LogInformation("Employee {Id} missing dateOfBirth, patching with default", employeeId);
-                await api.PutAsync($"/employee/{employeeId}", new
+                var patchBody = new Dictionary<string, object>
                 {
-                    id = employeeId,
-                    version,
-                    dateOfBirth = "1990-01-01"
-                });
+                    ["id"] = employeeId,
+                    ["version"] = version
+                };
+                if (!hasDob)
+                {
+                    _logger.LogInformation("Employee {Id} missing dateOfBirth, patching with default", employeeId);
+                    patchBody["dateOfBirth"] = "1990-01-01";
+                }
+                if (!hasBankAcct)
+                {
+                    _logger.LogInformation("Employee {Id} missing bankAccountNumber, patching with default", employeeId);
+                    patchBody["bankAccountNumber"] = "86011117947";
+                }
+                await api.PutAsync($"/employee/{employeeId}", patchBody);
             }
         }
 
