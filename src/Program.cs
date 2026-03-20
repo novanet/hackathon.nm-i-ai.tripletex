@@ -60,7 +60,7 @@ if (!string.IsNullOrEmpty(apiKey))
 
 app.MapGet("/", () => "Tripletex Agent is running");
 
-app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter router, ILogger<Program> logger) =>
+app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmExtractor llm, TaskRouter router, ILogger<Program> logger) =>
 {
     var sw = Stopwatch.StartNew();
     logger.LogInformation("Received /solve request ({PromptLength} chars, {FileCount} files)",
@@ -117,7 +117,7 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
             api.CallCount, api.ErrorCount, sw.ElapsedMilliseconds);
 
         // Structured submission log (submissions.jsonl)
-        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: true, error: null);
+        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext);
 
         return Results.Json(new { status = "completed" });
     }
@@ -125,7 +125,7 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
     {
         sw.Stop();
         logger.LogError(ex, "Error processing /solve request");
-        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: false, error: ex.Message);
+        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: false, error: ex.Message, httpContext);
         return Results.Json(new { status = "completed" });
     }
 });
@@ -133,12 +133,14 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
 app.Run();
 
 static void LogSubmission(SolveRequest request, ExtractionResult? extracted, TripletexApiClient? api,
-    string? handlerName, long elapsedMs, bool success, string? error)
+    string? handlerName, long elapsedMs, bool success, string? error, HttpContext? httpContext = null)
 {
     try
     {
         var baseUrl = request.TripletexCredentials?.BaseUrl ?? "";
-        var env = baseUrl.Contains("tx-proxy.ainm.no") ? "competition" : "sandbox";
+        var isForwarded = httpContext?.Request.Headers.ContainsKey("X-Forwarded-For") == true
+                       || httpContext?.Request.Headers.ContainsKey("X-Forwarded-Host") == true;
+        var env = (baseUrl.Contains("tx-proxy.ainm.no") || isForwarded) ? "competition" : "sandbox";
         var entry = new
         {
             timestamp = DateTime.UtcNow.ToString("o"),
