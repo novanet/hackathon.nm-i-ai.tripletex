@@ -36,7 +36,8 @@ public class LlmExtractor
           "action": "create" | "update" | "delete" | "reverse",
           "raw_amounts": ["1500.00"],
           "dates": ["2026-03-19"],
-          "files_needed": true | false
+          "files_needed": true | false,
+          "language": "detected language code (nb, en, es, pt, nn, de, fr)"
         }
 
         Rules:

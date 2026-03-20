@@ -24,4 +24,7 @@ public class ExtractionResult
 
     [JsonPropertyName("files_needed")]
     public bool FilesNeeded { get; set; }
+
+    [JsonPropertyName("language")]
+    public string? Language { get; set; }
 }

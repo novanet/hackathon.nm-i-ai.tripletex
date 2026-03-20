@@ -9,6 +9,7 @@ public class TaskRouter
     private readonly Dictionary<string, ITaskHandler> _handlers;
     private readonly FallbackAgentHandler _fallback;
     private readonly ILogger<TaskRouter> _logger;
+    public string? LastHandlerName { get; private set; }
 
     public TaskRouter(IServiceProvider services, ILogger<TaskRouter> logger)
     {
@@ -42,11 +43,13 @@ public class TaskRouter
     {
         if (_handlers.TryGetValue(extracted.TaskType, out var handler))
         {
-            _logger.LogInformation("Routing to deterministic handler for {TaskType}", extracted.TaskType);
+            LastHandlerName = handler.GetType().Name;
+            _logger.LogInformation("Routing to deterministic handler for {TaskType} ({Handler})", extracted.TaskType, LastHandlerName);
             await handler.HandleAsync(api, extracted);
             return true;
         }
 
+        LastHandlerName = "FallbackAgentHandler";
         _logger.LogInformation("No deterministic handler for {TaskType} — using fallback agent", extracted.TaskType);
         await _fallback.HandleWithPromptAsync(api, extracted, originalPrompt, files);
         return true;

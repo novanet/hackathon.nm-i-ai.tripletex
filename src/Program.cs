@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Serilog;
 using TripletexAgent.Handlers;
@@ -61,6 +62,7 @@ app.MapGet("/", () => "Tripletex Agent is running");
 
 app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter router, ILogger<Program> logger) =>
 {
+    var sw = Stopwatch.StartNew();
     logger.LogInformation("Received /solve request ({PromptLength} chars, {FileCount} files)",
         request.Prompt.Length, request.Files?.Count ?? 0);
 
@@ -107,24 +109,28 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
             logger.LogWarning("No handler for task type: {TaskType} — returning completed anyway", extracted.TaskType);
         }
 
-        logger.LogInformation("Completed. API calls: {Calls}, errors: {Errors}",
-            api.CallCount, api.ErrorCount);
+        sw.Stop();
+        logger.LogInformation("Completed. API calls: {Calls}, errors: {Errors}, elapsed: {Elapsed}ms",
+            api.CallCount, api.ErrorCount, sw.ElapsedMilliseconds);
 
         // Structured submission log (submissions.jsonl)
-        LogSubmission(request, extracted, api);
+        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: true, error: null);
 
         return Results.Json(new { status = "completed" });
     }
     catch (Exception ex)
     {
+        sw.Stop();
         logger.LogError(ex, "Error processing /solve request");
+        LogSubmission(request, null, null, null, sw.ElapsedMilliseconds, success: false, error: ex.Message);
         return Results.Json(new { status = "completed" });
     }
 });
 
 app.Run();
 
-static void LogSubmission(SolveRequest request, ExtractionResult extracted, TripletexApiClient api)
+static void LogSubmission(SolveRequest request, ExtractionResult? extracted, TripletexApiClient? api,
+    string? handlerName, long elapsedMs, bool success, string? error)
 {
     try
     {
@@ -134,13 +140,19 @@ static void LogSubmission(SolveRequest request, ExtractionResult extracted, Trip
         {
             timestamp = DateTime.UtcNow.ToString("o"),
             environment = env,
-            prompt = request.Prompt.Length > 500 ? request.Prompt[..500] : request.Prompt,
-            files = request.Files?.Select(f => f.Filename).ToList() ?? new List<string>(),
-            task_type = extracted.TaskType,
-            action = extracted.Action,
-            api_calls = api.CallLog.Select(c => new { c.Method, c.Path, c.Status, c.Error }),
-            call_count = api.CallCount,
-            error_count = api.ErrorCount
+            prompt = request.Prompt,
+            files = request.Files?.Select(f => new { f.Filename, f.MimeType }).ToList(),
+            task_type = extracted?.TaskType,
+            action = extracted?.Action,
+            language = extracted?.Language,
+            handler = handlerName,
+            entities = extracted?.Entities,
+            success,
+            error,
+            elapsed_ms = elapsedMs,
+            api_calls = api?.CallLog.Select(c => new { c.Method, c.Path, c.Status, c.Error }),
+            call_count = api?.CallCount ?? 0,
+            error_count = api?.ErrorCount ?? 0
         };
         var json = JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = false });
         Directory.CreateDirectory("logs");
