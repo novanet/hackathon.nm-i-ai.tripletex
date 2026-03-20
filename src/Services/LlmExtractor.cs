@@ -45,7 +45,7 @@ public class LlmExtractor
         - Parse monetary amounts as numbers (strip currency symbols)
         - Convert all dates to YYYY-MM-DD format
         - If the task type is ambiguous, use "unknown"
-        - For employee tasks, always split full name into "firstName" and "lastName"
+        - For employee tasks, always split full name into "firstName" and "lastName". Include ALL mentioned fields: email, dateOfBirth (YYYY-MM-DD), startDate (YYYY-MM-DD), phoneNumberMobile, nationalIdentityNumber, bankAccountNumber
         - If the prompt grants special access or elevated role to an employee, set "roles": ["admin"]
         - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates
         - For travel expense, extract employee reference, title, travel details, and cost items
@@ -154,7 +154,9 @@ public class LlmExtractor
             var emp = new Dictionary<string, object>();
 
             // Extract name in quotes or after "navn/name/nombre/nom"
-            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|namens)\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)", RegexOptions.None);
+            if (!nameMatch.Success)
+                nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
             if (nameMatch.Success)
             {
                 var parts = nameMatch.Groups[1].Value.Trim().Split(' ', 2);
@@ -174,6 +176,13 @@ public class LlmExtractor
             // Extract phone
             var phoneMatch = Regex.Match(prompt, @"(?:telefon|phone|mobil|tlf)[^\d]*([+\d\s]{8,})", RegexOptions.IgnoreCase);
             if (phoneMatch.Success) emp["phoneNumberMobile"] = phoneMatch.Groups[1].Value.Trim();
+
+            // Extract dates (dateOfBirth, startDate) — look for date patterns near keywords
+            var dobMatch = Regex.Match(prompt, @"(?:født|born|geboren|nascid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:am\s*|den\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
+            if (dobMatch.Success) { var d = ParseDate(dobMatch); if (d != null) emp["dateOfBirth"] = d; }
+
+            var sdMatch = Regex.Match(prompt, @"(?:startdato|startdatum|start\s*date|fecha\s*de\s*inicio|data\s*de\s*início|date\s*de\s*début)\s*(?::?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
+            if (sdMatch.Success) { var d = ParseDate(sdMatch); if (d != null) emp["startDate"] = d; }
 
             // Check for admin role
             if (Regex.IsMatch(lower, @"administrator|admin|kontoadministrator|administratortilgang|elevated|privileges"))
@@ -274,6 +283,80 @@ public class LlmExtractor
             result.TaskType, System.Text.Json.JsonSerializer.Serialize(result.Entities));
 
         return result;
+    }
+
+    private static readonly Dictionary<string, int> MonthNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["january"] = 1,
+        ["february"] = 2,
+        ["march"] = 3,
+        ["april"] = 4,
+        ["may"] = 5,
+        ["june"] = 6,
+        ["july"] = 7,
+        ["august"] = 8,
+        ["september"] = 9,
+        ["october"] = 10,
+        ["november"] = 11,
+        ["december"] = 12,
+        // Norwegian/German shared
+        ["januar"] = 1,
+        ["februar"] = 2,
+        ["mars"] = 3,
+        ["mai"] = 5,
+        ["juni"] = 6,
+        ["juli"] = 7,
+        ["oktober"] = 10,
+        ["desember"] = 12,
+        // German unique
+        ["märz"] = 3,
+        ["dezember"] = 12,
+        // Spanish
+        ["enero"] = 1,
+        ["febrero"] = 2,
+        ["marzo"] = 3,
+        ["abril"] = 4,
+        ["mayo"] = 5,
+        ["junio"] = 6,
+        ["julio"] = 7,
+        ["agosto"] = 8,
+        ["septiembre"] = 9,
+        ["octubre"] = 10,
+        ["noviembre"] = 11,
+        ["diciembre"] = 12,
+        // Portuguese
+        ["janeiro"] = 1,
+        ["fevereiro"] = 2,
+        ["março"] = 3,
+        ["maio"] = 5,
+        ["junho"] = 6,
+        ["julho"] = 7,
+        ["setembro"] = 9,
+        ["outubro"] = 10,
+        ["dezembro"] = 12,
+        // French
+        ["janvier"] = 1,
+        ["février"] = 2,
+        ["avril"] = 4,
+        ["juin"] = 6,
+        ["juillet"] = 7,
+        ["août"] = 8,
+        ["septembre"] = 9,
+        ["octobre"] = 10,
+        ["décembre"] = 12,
+    };
+
+    private static string? ParseDate(Match m)
+    {
+        if (int.TryParse(m.Groups[1].Value, out var day) && int.TryParse(m.Groups[3].Value, out var year))
+        {
+            var monthStr = m.Groups[2].Value.TrimEnd('.');
+            if (MonthNames.TryGetValue(monthStr, out var month))
+                return $"{year:D4}-{month:D2}-{day:D2}";
+            if (int.TryParse(monthStr, out month) && month >= 1 && month <= 12)
+                return $"{year:D4}-{month:D2}-{day:D2}";
+        }
+        return null;
     }
 
     private FileProcessingResult ProcessFiles(List<SolveFile>? files)

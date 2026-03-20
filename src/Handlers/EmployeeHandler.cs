@@ -41,6 +41,11 @@ public class EmployeeHandler : ITaskHandler
         SetIfPresent(body, emp, "nationalIdentityNumber");
         SetIfPresent(body, emp, "bankAccountNumber");
 
+        // Extract startDate for employment (separate API object)
+        string? startDate = null;
+        if (emp.TryGetValue("startDate", out var sdObj))
+            startDate = (sdObj is JsonElement sdJe ? sdJe.GetString() : sdObj?.ToString());
+
         // Determine if admin role is needed
         var hasRoles = emp.TryGetValue("roles", out var rolesObj);
         var roles = ParseStringList(rolesObj);
@@ -91,6 +96,17 @@ public class EmployeeHandler : ITaskHandler
         var employeeId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created employee ID: {Id}", employeeId);
+
+        // Create employment record if startDate is specified
+        if (!string.IsNullOrEmpty(startDate))
+        {
+            _logger.LogInformation("Creating employment for employee {Id} with startDate {StartDate}", employeeId, startDate);
+            await api.PostAsync("/employee/employment", new
+            {
+                employee = new { id = employeeId },
+                startDate = startDate
+            });
+        }
 
         // Assign administrator role if needed
         if (needsAdmin)
