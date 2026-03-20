@@ -29,28 +29,19 @@ public class PaymentHandler : ITaskHandler
         // Resolve payment type (already started, just await)
         var paymentTypeId = await paymentTypeTask;
 
-        // Get payment amount — default to full invoice amount (includes VAT)
+        // GET the invoice to read the actual total including VAT
+        // The CreateInvoiceChainAsync amount may be ex-VAT (from order line fallback calculation)
+        var invoiceGet = await api.GetAsync($"/invoice/{invoiceId}", new Dictionary<string, string> { ["fields"] = "id,amount,amountOutstanding" });
+        var invoiceData = invoiceGet.GetProperty("value");
         var paidAmount = invoiceAmount;
-        var payment = extracted.Entities.GetValueOrDefault("payment");
-        if (payment is not null && payment.TryGetValue("amount", out var payAmt))
+        if (invoiceData.TryGetProperty("amount", out var realAmt) && realAmt.ValueKind == JsonValueKind.Number && realAmt.GetDecimal() > 0)
         {
-            var amtStr = payAmt is JsonElement je
-                ? (je.ValueKind == JsonValueKind.Number ? je.GetDecimal().ToString(CultureInfo.InvariantCulture) : je.GetString())
-                : payAmt.ToString();
-            if (decimal.TryParse(amtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
-            {
-                // Check if extracted amount is the pre-VAT total (common LLM mistake)
-                // Standard Norwegian VAT rates: 25%, 15%, 12%
-                bool looksLikePreVat = new[] { 1.25m, 1.15m, 1.12m }
-                    .Any(r => Math.Abs(invoiceAmount - parsed * r) < 0.01m);
-                if (looksLikePreVat)
-                    _logger.LogInformation("Ignoring extracted payment amount {Extracted} (pre-VAT of invoice total {Total})", parsed, invoiceAmount);
-                else
-                    paidAmount = parsed;
-            }
+            paidAmount = realAmt.GetDecimal();
+            _logger.LogInformation("Invoice actual amount (inc VAT): {Amount} (chain returned: {ChainAmount})", paidAmount, invoiceAmount);
         }
 
         var paymentDate = DateTime.Now.ToString("yyyy-MM-dd");
+        var payment = extracted.Entities.GetValueOrDefault("payment");
         if (payment?.TryGetValue("paymentDate", out var pd) == true)
             paymentDate = pd is JsonElement jePd ? jePd.GetString()! : pd.ToString()!;
         else if (extracted.Dates.Count > 0)

@@ -6,6 +6,8 @@
 
 **Read `entity-model.md` at the repo root when working on entity relationships, dependency chains, or debugging complex multi-step tasks.** It maps all Tripletex entity schemas, required fields, cross-references, dependency chains per task type, action endpoints, and common pitfalls. Use it as a quick lookup before implementing or fixing handlers.
 
+**Read `tripletex-docs.md` at the repo root for official Tripletex developer documentation.** It covers authentication, VAT code tables (with DB IDs and percentages), invoice/order pricing rules (`isPrioritizeAmountsIncludingVat`), customer EHF requirements, voucher posting ledgerType rules, department activation effects, webhooks, and more. Consult it when debugging API errors or unsure about field semantics.
+
 **Keep `SandboxValidator.cs` (`src/Services/SandboxValidator.cs`) in sync with actual competition checks.** After every submission, compare local validation scores to competition scores. Any divergence means our validator is wrong — fix it immediately. See the "Validation Feedback Loop" section below for the process.
 
 ## Project Overview

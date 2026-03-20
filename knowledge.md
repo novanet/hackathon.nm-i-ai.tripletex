@@ -32,12 +32,16 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 ## Scoring & Validation Insights
 
-- **Payment `payment_registered` check** — passes when `amountOutstanding = 0`. Must pay the full invoice amount _including VAT_, not just the ex-VAT amount from the prompt. _(2026-03-20)_
+- **Payment `payment_registered` check** — passes when `amountOutstanding = 0`. Must pay the full invoice amount _including VAT_, not just the ex-VAT amount from the prompt. The `CreateInvoiceChainAsync` fallback calculates from `unitPriceExcludingVatCurrency` (ex-VAT!), so PaymentHandler must GET `/invoice/{id}` to read the real `amount` field (includes VAT). _(2026-03-20)_
 - **"sem IVA" / "without VAT" / "uten mva" = use 0% VAT type** — when prompt states the price excludes VAT AND implies the service is VAT-exempt (e.g. "47200 NOK without VAT"), use 0% VAT type. Competition check 2 checks the invoice amount directly and expects 47200, not 59000 (with 25% VAT). LLM extracts `vatIncluded: false` in invoice entity — always use 0% VAT type in that case. _(2026-03-20)_
 - **Admin role is worth 5 out of 11 points** for employee tasks — nearly 50%. Always grant when requested. Use `template=administrator` (not `ALL_PRIVILEGES`) per the copilot-instructions, but `ALL_PRIVILEGES` also works. _(2026-03-20)_
 - **Product `number` field is checked** — validator verifies the product number matches the prompt. Always extract and set it. _(2026-03-20)_
 - **Department validation only checks `department_found`** (2 pts) — no field-level checks beyond existence. _(2026-03-20)_
 - **Travel expense `has_costs` check** wants `> 0` cost lines — at least one `POST /travelExpense/cost` required. _(2026-03-20)_
+- **Travel expense has 6 checks worth 8 points total** — 6/6 passed with correct employee, title, and all cost lines including per diem. _(2026-03-20)_
+- **Travel expense `costItems` key** — LLM extracts cost items as `costItems` (camelCase). Handler must check `costs`, `costItems`, `cost_items`, and `costLines` variants. _(2026-03-20)_
+- **Travel expense employee resolution** — use `extracted.Entities["employee"]` (has firstName/lastName/email), NOT `extracted.Relationships["employee"]` (often contains just the email as a flat string). Search by firstName+lastName first, then by email. _(2026-03-20)_
+- **Travel expense per diem** — when `durationDays` and `dailyAllowanceRate` are in travelDetails, generate a per diem cost line (days × rate). This is a separate cost from explicit expense items. _(2026-03-20)_
 - **Invoice validation checks**: `invoice_found`, `has_customer`, `has_amount > 0`. Amount includes VAT. _(2026-03-20)_
 - **Order line `count` defaults to 0 in Tripletex** — if you omit `count` on an order line, Tripletex treats it as 0 and the invoice amount becomes 0. Always set `count = 1` as default. _(2026-03-20)_
 - **Composite invoice tasks (project + time + invoice)** — competition checks 8 points across 4 checks: project/timesheet + invoice. Our local validator only checks invoice (5/5). Must create project, link activity, register timesheet hours, AND create invoice. _(2026-03-20)_

@@ -114,6 +114,17 @@ public class PayrollHandler : ITaskHandler
         // Ensure employee has an employment for the payroll period
         await EnsureEmployment(api, employeeId, year, month);
 
+        // Ensure SMART_WAGE module is active (required for payslips to be listable)
+        try
+        {
+            await api.PostAsync("/company/salesmodules", new { name = "SMART_WAGE", costStartDate = voucherDate });
+            _logger.LogInformation("Activated SMART_WAGE module");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("SMART_WAGE activation: {Msg}", ex.Message);
+        }
+
         // Get salary types to find base salary type and bonus type
         var salaryTypesResult = await api.GetAsync("/salary/type", new Dictionary<string, string>
         {
@@ -210,10 +221,98 @@ public class PayrollHandler : ITaskHandler
             }
         };
 
+        _logger.LogInformation("Salary transaction body: {Body}", System.Text.Json.JsonSerializer.Serialize(transactionBody));
         var txResult = await api.PostAsync("/salary/transaction?generateTaxDeduction=true", transactionBody);
-        var transactionId = txResult.GetProperty("value").GetProperty("id").GetInt64();
-        _logger.LogInformation("Created salary transaction {Id} for employee {EmpId}: base={Base}, bonus={Bonus}",
-            transactionId, employeeId, baseSalary, bonus);
+        var txValue = txResult.GetProperty("value");
+        var transactionId = txValue.GetProperty("id").GetInt64();
+
+        // Log response details for debugging
+        var payslipCount = txValue.TryGetProperty("payslips", out var ps) ? ps.GetArrayLength() : -1;
+        _logger.LogInformation("Created salary transaction {Id} for employee {EmpId}: base={Base}, bonus={Bonus}, payslips={PayslipCount}",
+            transactionId, employeeId, baseSalary, bonus, payslipCount);
+
+        // Verify payslips were created by querying them
+        try
+        {
+            // First check the transaction itself
+            var txCheck = await api.GetAsync($"/salary/transaction/{transactionId}", new Dictionary<string, string>
+            {
+                ["fields"] = "id,payslips,year,month,date"
+            });
+            var txVal = txCheck.GetProperty("value");
+            _logger.LogInformation("Transaction verify: {Data}", txCheck.GetRawText().Substring(0, Math.Min(1000, txCheck.GetRawText().Length)));
+
+            // Try to get the specific payslip by ID
+            long firstPayslipId = 0;
+            if (txVal.TryGetProperty("payslips", out var payslipArr) && payslipArr.GetArrayLength() > 0)
+            {
+                firstPayslipId = payslipArr[0].GetProperty("id").GetInt64();
+                try
+                {
+                    var specificPayslip = await api.GetAsync($"/salary/payslip/{firstPayslipId}",
+                        new Dictionary<string, string> { ["fields"] = "id,employee,grossAmount,amount,year,month" });
+                    _logger.LogInformation("Specific payslip {Id}: {Data}", firstPayslipId, specificPayslip.GetRawText());
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Specific payslip {Id} failed: {Msg}", firstPayslipId, ex.Message);
+                }
+            }
+
+            // Query payslips - try different methods
+            var payslips = await api.GetAsync("/salary/payslip", new Dictionary<string, string>
+            {
+                ["from"] = "0",
+                ["count"] = "10",
+                ["id"] = firstPayslipId.ToString()
+            });
+            _logger.LogInformation("Payslip list (by id): {Data}", payslips.GetRawText().Substring(0, Math.Min(500, payslips.GetRawText().Length)));
+
+            // Try salary compilation 
+            try
+            {
+                var comp = await api.GetAsync("/salary/compilation", new Dictionary<string, string>
+                {
+                    ["employeeId"] = employeeId.ToString(),
+                    ["year"] = year.ToString()
+                });
+                _logger.LogInformation("Salary compilation: {Data}", comp.GetRawText().Substring(0, Math.Min(1000, comp.GetRawText().Length)));
+            }
+            catch (Exception ex2)
+            {
+                _logger.LogWarning("Salary compilation failed: {Msg}", ex2.Message);
+            }
+
+            // Check salary settings
+            try
+            {
+                var settings = await api.GetAsync("/salary/settings");
+                _logger.LogInformation("Salary settings: {Data}", settings.GetRawText().Substring(0, Math.Min(500, settings.GetRawText().Length)));
+            }
+            catch (Exception ex3)
+            {
+                _logger.LogWarning("Salary settings failed: {Msg}", ex3.Message);
+            }
+
+            // Check active sales modules
+            try
+            {
+                var modules = await api.GetAsync("/company/salesmodules", new Dictionary<string, string>
+                {
+                    ["from"] = "0",
+                    ["count"] = "100"
+                });
+                _logger.LogInformation("Active sales modules: {Data}", modules.GetRawText().Substring(0, Math.Min(1000, modules.GetRawText().Length)));
+            }
+            catch (Exception ex4)
+            {
+                _logger.LogWarning("Sales modules check failed: {Msg}", ex4.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Payslip verification failed: {Msg}", ex.Message);
+        }
         return new HandlerResult { EntityType = "salaryTransaction", EntityId = transactionId };
     }
 
@@ -294,7 +393,8 @@ public class PayrollHandler : ITaskHandler
                 id = empId,
                 version,
                 employee = new { id = employeeId },
-                division = new { id = divisionId!.Value }
+                division = new { id = divisionId!.Value },
+                taxDeductionCode = "loennFraHovedarbeidsgiver"
             });
             return;
         }
@@ -307,7 +407,20 @@ public class PayrollHandler : ITaskHandler
         {
             employee = new { id = employeeId },
             startDate,
-            division = new { id = divisionId!.Value }
+            division = new { id = divisionId!.Value },
+            taxDeductionCode = "loennFraHovedarbeidsgiver",
+            employmentDetails = new[]
+            {
+                new
+                {
+                    date = startDate,
+                    employmentType = (string?)"ORDINARY",
+                    employmentForm = (string?)"PERMANENT",
+                    remunerationType = (string?)"MONTHLY_WAGE",
+                    workingHoursScheme = (string?)"NOT_SHIFT",
+                    percentageOfFullTimeEquivalent = 100.0m
+                }
+            }
         });
     }
 

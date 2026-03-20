@@ -408,56 +408,43 @@ public class SandboxValidator
     {
         if (!result.EntityId.HasValue) return;
 
-        // Verify transaction is actually accessible via GET (competition queries this)
+        // Verify transaction is actually accessible via GET
+        // SalaryTransaction fields: id, version, date, year, month, payslips (NOT employee)
         try
         {
             var txn = await api.GetAsync($"/salary/transaction/{result.EntityId}",
-                new Dictionary<string, string> { ["fields"] = "id,employee,date" });
+                new Dictionary<string, string> { ["fields"] = "id,date,year,month,payslips" });
             var val = txn.GetProperty("value");
 
             report.Checks.Add(new ValidationCheck("salary_transaction_found", "true", "true", true, 2));
 
-            // Check employee link
-            if (val.TryGetProperty("employee", out var empRef) && empRef.ValueKind == JsonValueKind.Object
-                && empRef.TryGetProperty("id", out var empId) && empId.GetInt64() > 0)
-                report.Checks.Add(new ValidationCheck("has_employee_link", "true", "true", true, 2));
-            else
-                report.Checks.Add(new ValidationCheck("has_employee_link", "true", "false", false, 2));
+            // Check employee link and payslip from inline payslips array
+            bool hasEmployee = false;
+            int payslipCount = 0;
+            if (val.TryGetProperty("payslips", out var payslips) && payslips.ValueKind == JsonValueKind.Array)
+            {
+                payslipCount = payslips.GetArrayLength();
+                foreach (var ps in payslips.EnumerateArray())
+                {
+                    if (ps.TryGetProperty("employee", out var empRef) && empRef.ValueKind == JsonValueKind.Object
+                        && empRef.TryGetProperty("id", out var empId) && empId.GetInt64() > 0)
+                    {
+                        hasEmployee = true;
+                        break;
+                    }
+                }
+            }
+
+            report.Checks.Add(new ValidationCheck("has_employee_link", "true",
+                hasEmployee ? "true" : "false", hasEmployee, 2));
+            report.Checks.Add(new ValidationCheck("payslip_generated", "> 0",
+                payslipCount.ToString(), payslipCount > 0, 2));
         }
         catch (Exception ex)
         {
             _logger.LogWarning("Payroll validation: GET transaction failed: {Msg}", ex.Message);
             report.Checks.Add(new ValidationCheck("salary_transaction_found", "true", "false", false, 2));
         }
-
-        // Check payslip is generated (competition likely queries this)
-        try
-        {
-            var entity = extracted.Entities.GetValueOrDefault("payroll")
-                ?? extracted.Entities.GetValueOrDefault("employee") ?? new();
-            var yearStr = entity.TryGetValue("year", out var y) ? y?.ToString() : null
-                ?? DateTime.Now.Year.ToString();
-            var monthStr = entity.TryGetValue("month", out var m) ? m?.ToString() : null
-                ?? DateTime.Now.Month.ToString();
-
-            var payslips = await api.GetAsync("/salary/payslip",
-                new Dictionary<string, string>
-                {
-                    ["from"] = "0",
-                    ["count"] = "10",
-                    ["fields"] = "id,employee,month,year",
-                    ["year"] = yearStr,
-                    ["month"] = monthStr
-                });
-
-            if (payslips.TryGetProperty("values", out var vals))
-            {
-                var count = vals.GetArrayLength();
-                report.Checks.Add(new ValidationCheck("payslip_generated", "> 0",
-                    count.ToString(), count > 0, 2));
-            }
-        }
-        catch { /* payslip check is best-effort */ }
     }
 
     // --- Helper methods ---

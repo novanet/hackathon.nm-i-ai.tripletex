@@ -24,13 +24,35 @@ public class TravelExpenseHandler : ITaskHandler
             ?? new();
 
         // Step 1: Resolve employee
-        var employeeName = extracted.Relationships.GetValueOrDefault("employee")
-            ?? GetStringField(travel, "employee");
         long? employeeId = null;
-        if (employeeName != null)
-            employeeId = await ResolveEmployeeId(api, employeeName);
 
-        // If no employee found, get first available
+        // First try: use the employee entity with proper firstName/lastName
+        var empEntity = extracted.Entities.GetValueOrDefault("employee") ?? new();
+        var empFirstName = GetStringField(empEntity, "firstName");
+        var empLastName = GetStringField(empEntity, "lastName");
+        var empEmail = GetStringField(empEntity, "email");
+
+        if (empFirstName != null && empLastName != null)
+        {
+            employeeId = await ResolveEmployeeByName(api, empFirstName, empLastName);
+        }
+
+        // Second try: search by email
+        if (!employeeId.HasValue && empEmail != null)
+        {
+            employeeId = await ResolveEmployeeByEmail(api, empEmail);
+        }
+
+        // Third try: use relationship string (might be a name)
+        if (!employeeId.HasValue)
+        {
+            var employeeName = extracted.Relationships.GetValueOrDefault("employee")
+                ?? GetStringField(travel, "employee");
+            if (employeeName != null && !employeeName.Contains('@'))
+                employeeId = await ResolveEmployeeId(api, employeeName);
+        }
+
+        // Last resort: get first available employee
         if (!employeeId.HasValue)
         {
             var empResult = await api.GetAsync("/employee", new Dictionary<string, string>
@@ -117,8 +139,10 @@ public class TravelExpenseHandler : ITaskHandler
         JsonElement costsArr = default;
         if (travel.TryGetValue("costs", out var costsVal) && costsVal is JsonElement ca1 && ca1.ValueKind == JsonValueKind.Array)
             costsArr = ca1;
-        else if (travel.TryGetValue("cost_items", out var costItemsVal) && costItemsVal is JsonElement ca2 && ca2.ValueKind == JsonValueKind.Array)
+        else if (travel.TryGetValue("costItems", out var costItemsVal) && costItemsVal is JsonElement ca2 && ca2.ValueKind == JsonValueKind.Array)
             costsArr = ca2;
+        else if (travel.TryGetValue("cost_items", out var costItems2Val) && costItems2Val is JsonElement ca2b && ca2b.ValueKind == JsonValueKind.Array)
+            costsArr = ca2b;
         else if (travel.TryGetValue("costLines", out var costLinesVal) && costLinesVal is JsonElement ca3 && ca3.ValueKind == JsonValueKind.Array)
             costsArr = ca3;
 
@@ -156,6 +180,33 @@ public class TravelExpenseHandler : ITaskHandler
                     costLine["category"] = cat.GetString()!;
                 costLines.Add(costLine);
             }
+        }
+
+        // Generate per diem / daily allowance cost line from travelDetails
+        var travelDetailsSrc = extracted.Entities.GetValueOrDefault("travelDetails") ?? new();
+        // Also check inside the travel entity
+        var durationStr = GetStringField(travelDetailsSrc, "durationDays") ?? GetStringField(travel, "durationDays");
+        var rateStr = GetStringField(travelDetailsSrc, "dailyAllowanceRate") ?? GetStringField(travel, "dailyAllowanceRate");
+        if (travel.TryGetValue("travelDetails", out var tdVal) && tdVal is JsonElement tdElem && tdElem.ValueKind == JsonValueKind.Object)
+        {
+            if (durationStr == null && tdElem.TryGetProperty("durationDays", out var dd2))
+                durationStr = dd2.GetRawText();
+            if (rateStr == null && tdElem.TryGetProperty("dailyAllowanceRate", out var dr2))
+                rateStr = dr2.GetRawText();
+        }
+
+        if (durationStr != null && rateStr != null
+            && double.TryParse(durationStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var days)
+            && double.TryParse(rateStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var rate))
+        {
+            var perDiemAmount = days * rate;
+            _logger.LogInformation("Adding per diem cost: {Days} days x {Rate} = {Total}", days, rate, perDiemAmount);
+            costLines.Add(new Dictionary<string, object>
+            {
+                ["amountCurrencyIncVat"] = perDiemAmount,
+                ["comments"] = "Diett",
+                ["date"] = extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd")
+            });
         }
 
         // If raw amounts and no cost lines parsed, create a single cost
@@ -252,6 +303,39 @@ public class TravelExpenseHandler : ITaskHandler
             query["firstName"] = name;
         }
         var result = await api.GetAsync("/employee", query);
+        if (result.TryGetProperty("values", out var vals))
+        {
+            foreach (var v in vals.EnumerateArray())
+                return v.GetProperty("id").GetInt64();
+        }
+        return null;
+    }
+
+    private async Task<long?> ResolveEmployeeByName(TripletexApiClient api, string firstName, string lastName)
+    {
+        var result = await api.GetAsync("/employee", new Dictionary<string, string>
+        {
+            ["count"] = "1",
+            ["fields"] = "id",
+            ["firstName"] = firstName,
+            ["lastName"] = lastName
+        });
+        if (result.TryGetProperty("values", out var vals))
+        {
+            foreach (var v in vals.EnumerateArray())
+                return v.GetProperty("id").GetInt64();
+        }
+        return null;
+    }
+
+    private async Task<long?> ResolveEmployeeByEmail(TripletexApiClient api, string email)
+    {
+        var result = await api.GetAsync("/employee", new Dictionary<string, string>
+        {
+            ["count"] = "1",
+            ["fields"] = "id",
+            ["email"] = email
+        });
         if (result.TryGetProperty("values", out var vals))
         {
             foreach (var v in vals.EnumerateArray())
