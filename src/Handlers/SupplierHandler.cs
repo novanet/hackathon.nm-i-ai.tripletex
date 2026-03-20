@@ -40,6 +40,8 @@ public class SupplierHandler : ITaskHandler
         SetIfPresent(body, sup, "name");
         SetIfPresent(body, sup, "email");
         SetIfPresent(body, sup, "organizationNumber");
+        if (!body.ContainsKey("organizationNumber"))
+            SetIfPresent(body, sup, "orgNumber", "organizationNumber");
         SetIfPresent(body, sup, "supplierNumber");
         SetIfPresent(body, sup, "phoneNumber");
         SetIfPresent(body, sup, "phoneNumberMobile");
@@ -65,6 +67,14 @@ public class SupplierHandler : ITaskHandler
         if (source.TryGetValue(key, out var val) && val is not null)
         {
             body[key] = val is JsonElement je ? je.ToString() : val;
+        }
+    }
+
+    private static void SetIfPresent(Dictionary<string, object> body, Dictionary<string, object> source, string sourceKey, string targetKey)
+    {
+        if (source.TryGetValue(sourceKey, out var val) && val is not null)
+        {
+            body[targetKey] = val is JsonElement je ? je.ToString() : val;
         }
     }
 }
