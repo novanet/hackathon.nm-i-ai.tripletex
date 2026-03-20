@@ -397,22 +397,59 @@ public class ProjectHandler : ITaskHandler
     private async Task CreateProjectInvoice(TripletexApiClient api, ExtractionResult extracted, long projectId, Dictionary<string, object> projectBody)
     {
         var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+        var project = extracted.Entities.GetValueOrDefault("project") ?? new();
 
-        // Determine invoice amount
+        // 1. Get fixed price from project body
+        decimal fixedPrice = 0m;
+        if (projectBody.TryGetValue("fixedprice", out var fpObj))
+        {
+            if (fpObj is decimal d) fixedPrice = d;
+            else decimal.TryParse(fpObj.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out fixedPrice);
+        }
+
+        // 2. Extract percentage from prompt using regex (e.g. "33%", "50 %", "25 %")
+        decimal percentage = 0m;
+        if (extracted.RawPrompt != null)
+        {
+            var pctMatch = System.Text.RegularExpressions.Regex.Match(extracted.RawPrompt, @"(\d+)\s*%");
+            if (pctMatch.Success)
+                decimal.TryParse(pctMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out percentage);
+        }
+
+        // 3. Calculate milestone amount deterministically if we have both fixedPrice and percentage
         decimal invoiceAmount = 0m;
-        if (invoiceEntity.TryGetValue("amount", out var amtVal))
+        if (fixedPrice > 0 && percentage > 0)
+        {
+            invoiceAmount = Math.Round(fixedPrice * percentage / 100m, 2);
+            _logger.LogInformation("Calculated milestone amount: {FixedPrice} × {Pct}% = {Amount}", fixedPrice, percentage, invoiceAmount);
+        }
+
+        // 4. Fall back to LLM-extracted amount from invoice entity
+        if (invoiceAmount <= 0m && invoiceEntity.TryGetValue("amount", out var amtVal))
         {
             if (amtVal is JsonElement amtElem && amtElem.ValueKind == JsonValueKind.Number)
                 invoiceAmount = amtElem.GetDecimal();
             else
                 decimal.TryParse(amtVal?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out invoiceAmount);
         }
-        if (invoiceAmount <= 0m && extracted.RawAmounts.Count > 0)
+
+        // 5. Fall back to orderLines[0].unitPrice from invoice entity
+        if (invoiceAmount <= 0m && invoiceEntity.TryGetValue("orderLines", out var olVal))
         {
-            // Take the last raw amount as it's likely the invoice amount (first is typically the fixed price)
-            if (extracted.RawAmounts.Count >= 2)
-                decimal.TryParse(extracted.RawAmounts[^1], NumberStyles.Any, CultureInfo.InvariantCulture, out invoiceAmount);
+            if (olVal is JsonElement olElem && olElem.ValueKind == JsonValueKind.Array && olElem.GetArrayLength() > 0)
+            {
+                var firstLine = olElem[0];
+                if (firstLine.TryGetProperty("unitPrice", out var up) && up.ValueKind == JsonValueKind.Number)
+                    invoiceAmount = up.GetDecimal();
+            }
         }
+
+        // 6. Last resort: RawAmounts
+        if (invoiceAmount <= 0m && extracted.RawAmounts.Count >= 2)
+        {
+            decimal.TryParse(extracted.RawAmounts[^1], NumberStyles.Any, CultureInfo.InvariantCulture, out invoiceAmount);
+        }
+
         if (invoiceAmount <= 0m)
         {
             _logger.LogWarning("No invoice amount found for project invoice, skipping");
@@ -474,16 +511,39 @@ public class ProjectHandler : ITaskHandler
         _logger.LogInformation("Created project invoice ID: {Id}, amount: {Amount}", invoiceId, invoiceAmount);
 
         // Link invoice to project via preliminaryInvoice (writable field on Project schema)
+        // IMPORTANT: Tripletex PUT is a full replacement — must include all fields to avoid resetting them
         try
         {
-            var projectGet = await api.GetAsync($"/project/{projectId}", new Dictionary<string, string> { ["fields"] = "id,version" });
-            var projectVersion = projectGet.GetProperty("value").GetProperty("version").GetInt32();
-            await api.PutAsync($"/project/{projectId}", new Dictionary<string, object>
+            var projectGet = await api.GetAsync($"/project/{projectId}", new Dictionary<string, string>
+            {
+                ["fields"] = "id,version,name,startDate,endDate,isFixedPrice,fixedprice,customer,projectManager,department,isInternal"
+            });
+            var pv = projectGet.GetProperty("value");
+            var updateBody = new Dictionary<string, object>
             {
                 ["id"] = projectId,
-                ["version"] = projectVersion,
+                ["version"] = pv.GetProperty("version").GetInt32(),
+                ["name"] = pv.GetProperty("name").GetString()!,
+                ["startDate"] = pv.GetProperty("startDate").GetString()!,
                 ["preliminaryInvoice"] = new { id = invoiceId }
-            });
+            };
+            // Preserve fixedprice/isFixedPrice
+            if (pv.TryGetProperty("isFixedPrice", out var ifp) && ifp.GetBoolean())
+            {
+                updateBody["isFixedPrice"] = true;
+                if (pv.TryGetProperty("fixedprice", out var fp))
+                    updateBody["fixedprice"] = fp.GetDecimal();
+            }
+            // Preserve customer
+            if (pv.TryGetProperty("customer", out var cust) && cust.ValueKind == JsonValueKind.Object
+                && cust.TryGetProperty("id", out var custId))
+                updateBody["customer"] = new { id = custId.GetInt64() };
+            // Preserve project manager
+            if (pv.TryGetProperty("projectManager", out var pm) && pm.ValueKind == JsonValueKind.Object
+                && pm.TryGetProperty("id", out var pmId))
+                updateBody["projectManager"] = new { id = pmId.GetInt64() };
+
+            await api.PutAsync($"/project/{projectId}", updateBody);
             _logger.LogInformation("Linked invoice {InvoiceId} to project {ProjectId} via preliminaryInvoice", invoiceId, projectId);
         }
         catch (Exception ex)
