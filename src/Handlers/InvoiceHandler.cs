@@ -374,22 +374,21 @@ public class InvoiceHandler : ITaskHandler
     {
         var lines = new List<Dictionary<string, object>>();
 
-        // Check if the invoice explicitly states no VAT (e.g. "sem IVA", "excluding VAT", "uten mva")
-        // In that case, use 0% VAT type instead of default 25%
+        // Determine if the stated amounts include VAT.
+        // vatIncluded=true  → amounts include VAT, use unitPriceIncludingVatCurrency
+        // vatIncluded=false → amounts exclude VAT, use unitPriceExcludingVatCurrency (default)
+        // NOTE: vatIncluded=false does NOT mean "no VAT" — it means the stated amount is ex-VAT.
+        // VAT is always applied at the standard rate (25%) unless a specific line has vatRate=0.
+        bool useIncludingVatPrice = false;
         var invoiceForVat = extracted.Entities.GetValueOrDefault("invoice");
         if (invoiceForVat != null && invoiceForVat.TryGetValue("vatIncluded", out var vatInclObj))
         {
-            bool vatIncluded = vatInclObj switch
+            useIncludingVatPrice = vatInclObj switch
             {
                 bool b => b,
-                JsonElement je when je.ValueKind == JsonValueKind.False => false,
                 JsonElement je when je.ValueKind == JsonValueKind.True => true,
-                _ => true
+                _ => false
             };
-            if (!vatIncluded && outputRateMap != null && outputRateMap.TryGetValue(0, out var zeroVatId))
-            {
-                vatTypeId = zeroVatId;
-            }
         }
 
         // Try to parse from orderLines entity
@@ -401,7 +400,7 @@ public class InvoiceHandler : ITaskHandler
                 // Each entry might be a line item serialized as JsonElement
                 if (val is JsonElement je && je.ValueKind == JsonValueKind.Object)
                 {
-                    var line = ParseOrderLineFromJson(je, vatTypeId, outputRateMap);
+                    var line = ParseOrderLineFromJson(je, vatTypeId, outputRateMap, useIncludingVatPrice);
                     lines.Add(line);
                 }
             }
@@ -419,7 +418,7 @@ public class InvoiceHandler : ITaskHandler
                     {
                         if (item.ValueKind == JsonValueKind.Object)
                         {
-                            var line = ParseOrderLineFromJson(item, vatTypeId, outputRateMap);
+                            var line = ParseOrderLineFromJson(item, vatTypeId, outputRateMap, useIncludingVatPrice);
                             lines.Add(line);
                         }
                     }
@@ -453,11 +452,12 @@ public class InvoiceHandler : ITaskHandler
 
             if (amt != null)
             {
+                var priceField = useIncludingVatPrice ? "unitPriceIncludingVatCurrency" : "unitPriceExcludingVatCurrency";
                 lines.Add(new Dictionary<string, object>
                 {
                     ["description"] = desc ?? "Vare",
                     ["count"] = 1,
-                    ["unitPriceExcludingVatCurrency"] = amt.Value,
+                    [priceField] = amt.Value,
                     ["vatType"] = new { id = vatTypeId }
                 });
             }
@@ -478,7 +478,7 @@ public class InvoiceHandler : ITaskHandler
         return lines;
     }
 
-    private static Dictionary<string, object> ParseOrderLineFromJson(JsonElement je, long defaultVatTypeId, Dictionary<int, long>? outputRateMap = null)
+    private static Dictionary<string, object> ParseOrderLineFromJson(JsonElement je, long defaultVatTypeId, Dictionary<int, long>? outputRateMap = null, bool useIncludingVatPrice = false)
     {
         // Match per-line VAT rate to the correct output VAT type
         long lineVatTypeId = defaultVatTypeId;
@@ -498,8 +498,11 @@ public class InvoiceHandler : ITaskHandler
             countVal = cnt.ValueKind == JsonValueKind.Number ? cnt.GetDouble()
                 : double.TryParse(cnt.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var cd) ? cd : 1.0;
         line["count"] = countVal;
+
+        // Determine which price field to use based on vatIncluded flag
+        var priceField = useIncludingVatPrice ? "unitPriceIncludingVatCurrency" : "unitPriceExcludingVatCurrency";
         if (je.TryGetProperty("unitPrice", out var price))
-            line["unitPriceExcludingVatCurrency"] = price.ValueKind == JsonValueKind.Number ? price.GetDouble()
+            line[priceField] = price.ValueKind == JsonValueKind.Number ? price.GetDouble()
                 : double.TryParse(price.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var pd) ? pd : 0.0;
         if (je.TryGetProperty("unitPriceExcludingVatCurrency", out var price2))
             line["unitPriceExcludingVatCurrency"] = price2.ValueKind == JsonValueKind.Number ? price2.GetDouble()
