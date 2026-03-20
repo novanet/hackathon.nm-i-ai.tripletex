@@ -38,25 +38,8 @@ builder.Services.AddSingleton(sp => new LlmExtractor(githubToken, sp.GetRequired
 
 var app = builder.Build();
 
-// API key auth middleware — protects /solve from unauthorized access
-var apiKey = app.Configuration["ApiKey"] ?? Environment.GetEnvironmentVariable("API_KEY");
-if (!string.IsNullOrEmpty(apiKey))
-{
-    app.Use(async (context, next) =>
-    {
-        if (context.Request.Path.StartsWithSegments("/solve"))
-        {
-            var authHeader = context.Request.Headers.Authorization.ToString();
-            if (string.IsNullOrEmpty(authHeader) || authHeader != $"Bearer {apiKey}")
-            {
-                context.Response.StatusCode = 401;
-                await context.Response.WriteAsync("Unauthorized");
-                return;
-            }
-        }
-        await next();
-    });
-}
+// API key auth middleware — disabled for competition (platform sends no key)
+// var apiKey = app.Configuration["ApiKey"] ?? Environment.GetEnvironmentVariable("API_KEY");
 
 app.MapGet("/", () => "Tripletex Agent is running");
 
@@ -71,6 +54,14 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
 
     try
     {
+        // Fast-path for health check pings — skip LLM entirely
+        if (string.Equals(request.Prompt?.Trim(), "ping", StringComparison.OrdinalIgnoreCase))
+        {
+            sw.Stop();
+            logger.LogInformation("Health check ping — returning completed in {Elapsed}ms", sw.ElapsedMilliseconds);
+            return Results.Json(new { status = "completed" });
+        }
+
         // Step 1: Extract structured data from prompt via LLM (with file content if present)
         extracted = await llm.ExtractAsync(request.Prompt, request.Files);
 
@@ -80,7 +71,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         // Override to create_employee if LLM missed it
         if (extracted.TaskType is "unknown" or "create_contact" &&
             System.Text.RegularExpressions.Regex.IsMatch(promptLower,
-                @"\b(ansatt|employee|empleado|funcionário|funcionario|mitarbeiter|employé|empregado)\b"))
+                @"\b(ansatt|tilsett|employee|empleado|funcionário|funcionario|mitarbeiter|employé|empregado)\b"))
         {
             extracted.TaskType = "create_employee";
             logger.LogInformation("Overriding task_type to create_employee (employee keywords detected)");
@@ -118,7 +109,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
             if (!emp.ContainsKey("firstName") && !emp.ContainsKey("lastName") && !emp.ContainsKey("name"))
             {
                 var nameMatch = System.Text.RegularExpressions.Regex.Match(request.Prompt,
-                    @"(?:navn|name|nombre|nom|Nome|namens|llamad[oa]|nommée?|chamad[oa])\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)",
+                    @"(?:navn|name|nombre|nom|Nome|namens|llamad[oa]|nommée?|chamad[oa]|heiter|heter)\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)",
                     System.Text.RegularExpressions.RegexOptions.None);
                 if (nameMatch.Success)
                 {
@@ -131,7 +122,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
             if (!emp.ContainsKey("dateOfBirth"))
             {
                 var dobMatch = System.Text.RegularExpressions.Regex.Match(request.Prompt,
-                    @"(?:født|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|em\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})",
+                    @"(?:født|fødd|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|em\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 if (dobMatch.Success)
                 {

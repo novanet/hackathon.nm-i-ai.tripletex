@@ -20,22 +20,14 @@ public class PaymentHandler : ITaskHandler
     {
         // Full chain: Customer → Order → Invoice → Payment
 
+        // Start payment type resolution early (runs in parallel with invoice chain)
+        var paymentTypeTask = ResolvePaymentTypeId(api);
+
         // Step 1-3: Create the invoice (reuse InvoiceHandler logic)
-        var (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
+        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
 
-        // Get invoice details — need amountOutstanding for correct payment including VAT
-        var invoiceResult = await api.GetAsync($"/invoice/{invoiceId}", new Dictionary<string, string>
-        {
-            ["fields"] = "id,amount,amountOutstanding"
-        });
-
-        var invoiceData = invoiceResult.GetProperty("value");
-        var invoiceAmount = invoiceData.TryGetProperty("amountOutstanding", out var outst) && outst.ValueKind == JsonValueKind.Number
-            ? outst.GetDecimal()
-            : invoiceData.TryGetProperty("amount", out var amt) ? amt.GetDecimal() : 0m;
-
-        // Resolve payment type
-        var paymentTypeId = await ResolvePaymentTypeId(api);
+        // Resolve payment type (already started, just await)
+        var paymentTypeId = await paymentTypeTask;
 
         // Get payment amount from extracted data or use invoice amount (default = full payment)
         var paidAmount = invoiceAmount;

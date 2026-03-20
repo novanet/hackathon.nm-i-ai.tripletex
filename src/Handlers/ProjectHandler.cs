@@ -78,9 +78,26 @@ public class ProjectHandler : ITaskHandler
                 var nameStr = pmVal?.ToString();
                 if (!string.IsNullOrEmpty(nameStr))
                 {
-                    var parts = nameStr.Split(' ', 2);
-                    managerFirstName = parts[0];
-                    managerLastName = parts.Length > 1 ? parts[1] : null;
+                    // Guard: if ToString() returns JSON (e.g. {"firstName":...}), parse it
+                    var trimmed = nameStr.Trim();
+                    if (trimmed.StartsWith('{'))
+                    {
+                        try
+                        {
+                            var doc = JsonDocument.Parse(trimmed);
+                            var root = doc.RootElement;
+                            managerFirstName = root.TryGetProperty("firstName", out var fn2) ? fn2.GetString() : null;
+                            managerLastName = root.TryGetProperty("lastName", out var ln2) ? ln2.GetString() : null;
+                            managerEmail = root.TryGetProperty("email", out var em2) ? em2.GetString() : null;
+                        }
+                        catch { /* fall through to split */ }
+                    }
+                    if (managerFirstName == null)
+                    {
+                        var parts = nameStr.Split(' ', 2);
+                        managerFirstName = parts[0];
+                        managerLastName = parts.Length > 1 ? parts[1] : null;
+                    }
                 }
             }
         }

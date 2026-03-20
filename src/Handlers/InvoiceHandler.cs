@@ -22,12 +22,13 @@ public class InvoiceHandler : ITaskHandler
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
 
-        // Step 1: Find or create customer
-        var customerId = await ResolveOrCreateCustomer(api, cust, invoice, extracted);
+        // Step 1+2: Find/create customer AND resolve VAT type in parallel
+        var customerTask = ResolveOrCreateCustomer(api, cust, invoice, extracted);
+        var vatTypeTask = ResolveDefaultVatTypeId(api);
+        await Task.WhenAll(customerTask, vatTypeTask);
+        var customerId = customerTask.Result;
+        var vatTypeId = vatTypeTask.Result;
         _logger.LogInformation("Using customer ID: {Id}", customerId);
-
-        // Step 2: Resolve VAT type (need at least one for order lines)
-        var vatTypeId = await ResolveDefaultVatTypeId(api);
 
         // Step 3: Build order lines
         var lines = BuildOrderLines(extracted, vatTypeId);
