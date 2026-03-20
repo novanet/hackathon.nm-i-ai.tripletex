@@ -13,6 +13,7 @@ SRC_DIR="$SCRIPT_DIR/../src"
 
 TASK_ID="cccccccc-cccc-cccc-cccc-cccccccccccc"
 API_BASE="https://api.ainm.no"
+LEADERBOARD_URL="$API_BASE/tripletex/leaderboard/996fca4f-53fc-4585-bc65-b7a632fe7478"
 
 TOKEN=""
 NO_WAIT=false
@@ -285,6 +286,49 @@ print(json.dumps(entry))
 
     echo ""
     echo -e "\033[32mResults saved to results.jsonl\033[0m"
+fi
+
+# --- Fetch leaderboard snapshot ---
+LEADERBOARD_FILE="$SRC_DIR/logs/leaderboard.jsonl"
+mkdir -p "$(dirname "$LEADERBOARD_FILE")"
+
+LEADERBOARD_RAW=$(curl -s "$LEADERBOARD_URL" --max-time 15 2>/dev/null || true)
+if [[ -n "$LEADERBOARD_RAW" && "$LEADERBOARD_RAW" != "null" ]]; then
+    python3 -c "
+import json, sys
+from datetime import datetime, timezone
+
+try:
+    tasks = json.loads('''$LEADERBOARD_RAW''')
+    total_score = sum(t.get('best_score', 0) for t in tasks)
+    entry = {
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'submission_id': '$SUBMISSION_ID',
+        'total_best_score': round(total_score, 4),
+        'task_count': len(tasks),
+        'tasks': tasks,
+    }
+    print(json.dumps(entry))
+except Exception as e:
+    print(json.dumps({'error': str(e), 'raw': '''$LEADERBOARD_RAW'''[:200]}), file=sys.stderr)
+" >> "$LEADERBOARD_FILE" 2>/dev/null
+
+    TOTAL=$(python3 -c "
+import json
+tasks = json.loads('''$LEADERBOARD_RAW''')
+total = sum(t.get('best_score', 0) for t in tasks)
+zeros = [t['tx_task_id'] for t in tasks if t.get('best_score', 0) == 0]
+print(f'Total: {total:.2f} across {len(tasks)} tasks')
+if zeros: print(f'  Zero-score tasks: {', '.join(zeros)}')
+" 2>/dev/null || true)
+
+    echo ""
+    echo -e "\033[32mLeaderboard snapshot saved to leaderboard.jsonl\033[0m"
+    if [[ -n "$TOTAL" ]]; then
+        echo -e "\033[33m$TOTAL\033[0m"
+    fi
+else
+    echo -e "\033[33mWARNING: Failed to fetch leaderboard.\033[0m"
 fi
 
 # --- Replay new competition requests locally ---
