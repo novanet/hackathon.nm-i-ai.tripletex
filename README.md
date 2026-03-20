@@ -35,7 +35,23 @@ To submit:
 
 ## Local Testing
 
-PowerShell scripts are included for the full dev-to-submission workflow:
+Helper scripts are provided for the full dev-to-submission workflow. Use the **bash** versions on macOS/Linux and the **PowerShell** versions on Windows.
+
+**macOS / Linux:**
+
+```bash
+# 1. Start the agent
+./scripts/start-agent.sh --background
+
+# 2. Test a prompt locally
+./scripts/test-solve.sh "Opprett en kunde med navn 'Test AS'"
+
+# 3. Submit a competition run (auto-starts tunnel if needed)
+export AINM_TOKEN="<access_token from browser cookies>"
+./scripts/submit-run.sh
+```
+
+**Windows (PowerShell):**
 
 ```powershell
 # 1. Start the agent
@@ -51,15 +67,27 @@ $env:AINM_TOKEN = "<access_token from browser cookies>"
 
 ### Scripts
 
-| Script                  | Description                                                                                                               |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `Start-Agent.ps1`       | Kill existing agent + rebuild + start. Supports `-Background` flag.                                                       |
-| `Test-Solve.ps1`        | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets.                   |
-| `Start-Tunnel.ps1`      | Start ngrok HTTPS tunnel to localhost:5000.                                                                               |
-| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`, `-FixDns`.                          |
-| `Submit-Run.ps1`        | Full submission flow: auto-starts agent + tunnel, submits, polls 2 min, replays locally. Supports `-NoWait`, `-NoReplay`. |
+| Bash (macOS/Linux)       | PowerShell (Windows)    | Description                                                                                                               |
+| ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `start-agent.sh`         | `Start-Agent.ps1`       | Kill existing agent + rebuild + start. Supports `--background` / `-Background`.                                           |
+| `test-solve.sh`          | `Test-Solve.ps1`        | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets.                   |
+| `start-tunnel.sh`        | `Start-Tunnel.ps1`      | Start ngrok HTTPS tunnel to localhost:5000.                                                                               |
+| `start-cloudflared.sh`   | `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed). Supports `--kill` / `-Kill`.                                           |
+| `submit-run.sh`          | `Submit-Run.ps1`        | Full submission flow: auto-starts agent + tunnel, submits, polls 2 min, replays locally. Supports `--no-wait` / `-NoWait`, `--no-replay` / `-NoReplay`. |
 
 The test script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
+
+**macOS / Linux:**
+
+```bash
+./scripts/test-solve.sh \
+    --base-url "https://kkpqfuj-amager.tripletex.dev/v2" \
+    --token "<your-token>" \
+    --port 5000 \
+    "Create an employee named Ola Nordmann"
+```
+
+**Windows (PowerShell):**
 
 ```powershell
 .\scripts\Test-Solve.ps1 -Prompt "Create an employee named Ola Nordmann" `
@@ -72,17 +100,17 @@ After each request, the script prints the response and tails the latest log file
 
 ### Competition Submission
 
-The `Submit-Run.ps1` script handles the full submission flow:
+The `submit-run.sh` / `Submit-Run.ps1` script handles the full submission flow:
 
-1. Checks that the agent is running — auto-starts via `Start-Agent.ps1 -Background` if not
-2. Checks that cloudflared is running — auto-starts via `Start-Cloudflared.ps1` if no tunnel found
+1. Checks that the agent is running — auto-starts via `start-agent.sh --background` / `Start-Agent.ps1 -Background` if not
+2. Checks that cloudflared is running — auto-starts via `start-cloudflared.sh` / `Start-Cloudflared.ps1` if no tunnel found
 3. Sends a health check ping, then submits to `https://api.ainm.no/tasks/{taskId}/submissions`
 4. Polls for results every 10s for up to 2 minutes
-5. After completion, replays new competition requests locally via `Test-Solve.ps1` and summarizes findings
+5. After completion, replays new competition requests locally via `test-solve.sh` / `Test-Solve.ps1` and summarizes findings
 
 Flags:
-- `-NoWait` — submit without polling or replay
-- `-NoReplay` — poll but skip local replay
+- `--no-wait` / `-NoWait` — submit without polling or replay
+- `--no-replay` / `-NoReplay` — poll but skip local replay
 
 **Constraints:** Max 32 submissions/day, max 3 concurrent (HTTP 429 if exceeded).
 
@@ -95,6 +123,19 @@ Some ISPs (notably **Telenor** in Norway) have DNS resolvers that fail to resolv
 - The tunnel works fine on mobile data or other networks
 
 **Fix — run these commands in an elevated (Admin) PowerShell:**
+
+**macOS / Linux:**
+
+```bash
+# 1. Add a static hosts entry
+sudo sh -c 'echo "104.16.230.132 api.trycloudflare.com" >> /etc/hosts'
+
+# 2. Restart cloudflared
+./scripts/start-cloudflared.sh --kill
+./scripts/start-cloudflared.sh
+```
+
+**Windows (PowerShell, elevated):**
 
 ```powershell
 # 1. Add a static hosts entry for the cloudflared API endpoint
@@ -109,7 +150,7 @@ Get-Process -Name cloudflared | Stop-Process -Force
 .\scripts\Start-Cloudflared.ps1
 ```
 
-Alternatively, run `Start-Cloudflared.ps1 -FixDns` which will attempt the DNS fix automatically (requires Admin).
+Alternatively, run `Start-Cloudflared.ps1 -FixDns` on Windows which will attempt the DNS fix automatically (requires Admin).
 
 > **Note:** Replace `"Wi-Fi"` with your actual network adapter name if different (use `Get-NetAdapter` to check).
 

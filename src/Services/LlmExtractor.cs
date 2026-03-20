@@ -60,6 +60,8 @@ public class LlmExtractor
         - For payroll/salary tasks (running payroll, creating salary slips, paying salary), use "run_payroll". Extract into entities: "employee": {"firstName", "lastName", "email"} and "payroll": {"baseSalary": <number>, "bonus": <number>}
         - For vouchers with custom accounting dimensions, extract the dimension in a separate "dimension" entity: {"name": "Region", "values": ["Vestlandet", "Sør-Norge"]}. In the voucher entity, include "dimensionValue": "Vestlandet" for the value to link to the posting, plus "account": "6300" and "amount": 35500. If the prompt specifies debit/credit accounts explicitly, use "debitAccount" and "creditAccount" in the voucher entity instead.
         - For supplier invoices (incoming invoices from suppliers), use task_type "create_voucher". In the voucher entity, include: "supplierName", "supplierOrgNumber", "invoiceNumber", "account" (expense account number), "amount" (gross amount incl. VAT), "date", and "vatRate" (e.g. "25") if specified.
+        - For supplier tasks, extract ALL mentioned fields into a "supplier" entity: "name", "email", "organizationNumber", "phoneNumber", "phoneNumberMobile", "address" (with "addressLine1", "postalCode", "city")
+        - For customer tasks, extract ALL mentioned fields into a "customer" entity: "name", "email", "organizationNumber", "phoneNumber", "phoneNumberMobile", "address" (with "addressLine1", "postalCode", "city")
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)

@@ -80,7 +80,9 @@
       "database": "Cato",
       "trustServerCertificate": true,
       "profileName": "Cato LocalDB",
-      "password": ""
+      "password": "",
+      "groupId": "ROOT",
+      "id": "d521e9b3-f18b-4d2c-87e5-6a8c7a723fd5"
     }
   ],
 
