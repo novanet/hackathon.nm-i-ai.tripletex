@@ -12,6 +12,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Employee `dateOfBirth` must be set** before creating employment — otherwise 422 "Feltet må fylles ut". Always extract DOB from prompt. _(2026-03-20)_
 - **Employee `userType` must not be `"0"` or empty** — use `"STANDARD"`. Error: "Brukertype kan ikke være «0» eller tom." _(2026-03-20)_
 - **Employee `email` is required** for Tripletex users — 422 "Må angis for Tripletex-brukere" if missing. _(2026-03-20)_
+- **Employment `division` required in some environments** — sandbox requires `division.id` on `POST /employee/employment` ("Arbeidsforholdet må knyttes til en virksomhet/underenhet"), but competition environments work without it. Handler retries with division lookup on failure. _(2026-03-20)_
 - **Project `startDate` is required** — defaults to today if not specified in prompt. Error: "Feltet må fylles ut." _(2026-03-20)_
 - **Project manager needs entitlements** — must call `PUT /employee/entitlement/:grantEntitlementsByTemplate?template=ALL_PRIVILEGES` before assigning as PM. Error: "Oppgitt prosjektleder har ikke fått tilgang som prosjektleder i kontoen". _(2026-03-20)_
 - **Invoice requires company bank account** — the company (not customer) must have a bank account registered. Error: "Faktura kan ikke opprettes før selskapet har registrert et bankkontonummer." Seen in competition but not sandbox. _(2026-03-20)_
@@ -27,6 +28,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Employee entity sometimes missing email** — even when clearly stated in the prompt (Portuguese prompts). Ensure extraction schema marks email as required. _(2026-03-20)_
 - **Full JSON object serialized as query param** — bug where the entire employee JSON was URL-encoded into `firstName=` and `lastName=` search params instead of just the string values. Check handler code carefully when using extracted nested objects. _(2026-03-20)_
 - **Travel expense misrouted to VoucherHandler** — extraction returned `create_voucher` instead of `create_travel_expense`. Ensure LLM system prompt clearly distinguishes the two task types. _(2026-03-20)_
+- **Handler name logging race condition** — `TaskRouter.LastHandlerName` was shared singleton state, corrupted by concurrent requests. Fixed: `RouteAsync` now returns handler name in tuple. Previous competition logs showing "TravelExpenseHandler" for employee tasks were false — actual routing was correct. _(2026-03-20)_
 - **Composite task extraction varies** — LLM may put employee/activity data under `timeRegistration` entity OR as separate `employee`/`project.activity` entities. Handler must check both paths. _(2026-03-20)_
 - **Voucher dimension nested in voucher entity** — LLM sometimes puts `"dimension": {"name": "Region", "value": "Vestlandet"}` inside the voucher entity instead of as a separate `"dimension"` entity. VoucherHandler has fallback to extract it from `voucher["dimension"]`. Also check singular `"value"` vs plural `"values"` key. _(2026-03-20)_
 

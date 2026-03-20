@@ -103,11 +103,35 @@ public class EmployeeHandler : ITaskHandler
         if (!string.IsNullOrEmpty(startDate))
         {
             _logger.LogInformation("Creating employment for employee {Id} with startDate {StartDate}", employeeId, startDate);
-            await api.PostAsync("/employee/employment", new
+            try
             {
-                employee = new { id = employeeId },
-                startDate = startDate
-            });
+                await api.PostAsync("/employee/employment", new
+                {
+                    employee = new { id = employeeId },
+                    startDate = startDate
+                });
+            }
+            catch (TripletexApiException ex) when (ex.Message.Contains("division", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("virksomhet", StringComparison.OrdinalIgnoreCase))
+            {
+                // Some environments require a division on employment — look one up and retry
+                _logger.LogInformation("Employment requires division, looking one up...");
+                var divResult = await api.GetAsync("/division", new Dictionary<string, string>
+                {
+                    ["count"] = "1",
+                    ["fields"] = "id"
+                });
+                long? divId = null;
+                if (divResult.TryGetProperty("values", out var divs) && divs.GetArrayLength() > 0)
+                    divId = divs[0].GetProperty("id").GetInt64();
+
+                await api.PostAsync("/employee/employment", new
+                {
+                    employee = new { id = employeeId },
+                    startDate = startDate,
+                    division = divId.HasValue ? new { id = divId.Value } : null
+                });
+            }
         }
 
         // Assign administrator role if needed

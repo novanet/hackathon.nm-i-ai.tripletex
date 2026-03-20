@@ -59,6 +59,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
 
     ExtractionResult? extracted = null;
     TripletexApiClient? api = null;
+    string? handlerName = null;
 
     try
     {
@@ -76,7 +77,17 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         // Post-processing: fix common LLM misclassifications
         var promptLower = request.Prompt.ToLowerInvariant();
 
-        // Override to create_employee if LLM missed it
+        // Override to create_employee if LLM missed it (covers unknown, misclassified travel/voucher, etc.)
+        if (extracted.TaskType is not "create_employee" and not "update_employee" and not "register_payment" and not "run_payroll" &&
+            System.Text.RegularExpressions.Regex.IsMatch(promptLower,
+                @"\b(ny\s+(?:ansatt|tilsett)|new\s+employee|nuevo\s+empleado|neuer?\s+mitarbeiter|nouvel?\s+employ[ée]|novo\s+(?:empregado|funcion[áa]rio))\b") &&
+            !System.Text.RegularExpressions.Regex.IsMatch(promptLower,
+                @"\b(reise|travel|viaje|viagem|voyage|reiserekning|reiseregning)\b"))
+        {
+            extracted.TaskType = "create_employee";
+            logger.LogInformation("Overriding task_type to create_employee (strong employee-creation keywords detected, was {Original})", extracted.TaskType);
+        }
+        // Weaker fallback: single keyword match only for truly unknown tasks
         if (extracted.TaskType is "unknown" or "create_contact" &&
             System.Text.RegularExpressions.Regex.IsMatch(promptLower,
                 @"\b(ansatt|tilsett|employee|empleado|funcionário|funcionario|mitarbeiter|employé|empregado)\b"))
@@ -178,10 +189,10 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         if (isDryRun)
         {
             sw.Stop();
-            var handlerName = router.GetHandlerName(extracted.TaskType);
+            var dryRunHandler = router.GetHandlerName(extracted.TaskType);
             logger.LogInformation("DRY_RUN: would route to {Handler} for {TaskType} — skipping execution ({Elapsed}ms)",
-                handlerName, extracted.TaskType, sw.ElapsedMilliseconds);
-            LogRecon(request, extracted, handlerName, sw.ElapsedMilliseconds);
+                dryRunHandler, extracted.TaskType, sw.ElapsedMilliseconds);
+            LogRecon(request, extracted, dryRunHandler, sw.ElapsedMilliseconds);
             return Results.Ok();
         }
 
@@ -196,7 +207,8 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         api = new TripletexApiClient(baseUrl, sessionToken, apiLogger);
 
         // Step 3: Route to handler
-        var (handled, handlerResult) = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
+        var (handled, handlerResult, routedHandlerName) = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
+        handlerName = routedHandlerName;
 
         if (!handled)
         {
@@ -224,7 +236,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         }
 
         // Structured submission log (submissions.jsonl)
-        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext);
+        LogSubmission(request, extracted, api, handlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext);
 
         return Results.Json(new { status = "completed" });
     }
@@ -232,7 +244,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
     {
         sw.Stop();
         logger.LogError(ex, "Error processing /solve request");
-        LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: false, error: ex.Message, httpContext);
+        LogSubmission(request, extracted, api, handlerName ?? router.GetHandlerName(extracted?.TaskType ?? "unknown"), sw.ElapsedMilliseconds, success: false, error: ex.Message, httpContext);
         return Results.Json(new { status = "completed" });
     }
 });

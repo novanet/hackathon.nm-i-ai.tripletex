@@ -236,9 +236,9 @@ public class LlmExtractor
             var emp = new Dictionary<string, object>();
 
             // Extract name in quotes or after "navn/name/nombre/nom"
-            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|namens|llamad[oa]|nommée?|chamad[oa])\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)", RegexOptions.None);
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|namens|llamad[oa]|nommée?|chamad[oa]|heiter|heter)\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)", RegexOptions.None);
             if (!nameMatch.Success)
-                nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|llamad[oa]|nommée?)\s*'([^']+)'", RegexOptions.IgnoreCase);
+                nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|llamad[oa]|nommée?|heiter|heter)\s*'([^']+)'", RegexOptions.IgnoreCase);
             if (nameMatch.Success)
             {
                 var parts = nameMatch.Groups[1].Value.Trim().Split(' ', 2);
@@ -260,7 +260,7 @@ public class LlmExtractor
             if (phoneMatch.Success) emp["phoneNumberMobile"] = phoneMatch.Groups[1].Value.Trim();
 
             // Extract dates (dateOfBirth, startDate) — look for date patterns near keywords
-            var dobMatch = Regex.Match(prompt, @"(?:født|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
+            var dobMatch = Regex.Match(prompt, @"(?:født|fødd|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|em\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
             if (dobMatch.Success) { var d = TryParseDate(dobMatch); if (d != null) emp["dateOfBirth"] = d; }
 
             var sdMatch = Regex.Match(prompt, @"(?:startdato|startdatum|start\s*date|fecha\s*de\s*inicio|data\s*de\s*início|date\s*de\s*début|début)\s*(?:el\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);

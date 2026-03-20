@@ -9,7 +9,6 @@ public class TaskRouter
     private readonly Dictionary<string, ITaskHandler> _handlers;
     private readonly FallbackAgentHandler _fallback;
     private readonly ILogger<TaskRouter> _logger;
-    public string? LastHandlerName { get; private set; }
 
     public TaskRouter(IServiceProvider services, ILogger<TaskRouter> logger)
     {
@@ -48,22 +47,21 @@ public class TaskRouter
         return "FallbackAgentHandler";
     }
 
-    public async Task<(bool handled, HandlerResult result)> RouteAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt = "", List<Models.SolveFile>? files = null)
+    public async Task<(bool handled, HandlerResult result, string handlerName)> RouteAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt = "", List<Models.SolveFile>? files = null)
     {
         var taskType = InferTaskType(extracted);
 
         if (_handlers.TryGetValue(taskType, out var handler))
         {
-            LastHandlerName = handler.GetType().Name;
-            _logger.LogInformation("Routing to deterministic handler for {TaskType} ({Handler})", taskType, LastHandlerName);
+            var handlerName = handler.GetType().Name;
+            _logger.LogInformation("Routing to deterministic handler for {TaskType} ({Handler})", taskType, handlerName);
             var result = await handler.HandleAsync(api, extracted);
-            return (true, result);
+            return (true, result, handlerName);
         }
 
-        LastHandlerName = "FallbackAgentHandler";
         _logger.LogInformation("No deterministic handler for {TaskType} — using fallback agent", taskType);
         await _fallback.HandleWithPromptAsync(api, extracted, originalPrompt, files);
-        return (true, HandlerResult.Empty);
+        return (true, HandlerResult.Empty, "FallbackAgentHandler");
     }
 
     private string InferTaskType(ExtractionResult extracted)
@@ -107,6 +105,14 @@ public class TaskRouter
             _logger.LogInformation("Inferred task_type run_payroll (was {Original})", tt);
             extracted.TaskType = "run_payroll";
             return "run_payroll";
+        }
+
+        var hasEmployee = extracted.Entities.ContainsKey("employee") && extracted.Entities["employee"].Count > 0;
+        if (hasEmployee && !extracted.Entities.ContainsKey("travelExpense") && !extracted.Entities.ContainsKey("travel_expense"))
+        {
+            _logger.LogInformation("Inferred task_type create_employee from employee entity (was {Original})", tt);
+            extracted.TaskType = "create_employee";
+            return "create_employee";
         }
 
         return tt;
