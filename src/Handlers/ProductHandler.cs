@@ -17,10 +17,11 @@ public class ProductHandler : ITaskHandler
 
         var body = new Dictionary<string, object>();
         SetIfPresent(body, prod, "name");
-        SetIfPresent(body, prod, "number");
-        SetIfPresent(body, prod, "priceExcludingVatCurrency");
-        SetIfPresent(body, prod, "priceIncludingVatCurrency");
-        SetIfPresent(body, prod, "costExcludingVatCurrency");
+        // Map LLM aliases to Tripletex API field names
+        SetWithAlias(body, prod, "number", "productNumber", "number");
+        SetWithAlias(body, prod, "priceExcludingVatCurrency", "priceExcludingVAT", "priceExcludingVatCurrency", "price");
+        SetWithAlias(body, prod, "priceIncludingVatCurrency", "priceIncludingVAT", "priceIncludingVatCurrency");
+        SetWithAlias(body, prod, "costExcludingVatCurrency", "costExcludingVAT", "costExcludingVatCurrency", "cost");
         SetIfPresent(body, prod, "isStockItem");
         SetIfPresent(body, prod, "isInactive");
 
@@ -103,6 +104,21 @@ public class ProductHandler : ITaskHandler
         if (source.TryGetValue(key, out var val) && val is not null)
         {
             body[key] = val is JsonElement je ? je.ToString() : val;
+        }
+    }
+
+    /// <summary>
+    /// Sets body[apiKey] from the first matching alias found in source.
+    /// </summary>
+    private static void SetWithAlias(Dictionary<string, object> body, Dictionary<string, object> source, string apiKey, params string[] aliases)
+    {
+        foreach (var alias in aliases)
+        {
+            if (source.TryGetValue(alias, out var val) && val is not null)
+            {
+                body[apiKey] = val is JsonElement je ? je.ToString() : val;
+                return;
+            }
         }
     }
 }

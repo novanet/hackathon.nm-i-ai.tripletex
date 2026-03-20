@@ -55,13 +55,13 @@ $env:AINM_TOKEN = "<access_token from browser cookies>"
 
 ### Scripts
 
-| Script | Description |
-| --- | --- |
-| `Start-Agent.ps1` | Kill existing agent + rebuild + start. Supports `-Background` flag. |
-| `Test-Solve.ps1` | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets. |
-| `Start-Tunnel.ps1` | Start ngrok HTTPS tunnel to localhost:5000. |
-| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`. |
-| `Submit-Run.ps1` | Auto-detect tunnel, health check, submit to competition API, poll for results. Supports `-NoWait`. |
+| Script                  | Description                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| `Start-Agent.ps1`       | Kill existing agent + rebuild + start. Supports `-Background` flag.                                     |
+| `Test-Solve.ps1`        | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets. |
+| `Start-Tunnel.ps1`      | Start ngrok HTTPS tunnel to localhost:5000.                                                             |
+| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`.                   |
+| `Submit-Run.ps1`        | Auto-detect tunnel, health check, submit to competition API, poll for results. Supports `-NoWait`.      |
 
 The test script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
 
@@ -77,6 +77,7 @@ After each request, the script prints the response and tails the latest log file
 ### Competition Submission
 
 The `Submit-Run.ps1` script handles the full submission flow:
+
 1. Verifies agent is running
 2. Finds active tunnel URL (cloudflared → ngrok fallback)
 3. Sends a health check ping to the endpoint
