@@ -44,24 +44,20 @@ PowerShell scripts are included for the full dev-to-submission workflow:
 # 2. Test a prompt locally
 .\scripts\Test-Solve.ps1 "Opprett en kunde med navn 'Test AS'"
 
-# 3. Start HTTPS tunnel (in a separate terminal)
-.\scripts\Start-Tunnel.ps1              # ngrok
-.\scripts\Start-Cloudflared.ps1         # or cloudflare (no account needed)
-
-# 4. Submit a competition run
+# 3. Submit a competition run (auto-starts tunnel if needed)
 $env:AINM_TOKEN = "<access_token from browser cookies>"
 .\scripts\Submit-Run.ps1
 ```
 
 ### Scripts
 
-| Script                  | Description                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------- |
-| `Start-Agent.ps1`       | Kill existing agent + rebuild + start. Supports `-Background` flag.                                     |
-| `Test-Solve.ps1`        | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets. |
-| `Start-Tunnel.ps1`      | Start ngrok HTTPS tunnel to localhost:5000.                                                             |
-| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`, `-FixDns`.        |
-| `Submit-Run.ps1`        | Auto-detect tunnel, health check, submit to competition API, poll for results. Supports `-NoWait`.      |
+| Script                  | Description                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `Start-Agent.ps1`       | Kill existing agent + rebuild + start. Supports `-Background` flag.                                                       |
+| `Test-Solve.ps1`        | Send a prompt to the local agent, print response + tail logs. Reads credentials from .NET user-secrets.                   |
+| `Start-Tunnel.ps1`      | Start ngrok HTTPS tunnel to localhost:5000.                                                                               |
+| `Start-Cloudflared.ps1` | Start Cloudflare quick tunnel (no account needed, no interstitial). Supports `-Kill`, `-FixDns`.                          |
+| `Submit-Run.ps1`        | Full submission flow: auto-starts agent + tunnel, submits, polls 2 min, replays locally. Supports `-NoWait`, `-NoReplay`. |
 
 The test script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
 
@@ -78,11 +74,15 @@ After each request, the script prints the response and tails the latest log file
 
 The `Submit-Run.ps1` script handles the full submission flow:
 
-1. Verifies agent is running
-2. Finds active tunnel URL (cloudflared → ngrok fallback)
-3. Sends a health check ping to the endpoint
-4. POSTs to `https://api.ainm.no/tasks/{taskId}/submissions`
-5. Polls for results every 10s (up to 10 min)
+1. Checks that the agent is running — auto-starts via `Start-Agent.ps1 -Background` if not
+2. Checks that cloudflared is running — auto-starts via `Start-Cloudflared.ps1` if no tunnel found
+3. Sends a health check ping, then submits to `https://api.ainm.no/tasks/{taskId}/submissions`
+4. Polls for results every 10s for up to 2 minutes
+5. After completion, replays new competition requests locally via `Test-Solve.ps1` and summarizes findings
+
+Flags:
+- `-NoWait` — submit without polling or replay
+- `-NoReplay` — poll but skip local replay
 
 **Constraints:** Max 32 submissions/day, max 3 concurrent (HTTP 429 if exceeded).
 

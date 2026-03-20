@@ -31,6 +31,7 @@ builder.Services.AddSingleton<EnableModuleHandler>();
 builder.Services.AddSingleton<PayrollHandler>();
 builder.Services.AddSingleton<TaskRouter>();
 builder.Services.AddSingleton<SandboxValidator>();
+builder.Services.AddSingleton<TripletexKnowledgeService>();
 
 // LLM extractor
 var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")

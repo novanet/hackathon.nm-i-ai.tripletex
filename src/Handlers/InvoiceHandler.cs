@@ -26,14 +26,50 @@ public class InvoiceHandler : ITaskHandler
         // Step 0+1+2: Ensure bank account, find/create customer, resolve VAT type — all in parallel
         var bankTask = EnsureBankAccount(api);
         var customerTask = ResolveOrCreateCustomer(api, cust, invoice, extracted);
-        var vatTypeTask = ResolveDefaultVatTypeId(api);
+        var vatTypeTask = ResolveVatTypes(api);
         await Task.WhenAll(bankTask, customerTask, vatTypeTask);
         var customerId = customerTask.Result;
-        var vatTypeId = vatTypeTask.Result;
+        var (vatTypeId, vatTypesArray) = vatTypeTask.Result;
+        var outputRateMap = BuildOutputRateMap(vatTypesArray);
         _logger.LogInformation("Using customer ID: {Id}", customerId);
 
-        // Step 3: Build order lines
-        var lines = BuildOrderLines(extracted, vatTypeId);
+        // Composite task: if project + timeRegistration/employee are present, create project, activity, and register timesheet hours
+        var projectEntity = extracted.Entities.GetValueOrDefault("project");
+        var employeeEntity = extracted.Entities.GetValueOrDefault("employee");
+        var timeRegEntity = extracted.Entities.GetValueOrDefault("timeRegistration");
+
+        // If timeRegistration contains employee info, extract it
+        if (timeRegEntity != null && employeeEntity == null)
+        {
+            if (timeRegEntity.TryGetValue("employee", out var empVal) && empVal is JsonElement empJson && empJson.ValueKind == JsonValueKind.Object)
+            {
+                employeeEntity = new Dictionary<string, object>();
+                foreach (var prop in empJson.EnumerateObject())
+                    employeeEntity[prop.Name] = prop.Value;
+            }
+        }
+
+        // If timeRegistration has activity, merge it into project entity
+        if (timeRegEntity != null && projectEntity != null)
+        {
+            if (!projectEntity.ContainsKey("activity") && timeRegEntity.TryGetValue("activity", out var actVal))
+                projectEntity["activity"] = actVal;
+            if (!projectEntity.ContainsKey("hourlyRate") && timeRegEntity.TryGetValue("hourlyRate", out var hrVal))
+                projectEntity["hourlyRate"] = hrVal;
+            if (!projectEntity.ContainsKey("hours") && timeRegEntity.TryGetValue("hours", out var hrsVal))
+                projectEntity["hours"] = hrsVal;
+        }
+
+        if (projectEntity != null && projectEntity.Count > 0 && employeeEntity != null && employeeEntity.Count > 0)
+        {
+            await CreateProjectAndRegisterHours(api, extracted, customerId, projectEntity, employeeEntity);
+        }
+
+        // Step 3: Build order lines with per-line VAT types
+        var lines = BuildOrderLines(extracted, vatTypeId, outputRateMap);
+
+        // Step 3.5: Create products for lines with product codes
+        await CreateProductsForLines(api, lines, extracted, vatTypeId, outputRateMap);
 
         // Step 4: Create order
         var invoiceDate = GetStringField(invoice, "invoiceDate")
@@ -111,6 +147,168 @@ public class InvoiceHandler : ITaskHandler
         return (invoiceId, invoiceAmount);
     }
 
+    private async Task CreateProjectAndRegisterHours(TripletexApiClient api, ExtractionResult extracted,
+        long customerId, Dictionary<string, object> projectEntity, Dictionary<string, object> employeeEntity)
+    {
+        try
+        {
+            // 1. Create project
+            var projectName = GetStringField(projectEntity, "name") ?? "Prosjekt";
+            var projectBody = new Dictionary<string, object>
+            {
+                ["name"] = projectName,
+                ["startDate"] = DateTime.Today.ToString("yyyy-MM-dd"),
+                ["customer"] = new { id = customerId }
+            };
+
+            // Resolve project manager — need at least one employee
+            var firstEmpResult = await api.GetAsync("/employee", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
+            if (firstEmpResult.TryGetProperty("values", out var empVals) && empVals.GetArrayLength() > 0)
+                projectBody["projectManager"] = new { id = empVals[0].GetProperty("id").GetInt64() };
+
+            var projectResult = await api.PostAsync("/project", projectBody);
+            var projectId = projectResult.GetProperty("value").GetProperty("id").GetInt64();
+            _logger.LogInformation("Created project '{Name}' ID: {Id}", projectName, projectId);
+
+            // 2. Create or find activity
+            var activityName = GetStringField(projectEntity, "activity") ?? "Aktivitet";
+            long activityId;
+
+            // Search for existing activity by name
+            var activitySearch = await api.GetAsync("/activity", new Dictionary<string, string>
+            {
+                ["name"] = activityName,
+                ["count"] = "1",
+                ["fields"] = "id,name,activityType"
+            });
+
+            if (activitySearch.TryGetProperty("values", out var actVals) && actVals.GetArrayLength() > 0)
+            {
+                activityId = actVals[0].GetProperty("id").GetInt64();
+                _logger.LogInformation("Found existing activity '{Name}' ID: {Id}", activityName, activityId);
+            }
+            else
+            {
+                // Create a new project-general activity
+                var activityBody = new Dictionary<string, object>
+                {
+                    ["name"] = activityName,
+                    ["activityType"] = "PROJECT_GENERAL_ACTIVITY"
+                };
+
+                // Set rate if hourly rate is specified
+                var hourlyRate = GetStringField(projectEntity, "hourlyRate")
+                    ?? GetStringField(projectEntity, "rate");
+                if (hourlyRate != null && decimal.TryParse(hourlyRate, NumberStyles.Any, CultureInfo.InvariantCulture, out var rate))
+                    activityBody["rate"] = rate;
+
+                var activityResult = await api.PostAsync("/activity", activityBody);
+                activityId = activityResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created activity '{Name}' ID: {Id}", activityName, activityId);
+            }
+
+            // 3. Link activity to project via projectActivity
+            var projectActivityBody = new Dictionary<string, object>
+            {
+                ["project"] = new { id = projectId },
+                ["activity"] = new { id = activityId }
+            };
+
+            // Set hourly rate on project activity if known
+            var hrStr = GetStringField(projectEntity, "hourlyRate")
+                ?? GetStringField(projectEntity, "rate");
+            if (hrStr != null && decimal.TryParse(hrStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var hrRate))
+                projectActivityBody["budgetHourlyRateCurrency"] = hrRate;
+
+            try
+            {
+                await api.PostAsync("/project/projectActivity", projectActivityBody);
+                _logger.LogInformation("Linked activity {ActId} to project {ProjId}", activityId, projectId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to link activity to project (non-fatal)");
+            }
+
+            // 4. Find or create employee
+            var empFirstName = GetStringField(employeeEntity, "firstName") ?? "";
+            var empLastName = GetStringField(employeeEntity, "lastName") ?? "";
+            var empEmail = GetStringField(employeeEntity, "email");
+            long employeeId;
+
+            var empSearch = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" };
+            if (!string.IsNullOrEmpty(empFirstName)) empSearch["firstName"] = empFirstName;
+            if (!string.IsNullOrEmpty(empLastName)) empSearch["lastName"] = empLastName;
+
+            var empResult = await api.GetAsync("/employee", empSearch);
+            if (empResult.TryGetProperty("values", out var foundEmps) && foundEmps.GetArrayLength() > 0)
+            {
+                employeeId = foundEmps[0].GetProperty("id").GetInt64();
+                _logger.LogInformation("Found employee {First} {Last} ID: {Id}", empFirstName, empLastName, employeeId);
+            }
+            else
+            {
+                // Create employee
+                var empBody = new Dictionary<string, object>
+                {
+                    ["firstName"] = empFirstName,
+                    ["lastName"] = !string.IsNullOrEmpty(empLastName) ? empLastName : "Ansatt",
+                    ["dateOfBirth"] = "1990-01-01",
+                    ["userType"] = "STANDARD"
+                };
+                if (!string.IsNullOrEmpty(empEmail)) empBody["email"] = empEmail;
+
+                // Need department
+                var deptResult = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
+                if (deptResult.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
+                    empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+
+                var createEmpResult = await api.PostAsync("/employee", empBody);
+                employeeId = createEmpResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created employee {First} {Last} ID: {Id}", empFirstName, empLastName, employeeId);
+            }
+
+            // 5. Register timesheet entry
+            decimal hours = 0;
+            // Try hours from project entity (may be merged from timeRegistration)
+            var hoursStr = GetStringField(projectEntity, "hours") ?? GetStringField(employeeEntity, "hours");
+            if (hoursStr != null) decimal.TryParse(hoursStr, NumberStyles.Any, CultureInfo.InvariantCulture, out hours);
+
+            // Fallback: try from invoice orderLines count
+            if (hours <= 0)
+            {
+                var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+                if (invoiceEntity.TryGetValue("orderLines", out var olVal) && olVal is JsonElement olJson && olJson.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in olJson.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("count", out var cnt))
+                            hours = cnt.ValueKind == JsonValueKind.Number ? cnt.GetDecimal() : decimal.TryParse(cnt.GetString(), out var h) ? h : 0;
+                    }
+                }
+            }
+            if (hours <= 0) hours = 1; // fallback
+
+            var timesheetBody = new Dictionary<string, object>
+            {
+                ["employee"] = new { id = employeeId },
+                ["activity"] = new { id = activityId },
+                ["project"] = new { id = projectId },
+                ["date"] = DateTime.Today.ToString("yyyy-MM-dd"),
+                ["hours"] = hours
+            };
+
+            var tsResult = await api.PostAsync("/timesheet/entry", timesheetBody);
+            var tsId = tsResult.GetProperty("value").GetProperty("id").GetInt64();
+            _logger.LogInformation("Created timesheet entry ID: {Id}, {Hours}h for employee {EmpId} on project {ProjId}",
+                tsId, hours, employeeId, projectId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create project/timesheet (non-fatal, invoice will still be created)");
+        }
+    }
+
     private async Task<long> ResolveOrCreateCustomer(TripletexApiClient api,
         Dictionary<string, object> cust, Dictionary<string, object> invoice, ExtractionResult extracted)
     {
@@ -172,9 +370,27 @@ public class InvoiceHandler : ITaskHandler
         }
     }
 
-    internal static List<Dictionary<string, object>> BuildOrderLines(ExtractionResult extracted, long vatTypeId)
+    internal static List<Dictionary<string, object>> BuildOrderLines(ExtractionResult extracted, long vatTypeId, Dictionary<int, long>? outputRateMap = null)
     {
         var lines = new List<Dictionary<string, object>>();
+
+        // Check if the invoice explicitly states no VAT (e.g. "sem IVA", "excluding VAT", "uten mva")
+        // In that case, use 0% VAT type instead of default 25%
+        var invoiceForVat = extracted.Entities.GetValueOrDefault("invoice");
+        if (invoiceForVat != null && invoiceForVat.TryGetValue("vatIncluded", out var vatInclObj))
+        {
+            bool vatIncluded = vatInclObj switch
+            {
+                bool b => b,
+                JsonElement je when je.ValueKind == JsonValueKind.False => false,
+                JsonElement je when je.ValueKind == JsonValueKind.True => true,
+                _ => true
+            };
+            if (!vatIncluded && outputRateMap != null && outputRateMap.TryGetValue(0, out var zeroVatId))
+            {
+                vatTypeId = zeroVatId;
+            }
+        }
 
         // Try to parse from orderLines entity
         var orderLinesEntity = extracted.Entities.GetValueOrDefault("orderLines");
@@ -185,7 +401,7 @@ public class InvoiceHandler : ITaskHandler
                 // Each entry might be a line item serialized as JsonElement
                 if (val is JsonElement je && je.ValueKind == JsonValueKind.Object)
                 {
-                    var line = ParseOrderLineFromJson(je, vatTypeId);
+                    var line = ParseOrderLineFromJson(je, vatTypeId, outputRateMap);
                     lines.Add(line);
                 }
             }
@@ -203,7 +419,7 @@ public class InvoiceHandler : ITaskHandler
                     {
                         if (item.ValueKind == JsonValueKind.Object)
                         {
-                            var line = ParseOrderLineFromJson(item, vatTypeId);
+                            var line = ParseOrderLineFromJson(item, vatTypeId, outputRateMap);
                             lines.Add(line);
                         }
                     }
@@ -262,14 +478,26 @@ public class InvoiceHandler : ITaskHandler
         return lines;
     }
 
-    private static Dictionary<string, object> ParseOrderLineFromJson(JsonElement je, long vatTypeId)
+    private static Dictionary<string, object> ParseOrderLineFromJson(JsonElement je, long defaultVatTypeId, Dictionary<int, long>? outputRateMap = null)
     {
-        var line = new Dictionary<string, object> { ["vatType"] = new { id = vatTypeId } };
+        // Match per-line VAT rate to the correct output VAT type
+        long lineVatTypeId = defaultVatTypeId;
+        if (je.TryGetProperty("vatRate", out var vatRate))
+        {
+            int rate = vatRate.ValueKind == JsonValueKind.Number ? (int)vatRate.GetDecimal()
+                : int.TryParse(vatRate.GetString(), out var r) ? r : -1;
+            if (rate >= 0 && outputRateMap != null && outputRateMap.TryGetValue(rate, out var mappedId))
+                lineVatTypeId = mappedId;
+        }
+        var line = new Dictionary<string, object> { ["vatType"] = new { id = lineVatTypeId } };
         if (je.TryGetProperty("description", out var desc))
             line["description"] = desc.GetString()!;
+        // Always default count to 1 — Tripletex defaults to 0 if omitted, making amount=0
+        double countVal = 1.0;
         if (je.TryGetProperty("count", out var cnt))
-            line["count"] = cnt.ValueKind == JsonValueKind.Number ? cnt.GetDouble()
+            countVal = cnt.ValueKind == JsonValueKind.Number ? cnt.GetDouble()
                 : double.TryParse(cnt.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var cd) ? cd : 1.0;
+        line["count"] = countVal;
         if (je.TryGetProperty("unitPrice", out var price))
             line["unitPriceExcludingVatCurrency"] = price.ValueKind == JsonValueKind.Number ? price.GetDouble()
                 : double.TryParse(price.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var pd) ? pd : 0.0;
@@ -315,7 +543,7 @@ public class InvoiceHandler : ITaskHandler
         }
     }
 
-    internal async Task<long> ResolveDefaultVatTypeId(TripletexApiClient api)
+    internal async Task<(long defaultId, JsonElement vatTypes)> ResolveVatTypes(TripletexApiClient api)
     {
         var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
         {
@@ -323,26 +551,140 @@ public class InvoiceHandler : ITaskHandler
             ["fields"] = "id,number,percentage"
         });
 
-        if (vatResult.TryGetProperty("values", out var vatTypes))
+        long defaultId = 1;
+        JsonElement vatTypesArray = default;
+
+        if (vatResult.TryGetProperty("values", out vatTypesArray))
         {
-            // Prefer 25% MVA (number "3")
-            foreach (var vt in vatTypes.EnumerateArray())
+            // Prefer output 25% MVA (number "3")
+            foreach (var vt in vatTypesArray.EnumerateArray())
             {
                 if (vt.TryGetProperty("number", out var num) && num.GetString() == "3")
-                    return vt.GetProperty("id").GetInt64();
+                {
+                    defaultId = vt.GetProperty("id").GetInt64();
+                    return (defaultId, vatTypesArray);
+                }
             }
             // Fallback: first with percentage > 0
-            foreach (var vt in vatTypes.EnumerateArray())
+            foreach (var vt in vatTypesArray.EnumerateArray())
             {
                 if (vt.TryGetProperty("percentage", out var pct) && pct.GetDecimal() > 0)
-                    return vt.GetProperty("id").GetInt64();
+                {
+                    defaultId = vt.GetProperty("id").GetInt64();
+                    return (defaultId, vatTypesArray);
+                }
             }
             // Last resort: first one
-            foreach (var vt in vatTypes.EnumerateArray())
-                return vt.GetProperty("id").GetInt64();
+            foreach (var vt in vatTypesArray.EnumerateArray())
+            {
+                defaultId = vt.GetProperty("id").GetInt64();
+                break;
+            }
         }
 
-        return 1; // absolute fallback
+        return (defaultId, vatTypesArray);
+    }
+
+    /// <summary>Build a map of percentage → output VAT type ID, using only sales/output VAT codes.</summary>
+    private static Dictionary<int, long> BuildOutputRateMap(JsonElement vatTypes)
+    {
+        // Output (sales) VAT type numbers in Norwegian chart of accounts
+        // "3"=25%, "31"=15%, "32"=12%, "33"=11.11%, "5"=0% utland, "6"=0% uttak
+        // Also include any VAT type with percentage=0 for VAT-exempt invoices
+        var outputNumbers = new HashSet<string> { "3", "31", "32", "33", "5", "6" };
+        var map = new Dictionary<int, long>();
+
+        if (vatTypes.ValueKind != JsonValueKind.Array) return map;
+
+        foreach (var vt in vatTypes.EnumerateArray())
+        {
+            if (!vt.TryGetProperty("percentage", out var pct)) continue;
+            int rate = (int)pct.GetDecimal();
+
+            // Always include if it's in our known output numbers
+            if (vt.TryGetProperty("number", out var num))
+            {
+                var numStr = num.ValueKind == JsonValueKind.String ? num.GetString() : num.GetRawText();
+                if (numStr != null && outputNumbers.Contains(numStr))
+                {
+                    if (!map.ContainsKey(rate))
+                        map[rate] = vt.GetProperty("id").GetInt64();
+                    continue;
+                }
+            }
+
+            // Also capture any 0% VAT type (for VAT-exempt invoices)
+            if (rate == 0 && !map.ContainsKey(0))
+                map[0] = vt.GetProperty("id").GetInt64();
+        }
+
+        return map;
+    }
+
+    private async Task CreateProductsForLines(TripletexApiClient api, List<Dictionary<string, object>> lines,
+        ExtractionResult extracted, long defaultVatTypeId, Dictionary<int, long>? outputRateMap)
+    {
+        var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+        if (!invoiceEntity.TryGetValue("orderLines", out var olVal) || olVal is not JsonElement olJson
+            || olJson.ValueKind != JsonValueKind.Array)
+            return;
+
+        var olArray = olJson.EnumerateArray().ToArray();
+        for (int i = 0; i < Math.Min(olArray.Length, lines.Count); i++)
+        {
+            var rawLine = olArray[i];
+            string? productCode = null;
+            if (rawLine.TryGetProperty("productCode", out var pc))
+                productCode = pc.ValueKind == JsonValueKind.String ? pc.GetString() : pc.GetRawText();
+            else if (rawLine.TryGetProperty("productNumber", out var pn))
+                productCode = pn.ValueKind == JsonValueKind.String ? pn.GetString() : pn.GetRawText();
+
+            if (string.IsNullOrEmpty(productCode)) continue;
+
+            // Search for existing product by number first (avoids 422 errors in competition)
+            long? productId = null;
+            var searchResult = await api.GetAsync("/product", new Dictionary<string, string>
+            {
+                ["number"] = productCode,
+                ["count"] = "1",
+                ["fields"] = "id"
+            });
+            if (searchResult.TryGetProperty("values", out var prodVals) && prodVals.GetArrayLength() > 0)
+            {
+                productId = prodVals[0].GetProperty("id").GetInt64();
+                _logger.LogInformation("Found existing product #{Code} ID: {Id}", productCode, productId);
+            }
+            else
+            {
+                // Product doesn't exist — create it
+                var lineVatType = lines[i].GetValueOrDefault("vatType");
+                var productBody = new Dictionary<string, object>
+                {
+                    ["name"] = lines[i].GetValueOrDefault("description")?.ToString() ?? "Produkt"
+                };
+                if (int.TryParse(productCode, out var pNum))
+                    productBody["number"] = pNum;
+                if (lineVatType != null)
+                    productBody["vatType"] = lineVatType;
+                if (lines[i].TryGetValue("unitPriceExcludingVatCurrency", out var price))
+                    productBody["priceExcludingVatCurrency"] = price;
+
+                try
+                {
+                    var prodResult = await api.PostAsync("/product", productBody);
+                    productId = prodResult.GetProperty("value").GetProperty("id").GetInt64();
+                    _logger.LogInformation("Created product '{Name}' (#{Code}) ID: {Id}",
+                        productBody["name"], productCode, productId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to create product {Code} (non-fatal)", productCode);
+                }
+            }
+
+            if (productId != null)
+                lines[i]["product"] = new { id = productId.Value };
+        }
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)

@@ -80,9 +80,20 @@ public class ProjectHandler : ITaskHandler
         }
 
         // Resolve project manager (required field)
-        // The LLM may return projectManager as a nested object {firstName, lastName, email} or as a string name
+        // The LLM may return projectManager as a nested object inside project, or as a separate entity
         string? managerFirstName = null, managerLastName = null, managerEmail = null;
-        if (project.TryGetValue("projectManager", out var pmVal) || project.TryGetValue("manager", out pmVal))
+
+        // Check for projectManager as a separate entity first
+        var pmEntity = extracted.Entities.GetValueOrDefault("projectManager");
+        if (pmEntity != null && pmEntity.Count > 0)
+        {
+            managerFirstName = GetStringField(pmEntity, "firstName");
+            managerLastName = GetStringField(pmEntity, "lastName");
+            managerEmail = GetStringField(pmEntity, "email");
+        }
+
+        // Then check inside project entity
+        if (managerFirstName == null && (project.TryGetValue("projectManager", out var pmVal) || project.TryGetValue("manager", out pmVal)))
         {
             if (pmVal is JsonElement pmElem && pmElem.ValueKind == JsonValueKind.Object)
             {

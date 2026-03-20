@@ -28,25 +28,7 @@ public class PayrollHandler : ITaskHandler
             lastName = parts.Length > 1 ? parts[1] : parts[0];
         }
 
-        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" };
-        if (!string.IsNullOrEmpty(email))
-            searchParams["email"] = email;
-        else
-        {
-            if (!string.IsNullOrEmpty(firstName)) searchParams["firstName"] = firstName;
-            if (!string.IsNullOrEmpty(lastName)) searchParams["lastName"] = lastName;
-        }
-
-        var empResult = await api.GetAsync("/employee", searchParams);
-        if (!empResult.TryGetProperty("values", out var emps) || emps.GetArrayLength() == 0)
-        {
-            _logger.LogWarning("Employee not found for payroll");
-            return HandlerResult.Empty;
-        }
-        var employeeId = emps[0].GetProperty("id").GetInt64();
-        _logger.LogInformation("Found employee {Id} for payroll", employeeId);
-
-        // Extract payroll details from "payroll" or "salary" entity
+        // Extract payroll details early (needed for employment date)
         var payroll = extracted.Entities.GetValueOrDefault("payroll") ?? extracted.Entities.GetValueOrDefault("salary") ?? new();
         decimal baseSalary = GetDecimal(payroll, "baseSalary") ?? GetDecimal(payroll, "amount") ?? 0;
         decimal bonus = GetDecimal(payroll, "bonus") ?? 0;
@@ -68,6 +50,69 @@ public class PayrollHandler : ITaskHandler
             month = parsedDate.Month;
             voucherDate = extracted.Dates[0];
         }
+
+        // Search for employee
+        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,dateOfBirth,version" };
+        if (!string.IsNullOrEmpty(email))
+            searchParams["email"] = email;
+        else
+        {
+            if (!string.IsNullOrEmpty(firstName)) searchParams["firstName"] = firstName;
+            if (!string.IsNullOrEmpty(lastName)) searchParams["lastName"] = lastName;
+        }
+
+        long employeeId;
+        var empResult = await api.GetAsync("/employee", searchParams);
+        if (!empResult.TryGetProperty("values", out var emps) || emps.GetArrayLength() == 0)
+        {
+            // Employee not found — create them
+            _logger.LogInformation("Employee not found, creating for payroll: {First} {Last}", firstName, lastName);
+
+            // Need a department (required field)
+            var deptResult = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
+            long? deptId = null;
+            if (deptResult.TryGetProperty("values", out var depts) && depts.GetArrayLength() > 0)
+                deptId = depts[0].GetProperty("id").GetInt64();
+
+            var empBody = new Dictionary<string, object>
+            {
+                ["firstName"] = firstName ?? "Unknown",
+                ["lastName"] = lastName ?? "Unknown",
+                ["userType"] = "STANDARD",
+                ["dateOfBirth"] = "1990-01-01"
+            };
+            if (!string.IsNullOrEmpty(email)) empBody["email"] = email;
+            if (deptId != null) empBody["department"] = new { id = deptId.Value };
+
+            var createResult = await api.PostAsync("/employee", empBody);
+            employeeId = createResult.GetProperty("value").GetProperty("id").GetInt64();
+            _logger.LogInformation("Created employee {Id} for payroll", employeeId);
+        }
+        else
+        {
+            var empEl = emps[0];
+            employeeId = empEl.GetProperty("id").GetInt64();
+            _logger.LogInformation("Found employee {Id} for payroll", employeeId);
+
+            // Employment requires dateOfBirth — patch if missing
+            var hasDob = empEl.TryGetProperty("dateOfBirth", out var dobProp)
+                && dobProp.ValueKind != JsonValueKind.Null
+                && !string.IsNullOrEmpty(dobProp.GetString());
+            if (!hasDob)
+            {
+                var version = empEl.TryGetProperty("version", out var vProp) ? vProp.GetInt32() : 1;
+                _logger.LogInformation("Employee {Id} missing dateOfBirth, patching with default", employeeId);
+                await api.PutAsync($"/employee/{employeeId}", new
+                {
+                    id = employeeId,
+                    version,
+                    dateOfBirth = "1990-01-01"
+                });
+            }
+        }
+
+        // Ensure employee has an employment for the payroll period
+        await EnsureEmployment(api, employeeId, year, month);
 
         // Get salary types to find base salary type and bonus type
         var salaryTypesResult = await api.GetAsync("/salary/type", new Dictionary<string, string>
@@ -170,6 +215,100 @@ public class PayrollHandler : ITaskHandler
         _logger.LogInformation("Created salary transaction {Id} for employee {EmpId}: base={Base}, bonus={Bonus}",
             transactionId, employeeId, baseSalary, bonus);
         return new HandlerResult { EntityType = "salaryTransaction", EntityId = transactionId };
+    }
+
+    private async Task EnsureEmployment(TripletexApiClient api, long employeeId, int year, int month)
+    {
+        // Get or create division (virksomhet) — required for payroll
+        long? divisionId = null;
+        var divisions = await api.GetAsync("/division", new Dictionary<string, string>
+        {
+            ["count"] = "1",
+            ["fields"] = "id"
+        });
+        if (divisions.TryGetProperty("values", out var divs) && divs.GetArrayLength() > 0)
+        {
+            divisionId = divs[0].GetProperty("id").GetInt64();
+        }
+        else
+        {
+            // No division exists — create one (required for payroll/A-melding)
+            _logger.LogInformation("No division found, creating one for payroll");
+
+            // Get a municipality reference
+            var munis = await api.GetAsync("/municipality", new Dictionary<string, string>
+            {
+                ["count"] = "1",
+                ["fields"] = "id"
+            });
+            long? muniId = null;
+            if (munis.TryGetProperty("values", out var muniValues) && muniValues.GetArrayLength() > 0)
+                muniId = muniValues[0].GetProperty("id").GetInt64();
+
+            // Get the company's org number
+            string orgNumber = "999999999";
+            var companyDivs = await api.GetAsync("/company/divisions", new Dictionary<string, string>
+            {
+                ["count"] = "1",
+                ["fields"] = "id,organizationNumber,name"
+            });
+            if (companyDivs.TryGetProperty("values", out var compDivs) && compDivs.GetArrayLength() > 0)
+            {
+                var orgProp = compDivs[0].TryGetProperty("organizationNumber", out var on) ? on.GetString() : null;
+                if (!string.IsNullOrEmpty(orgProp)) orgNumber = orgProp;
+            }
+
+            var today = $"{year}-{month:D2}-01";
+            var divBody = new Dictionary<string, object>
+            {
+                ["name"] = "Hovedvirksomhet",
+                ["organizationNumber"] = orgNumber,
+                ["startDate"] = today,
+                ["municipalityDate"] = today
+            };
+            if (muniId != null)
+                divBody["municipality"] = new { id = muniId.Value };
+
+            var divResult = await api.PostAsync("/division", divBody);
+            divisionId = divResult.GetProperty("value").GetProperty("id").GetInt64();
+            _logger.LogInformation("Created division {Id}", divisionId);
+        }
+
+        // Check if employee has an employment
+        var employments = await api.GetAsync("/employee/employment", new Dictionary<string, string>
+        {
+            ["employeeId"] = employeeId.ToString(),
+            ["count"] = "1",
+            ["fields"] = "id,version,division"
+        });
+
+        if (employments.TryGetProperty("values", out var empValues) && empValues.GetArrayLength() > 0)
+        {
+            // Update existing employment with division
+            var existing = empValues[0];
+            var empId = existing.GetProperty("id").GetInt64();
+            var version = existing.GetProperty("version").GetInt32();
+            _logger.LogInformation("Updating employment {Id} with division {Div}", empId, divisionId);
+            await api.PutAsync($"/employee/employment/{empId}", new
+            {
+                id = empId,
+                version,
+                employee = new { id = employeeId },
+                division = new { id = divisionId!.Value }
+            });
+            return;
+        }
+
+        // Create employment starting at the beginning of the payroll month
+        var startDate = $"{year}-{month:D2}-01";
+        _logger.LogInformation("Creating employment for employee {Id} starting {Date} division {Div}", employeeId, startDate, divisionId);
+
+        await api.PostAsync("/employee/employment", new
+        {
+            employee = new { id = employeeId },
+            startDate,
+            division = new { id = divisionId!.Value }
+        });
     }
 
     private static string? GetString(Dictionary<string, object> dict, string key)

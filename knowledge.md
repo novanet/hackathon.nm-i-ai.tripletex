@@ -18,6 +18,8 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Voucher requires `postings` array** — cannot POST without it. Error: "Et bilag kan ikke registreres uten posteringer." _(2026-03-20)_
 - **Department numbers collide** — pre-query existing departments with `GET /department?fields=departmentNumber,name`, then pick the next available number. _(2026-03-20)_
 - **Customer lookup by org number** — use `?organizationNumber=` param, NOT `?name=` with the org number as value. _(2026-03-20)_
+- **Timesheet entry requires `activity`, `date`, `employee`** — minimum fields. Also supports `project`, `hours`, `comment`. Only one entry per employee/date/activity/project combo. 38 hours on a single date works (no 24h cap on `hours` field). _(2026-03-20)_
+- **Activity creation requires `activityType`** — use `PROJECT_GENERAL_ACTIVITY` for project-related billable activities. Link to project via `POST /project/projectActivity`. _(2026-03-20)_
 
 ## LLM Extraction Pitfalls
 
@@ -25,15 +27,20 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Employee entity sometimes missing email** — even when clearly stated in the prompt (Portuguese prompts). Ensure extraction schema marks email as required. _(2026-03-20)_
 - **Full JSON object serialized as query param** — bug where the entire employee JSON was URL-encoded into `firstName=` and `lastName=` search params instead of just the string values. Check handler code carefully when using extracted nested objects. _(2026-03-20)_
 - **Travel expense misrouted to VoucherHandler** — extraction returned `create_voucher` instead of `create_travel_expense`. Ensure LLM system prompt clearly distinguishes the two task types. _(2026-03-20)_
+- **Composite task extraction varies** — LLM may put employee/activity data under `timeRegistration` entity OR as separate `employee`/`project.activity` entities. Handler must check both paths. _(2026-03-20)_
+- **Voucher dimension nested in voucher entity** — LLM sometimes puts `"dimension": {"name": "Region", "value": "Vestlandet"}` inside the voucher entity instead of as a separate `"dimension"` entity. VoucherHandler has fallback to extract it from `voucher["dimension"]`. Also check singular `"value"` vs plural `"values"` key. _(2026-03-20)_
 
 ## Scoring & Validation Insights
 
 - **Payment `payment_registered` check** — passes when `amountOutstanding = 0`. Must pay the full invoice amount _including VAT_, not just the ex-VAT amount from the prompt. _(2026-03-20)_
+- **"sem IVA" / "without VAT" / "uten mva" = use 0% VAT type** — when prompt states the price excludes VAT AND implies the service is VAT-exempt (e.g. "47200 NOK without VAT"), use 0% VAT type. Competition check 2 checks the invoice amount directly and expects 47200, not 59000 (with 25% VAT). LLM extracts `vatIncluded: false` in invoice entity — always use 0% VAT type in that case. _(2026-03-20)_
 - **Admin role is worth 5 out of 11 points** for employee tasks — nearly 50%. Always grant when requested. Use `template=administrator` (not `ALL_PRIVILEGES`) per the copilot-instructions, but `ALL_PRIVILEGES` also works. _(2026-03-20)_
 - **Product `number` field is checked** — validator verifies the product number matches the prompt. Always extract and set it. _(2026-03-20)_
 - **Department validation only checks `department_found`** (2 pts) — no field-level checks beyond existence. _(2026-03-20)_
 - **Travel expense `has_costs` check** wants `> 0` cost lines — at least one `POST /travelExpense/cost` required. _(2026-03-20)_
 - **Invoice validation checks**: `invoice_found`, `has_customer`, `has_amount > 0`. Amount includes VAT. _(2026-03-20)_
+- **Order line `count` defaults to 0 in Tripletex** — if you omit `count` on an order line, Tripletex treats it as 0 and the invoice amount becomes 0. Always set `count = 1` as default. _(2026-03-20)_
+- **Composite invoice tasks (project + time + invoice)** — competition checks 8 points across 4 checks: project/timesheet + invoice. Our local validator only checks invoice (5/5). Must create project, link activity, register timesheet hours, AND create invoice. _(2026-03-20)_
 - **Credit note validation**: only checks `credit_note_created` (3 pts). _(2026-03-20)_
 - **Delete entity validation**: only checks `entity_deleted` (3 pts). _(2026-03-20)_
 - **All 14 validation tasks achieved 100% correctness** in latest sandbox run. _(2026-03-20)_
@@ -55,8 +62,14 @@ Keep entries short (1–2 lines). Include the date discovered.
 | create_credit_note    | 6             | Find invoice + create credit note                                 |
 | delete_entity         | 2             | Find entity + DELETE                                              |
 
+## Reference Documents
+
+- **`entity-model.md`** — Complete entity relationship reference: all entity schemas, required fields, cross-references, dependency chains per task type, action endpoints, and common pitfalls. Consult when implementing handlers or debugging entity relationship issues. _(2026-03-20)_
+
 ## Competition vs Sandbox Differences
 
 - **Competition runs against a clean/fresh Tripletex instance** — no pre-existing data, no duplicate emails or department numbers from prior runs. _(2026-03-20)_
 - **Sandbox accumulates data** — duplicate emails, department numbers 1–7+ already taken. Don't add sandbox-specific workarounds. _(2026-03-20)_
 - **Bank account issue appeared only in competition** — sandbox had it pre-configured. May need to handle this for invoice tasks. _(2026-03-20)_
+- **Division (virksomhet) doesn't exist in clean env** — must create via `POST /division` before payroll. Requires `name`, `organizationNumber`, `startDate`, `municipalityDate`, `municipality` (ref from `/municipality`). Sandbox may already have one from prior runs. _(2026-03-20)_
+- **Employment needs division for payroll** — `POST /salary/transaction` returns 422 "Arbeidsforholdet er ikke knyttet mot en virksomhet" if employment has no division set. Always GET/create division and PUT it onto employment before salary transaction. _(2026-03-20)_

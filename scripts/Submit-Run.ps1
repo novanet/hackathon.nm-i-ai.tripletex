@@ -2,17 +2,21 @@
 .SYNOPSIS
     Submit a competition run to the NM i AI platform.
 .DESCRIPTION
-    Ensures the agent and ngrok tunnel are running, then submits the endpoint URL
-    to the competition API. Optionally polls for completion status.
+    Ensures the agent and tunnel are running (auto-starts if needed), submits the
+    endpoint URL to the competition API, polls for completion (2 min), then replays
+    new competition requests locally via Test-Solve.ps1 for analysis.
 .PARAMETER Token
     The access_token cookie value for authentication. If not provided, reads from
     environment variable AINM_TOKEN or prompts.
 .PARAMETER NoWait
     Don't poll for submission status after submitting.
+.PARAMETER NoReplay
+    Don't replay competition requests locally after completion.
 #>
 param(
     [string]$Token,
-    [switch]$NoWait
+    [switch]$NoWait,
+    [switch]$NoReplay
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,12 +45,17 @@ if (-not $Token) {
     return
 }
 
-# --- Check agent is running ---
+# --- Check agent is running (auto-start if not) ---
 $agent = Get-Process -Name TripletexAgent -ErrorAction SilentlyContinue
 if (-not $agent) {
-    Write-Host "ERROR: TripletexAgent is not running. Start it first:" -ForegroundColor Red
-    Write-Host "  .\scripts\Start-Agent.ps1 -Background" -ForegroundColor Gray
-    return
+    Write-Host "TripletexAgent not running — starting..." -ForegroundColor Yellow
+    & "$PSScriptRoot\Start-Agent.ps1" -Background
+    Start-Sleep -Seconds 2
+    $agent = Get-Process -Name TripletexAgent -ErrorAction SilentlyContinue
+    if (-not $agent) {
+        Write-Host "ERROR: Failed to start TripletexAgent." -ForegroundColor Red
+        return
+    }
 }
 Write-Host "Agent running (PID $($agent.Id))" -ForegroundColor Green
 
@@ -92,10 +101,22 @@ if (-not $tunnelUrl) {
 }
 
 if (-not $tunnelUrl) {
-    Write-Host "ERROR: No tunnel found. Start one first:" -ForegroundColor Red
-    Write-Host "  .\scripts\Start-Localtunnel.ps1  (localtunnel)" -ForegroundColor Gray
-    Write-Host "  .\scripts\Start-Tunnel.ps1       (ngrok)" -ForegroundColor Gray
-    Write-Host "  .\scripts\Start-Cloudflared.ps1  (cloudflared)" -ForegroundColor Gray
+    Write-Host "No tunnel found — starting cloudflared..." -ForegroundColor Yellow
+    & "$PSScriptRoot\Start-Cloudflared.ps1"
+    # Re-read cloudflared log for the URL
+    Start-Sleep -Seconds 2
+    if (Test-Path $cfLog) {
+        $cfContent = Get-Content $cfLog -Raw -ErrorAction SilentlyContinue
+        if ($cfContent -match '(https://[a-z0-9-]+\.trycloudflare\.com)') {
+            $tunnelUrl = $Matches[1]
+            Write-Host "Using cloudflared tunnel" -ForegroundColor Green
+        }
+    }
+}
+
+if (-not $tunnelUrl) {
+    Write-Host "ERROR: Could not start tunnel. Try manually:" -ForegroundColor Red
+    Write-Host "  .\scripts\Start-Cloudflared.ps1" -ForegroundColor Gray
     return
 }
 
@@ -117,6 +138,13 @@ catch {
     else {
         Write-Host "WARNING: Health check failed ($code). Submitting anyway..." -ForegroundColor Yellow
     }
+}
+
+# --- Snapshot submissions.jsonl line count for replay ---
+$submissionsFile = Join-Path $PSScriptRoot "..\src\logs\submissions.jsonl"
+$preLineCount = 0
+if (Test-Path $submissionsFile) {
+    $preLineCount = (Get-Content $submissionsFile).Count
 }
 
 # --- Submit ---
@@ -162,11 +190,12 @@ Write-Host ""
 
 if ($NoWait) { return }
 
-# --- Poll for completion ---
-Write-Host "Polling for results (Ctrl+C to stop)..." -ForegroundColor Gray
+# --- Poll for completion (2 minutes) ---
+Write-Host "Polling for results (2 min, Ctrl+C to stop)..." -ForegroundColor Gray
 $pollInterval = 10
-$maxPolls = 60  # 10 minutes max
+$maxPolls = 12  # 2 minutes
 
+$finalState = $null
 for ($i = 0; $i -lt $maxPolls; $i++) {
     Start-Sleep -Seconds $pollInterval
     try {
@@ -194,10 +223,130 @@ for ($i = 0; $i -lt $maxPolls; $i++) {
             Write-Host ""
             Write-Host "Final result:" -ForegroundColor Cyan
             $mySub | ConvertTo-Json -Depth 5 | Write-Host
+            $finalState = $state
             break
         }
     }
     catch {
         Write-Host "  [$([datetime]::Now.ToString('HH:mm:ss'))] Poll error: $_" -ForegroundColor Yellow
+    }
+}
+
+if (-not $finalState) {
+    Write-Host ""
+    Write-Host "Polling timed out after 2 minutes. Check status manually." -ForegroundColor Yellow
+}
+
+# --- Persist results to results.jsonl ---
+if ($finalState -and $mySub) {
+    try {
+        $resultsFile = Join-Path $PSScriptRoot "..\src\logs\results.jsonl"
+
+        # Parse checks
+        $checks = @()
+        $passedCount = 0
+        $failedCount = 0
+        if ($mySub.feedback -and $mySub.feedback.checks) {
+            foreach ($chk in $mySub.feedback.checks) {
+                $passed = $chk -match ': passed'
+                $checks += @{ text = $chk; passed = $passed }
+                if ($passed) { $passedCount++ } else { $failedCount++ }
+            }
+        }
+
+        # Read task summaries from new submissions.jsonl entries
+        $taskSummaries = @()
+        if (Test-Path $submissionsFile) {
+            $currentLines = Get-Content $submissionsFile
+            $newTaskLines = $currentLines | Select-Object -Skip $preLineCount
+            foreach ($tl in $newTaskLines) {
+                try {
+                    $te = $tl | ConvertFrom-Json
+                    if ($te.prompt -eq "ping") { continue }
+                    $taskSummaries += @{
+                        task_type   = $te.task_type
+                        handler     = $te.handler
+                        success     = $te.success
+                        error       = $te.error
+                        call_count  = $te.call_count
+                        error_count = $te.error_count
+                        elapsed_ms  = $te.elapsed_ms
+                    }
+                } catch { }
+            }
+        }
+
+        $resultEntry = @{
+            submission_id    = $submissionId
+            timestamp        = (Get-Date).ToUniversalTime().ToString("o")
+            status           = $finalState
+            score_raw        = $mySub.score_raw
+            score_max        = $mySub.score_max
+            normalized_score = $mySub.normalized_score
+            duration_ms      = $mySub.duration_ms
+            feedback_comment = if ($mySub.feedback) { $mySub.feedback.comment } else { $null }
+            total_checks     = $passedCount + $failedCount
+            passed_checks    = $passedCount
+            failed_checks    = $failedCount
+            checks           = $checks
+            task_count        = $taskSummaries.Count
+            tasks            = $taskSummaries
+        }
+
+        $json = $resultEntry | ConvertTo-Json -Depth 5 -Compress
+        [System.IO.Directory]::CreateDirectory((Split-Path $resultsFile)) | Out-Null
+        Add-Content -Path $resultsFile -Value $json -Encoding UTF8
+
+        Write-Host ""
+        Write-Host "Results saved to results.jsonl" -ForegroundColor Green
+        Write-Host "  Score: $($mySub.score_raw)/$($mySub.score_max) | Checks: $passedCount/$($passedCount + $failedCount) passed | Tasks: $($taskSummaries.Count)" -ForegroundColor Cyan
+    }
+    catch {
+        Write-Host "WARNING: Failed to save results: $_" -ForegroundColor Yellow
+    }
+}
+
+# --- Replay new competition requests locally ---
+if ($NoReplay -or -not (Test-Path $submissionsFile)) { return }
+
+$allLines = Get-Content $submissionsFile
+$newLines = $allLines | Select-Object -Skip $preLineCount
+if (-not $newLines -or $newLines.Count -eq 0) {
+    Write-Host ""
+    Write-Host "No new entries in submissions.jsonl to replay." -ForegroundColor Gray
+    return
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host " Replaying $($newLines.Count) competition request(s) locally" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+foreach ($line in $newLines) {
+    try {
+        $entry = $line | ConvertFrom-Json
+        $prompt = $entry.prompt
+        if (-not $prompt -or $prompt -eq "ping") { continue }
+
+        Write-Host ""
+        Write-Host "--- Task: $($entry.task_type) ($($entry.language)) ---" -ForegroundColor Yellow
+        Write-Host "Prompt: $($prompt.Substring(0, [Math]::Min(80, $prompt.Length)))..." -ForegroundColor Gray
+
+        # Replay via Test-Solve.ps1
+        & "$PSScriptRoot\Test-Solve.ps1" -Prompt $prompt
+
+        # Summary of competition vs local
+        Write-Host ""
+        Write-Host "Competition result:" -ForegroundColor Cyan
+        Write-Host "  Handler:    $($entry.handler)"
+        Write-Host "  Success:    $($entry.success)"
+        Write-Host "  API calls:  $($entry.call_count)"
+        Write-Host "  Errors:     $($entry.error_count)"
+        if ($entry.error) {
+            Write-Host "  Error:      $($entry.error)" -ForegroundColor Red
+        }
+    }
+    catch {
+        Write-Host "  Failed to parse/replay entry: $_" -ForegroundColor Red
     }
 }

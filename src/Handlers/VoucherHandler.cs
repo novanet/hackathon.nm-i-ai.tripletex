@@ -15,11 +15,25 @@ public class VoucherHandler : ITaskHandler
     {
         var voucher = extracted.Entities.GetValueOrDefault("voucher") ?? new();
 
+        // --- Supplier invoice detection ---
+        var supplierName = GetStringField(voucher, "supplierName");
+        var supplierOrgNumber = GetStringField(voucher, "supplierOrgNumber");
+        if (supplierName != null || supplierOrgNumber != null)
+            return await HandleSupplierInvoice(api, extracted, voucher);
+
         // --- Step 1: Create custom dimension + values if present ---
         int? dimensionIndex = null;
         long? linkedDimensionValueId = null;
 
         var dimensionEntity = extracted.Entities.GetValueOrDefault("dimension");
+        // Fallback: dimension nested inside voucher entity
+        if (dimensionEntity == null && voucher.TryGetValue("dimension", out var dimVal) && dimVal is JsonElement dimJe
+            && dimJe.ValueKind == JsonValueKind.Object)
+        {
+            dimensionEntity = new Dictionary<string, object>();
+            foreach (var prop in dimJe.EnumerateObject())
+                dimensionEntity[prop.Name] = prop.Value;
+        }
         if (dimensionEntity != null)
         {
             var dimName = GetStringField(dimensionEntity, "name");
@@ -57,16 +71,24 @@ public class VoucherHandler : ITaskHandler
 
                 // Extract values to create
                 var values = ExtractStringList(dimensionEntity, "values");
+                // Fallback: singular "value" key
+                if (values.Count == 0)
+                    values = ExtractStringList(dimensionEntity, "value");
 
                 // Determine which value to link to the posting
                 var linkedValue = GetStringField(voucher, "dimensionValue")
-                    ?? GetStringField(voucher, "linked_dimension_value");
+                    ?? GetStringField(voucher, "linked_dimension_value")
+                    ?? GetStringField(dimensionEntity, "value");
+
+                // Ensure linked value is in the creation list
+                if (linkedValue != null && !values.Any(v => string.Equals(v, linkedValue, StringComparison.OrdinalIgnoreCase)))
+                    values.Add(linkedValue);
 
                 // Also check nested dimension object in voucher entity
-                if (linkedValue == null && voucher.TryGetValue("dimension", out var dimObj) && dimObj is JsonElement dimJe
-                    && dimJe.ValueKind == JsonValueKind.Object)
+                if (linkedValue == null && voucher.TryGetValue("dimension", out var dimObj2) && dimObj2 is JsonElement dimJe2
+                    && dimJe2.ValueKind == JsonValueKind.Object)
                 {
-                    if (dimJe.TryGetProperty("value", out var dvProp))
+                    if (dimJe2.TryGetProperty("value", out var dvProp))
                         linkedValue = dvProp.GetString();
                 }
 
@@ -320,6 +342,96 @@ public class VoucherHandler : ITaskHandler
             }
         }
         return (null, null);
+    }
+
+    private async Task<HandlerResult> HandleSupplierInvoice(TripletexApiClient api, ExtractionResult extracted, Dictionary<string, object> voucher)
+    {
+        var supplierName = GetStringField(voucher, "supplierName");
+        var supplierOrgNumber = GetStringField(voucher, "supplierOrgNumber");
+        var invoiceNumber = GetStringField(voucher, "invoiceNumber");
+        var description = GetStringField(voucher, "description") ?? invoiceNumber ?? "Leverandørfaktura";
+        var account = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber") ?? "6500";
+        decimal amount = ExtractAmount(voucher, extracted);
+        var date = GetStringField(voucher, "date")
+            ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd"));
+
+        // 1. Create supplier
+        var supplierBody = new Dictionary<string, object> { ["name"] = supplierName! };
+        if (supplierOrgNumber != null) supplierBody["organizationNumber"] = supplierOrgNumber;
+        var email = GetStringField(voucher, "supplierEmail") ?? GetStringField(voucher, "email");
+        if (email != null) supplierBody["email"] = email;
+
+        var supplierResult = await api.PostAsync("/supplier", supplierBody);
+        var supplierId = supplierResult.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created supplier '{Name}' ID: {Id}", supplierName, supplierId);
+
+        // 2. Look up Leverandørfaktura voucher type
+        var voucherTypes = await api.GetAsync("/ledger/voucherType",
+            new Dictionary<string, string> { ["name"] = "Leverandørfaktura", ["count"] = "10", ["fields"] = "id,name" });
+        long? voucherTypeId = null;
+        if (voucherTypes.TryGetProperty("values", out var vtVals))
+        {
+            foreach (var vt in vtVals.EnumerateArray())
+            {
+                voucherTypeId = vt.GetProperty("id").GetInt64();
+                break;
+            }
+        }
+
+        // 3. Resolve expense account + VAT type
+        var (accountId, vatId) = await ResolveAccountId(api, account);
+
+        // 4. Resolve creditor account (2400 = leverandørgjeld)
+        var (creditorId, _) = await ResolveAccountId(api, "2400");
+
+        // 5. Build postings
+        var postings = new List<Dictionary<string, object>>();
+
+        // Debit posting: expense account with input VAT
+        var debitPosting = new Dictionary<string, object>
+        {
+            ["date"] = date,
+            ["description"] = description,
+            ["account"] = new { id = accountId!.Value },
+            ["amountGross"] = amount,
+            ["amountGrossCurrency"] = amount,
+            ["supplier"] = new { id = supplierId },
+            ["row"] = 1
+        };
+        if (vatId.HasValue) debitPosting["vatType"] = new { id = vatId.Value };
+        if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
+        postings.Add(debitPosting);
+
+        // Credit posting: creditor account
+        var creditPosting = new Dictionary<string, object>
+        {
+            ["date"] = date,
+            ["description"] = description,
+            ["account"] = new { id = creditorId!.Value },
+            ["amountGross"] = -amount,
+            ["amountGrossCurrency"] = -amount,
+            ["supplier"] = new { id = supplierId },
+            ["row"] = 2
+        };
+        if (invoiceNumber != null) creditPosting["invoiceNumber"] = invoiceNumber;
+        postings.Add(creditPosting);
+
+        _logger.LogInformation("Creating supplier invoice voucher: {Description} amount={Amount} supplier={Supplier}", description, amount, supplierName);
+
+        // 6. Create voucher
+        var body = new Dictionary<string, object>
+        {
+            ["date"] = date,
+            ["description"] = description,
+            ["postings"] = postings
+        };
+        if (voucherTypeId.HasValue) body["voucherType"] = new { id = voucherTypeId.Value };
+        if (invoiceNumber != null) body["vendorInvoiceNumber"] = invoiceNumber;
+
+        var result = await api.PostAsync("/ledger/voucher?sendToLedger=true", body);
+        var voucherId = result.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created supplier invoice voucher ID: {Id}", voucherId);
+        return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)

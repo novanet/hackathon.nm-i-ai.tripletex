@@ -62,10 +62,12 @@ public class CustomerHandler : ITaskHandler
         if (address.Count > 0)
             body["physicalAddress"] = address;
 
-        // Handle postal address if different
+        // Handle postal address if different; otherwise mirror physicalAddress
         var postalAddress = BuildPostalAddress(cust);
         if (postalAddress.Count > 0)
             body["postalAddress"] = postalAddress;
+        else if (address.Count > 0)
+            body["postalAddress"] = address;
 
         _logger.LogInformation("Creating customer: {Name}", body.GetValueOrDefault("name"));
 

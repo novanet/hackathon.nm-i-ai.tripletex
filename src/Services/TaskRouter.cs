@@ -37,7 +37,8 @@ public class TaskRouter
         var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
             ?? services.GetRequiredService<IConfiguration>()["GitHubToken"]
             ?? "";
-        _fallback = new FallbackAgentHandler(githubToken, services.GetRequiredService<ILogger<FallbackAgentHandler>>());
+        var knowledge = services.GetRequiredService<TripletexKnowledgeService>();
+        _fallback = new FallbackAgentHandler(githubToken, knowledge, services.GetRequiredService<ILogger<FallbackAgentHandler>>());
     }
 
     public string GetHandlerName(string taskType)
@@ -49,17 +50,65 @@ public class TaskRouter
 
     public async Task<(bool handled, HandlerResult result)> RouteAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt = "", List<Models.SolveFile>? files = null)
     {
-        if (_handlers.TryGetValue(extracted.TaskType, out var handler))
+        var taskType = InferTaskType(extracted);
+
+        if (_handlers.TryGetValue(taskType, out var handler))
         {
             LastHandlerName = handler.GetType().Name;
-            _logger.LogInformation("Routing to deterministic handler for {TaskType} ({Handler})", extracted.TaskType, LastHandlerName);
+            _logger.LogInformation("Routing to deterministic handler for {TaskType} ({Handler})", taskType, LastHandlerName);
             var result = await handler.HandleAsync(api, extracted);
             return (true, result);
         }
 
         LastHandlerName = "FallbackAgentHandler";
-        _logger.LogInformation("No deterministic handler for {TaskType} — using fallback agent", extracted.TaskType);
+        _logger.LogInformation("No deterministic handler for {TaskType} — using fallback agent", taskType);
         await _fallback.HandleWithPromptAsync(api, extracted, originalPrompt, files);
         return (true, HandlerResult.Empty);
+    }
+
+    private string InferTaskType(ExtractionResult extracted)
+    {
+        var tt = extracted.TaskType;
+
+        // Check for project+invoice combo — should always go to ProjectHandler
+        var hasProject = extracted.Entities.ContainsKey("project") && extracted.Entities["project"].Count > 0;
+        var hasInvoice = extracted.Entities.ContainsKey("invoice") && extracted.Entities["invoice"].Count > 0;
+
+        if (hasProject && (tt == "create_invoice" || !_handlers.ContainsKey(tt)))
+        {
+            _logger.LogInformation("Inferred task_type create_project from project entity (was {Original})", tt);
+            extracted.TaskType = "create_project";
+            return "create_project";
+        }
+
+        // If we already have a mapped handler, use it
+        if (_handlers.ContainsKey(tt))
+            return tt;
+
+        // Infer from entities when task_type is unknown
+        if (hasProject)
+        {
+            _logger.LogInformation("Inferred task_type create_project (was {Original})", tt);
+            extracted.TaskType = "create_project";
+            return "create_project";
+        }
+
+        var hasVoucher = extracted.Entities.ContainsKey("voucher") && extracted.Entities["voucher"].Count > 0;
+        if (hasVoucher)
+        {
+            _logger.LogInformation("Inferred task_type create_voucher (was {Original})", tt);
+            extracted.TaskType = "create_voucher";
+            return "create_voucher";
+        }
+
+        var hasPayroll = extracted.Entities.ContainsKey("payroll") && extracted.Entities["payroll"].Count > 0;
+        if (hasPayroll)
+        {
+            _logger.LogInformation("Inferred task_type run_payroll (was {Original})", tt);
+            extracted.TaskType = "run_payroll";
+            return "run_payroll";
+        }
+
+        return tt;
     }
 }

@@ -47,7 +47,7 @@ public class LlmExtractor
         - If the task type is ambiguous, use "unknown"
         - For employee tasks, you MUST extract "firstName" and "lastName" from the full name. The name appears after words like 'named', 'navn', 'name', 'nombre', 'llamado/llamada', 'namens', 'nommé', 'Nome'. Split the full name: first word = firstName, rest = lastName. Also extract ALL mentioned fields: email, dateOfBirth (YYYY-MM-DD), startDate (YYYY-MM-DD), phoneNumberMobile, nationalIdentityNumber, bankAccountNumber
         - If the prompt grants special access or elevated role to an employee, set "roles": ["admin"]
-        - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates
+        - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates. If the prompt says the amount is "without VAT", "ex VAT", "ekskl. mva", "uten mva", "sem IVA", "ohne MwSt", "hors TVA", "excl. IVA", or similar, set "vatIncluded": false in the invoice entity.
         - For travel expense, extract employee reference, title, travel details, and cost items
         - If the prompt mentions registering/recording a payment, use "register_payment" even if it also describes creating the invoice
         - For credit notes, use "create_credit_note"
@@ -119,7 +119,7 @@ public class LlmExtractor
 
                 _logger.LogInformation("LLM response: {Content}", content);
 
-                var result = JsonSerializer.Deserialize<ExtractionResult>(content);
+                var result = SafeDeserialize(content);
                 return result ?? new ExtractionResult { TaskType = "unknown" };
             }
             catch (Exception ex)
@@ -140,6 +140,86 @@ public class LlmExtractor
 
         // Should never reach here, but just in case
         return RegexFallbackExtract(prompt);
+    }
+
+    /// <summary>Deserialize LLM output, handling object-valued relationships by moving them to entities.</summary>
+    private ExtractionResult? SafeDeserialize(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<ExtractionResult>(json);
+        }
+        catch (JsonException)
+        {
+            // Likely an object-valued relationship — fix it up
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var result = new ExtractionResult
+        {
+            TaskType = root.TryGetProperty("task_type", out var tt) ? tt.GetString() ?? "unknown" : "unknown",
+            Action = root.TryGetProperty("action", out var act) ? act.GetString() ?? "create" : "create",
+            FilesNeeded = root.TryGetProperty("files_needed", out var fn) && fn.GetBoolean(),
+            Language = root.TryGetProperty("language", out var lang) ? lang.GetString() : null
+        };
+
+        // Parse entities
+        if (root.TryGetProperty("entities", out var entities) && entities.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entity in entities.EnumerateObject())
+            {
+                if (entity.Value.ValueKind == JsonValueKind.Object)
+                {
+                    var dict = new Dictionary<string, object>();
+                    foreach (var prop in entity.Value.EnumerateObject())
+                        dict[prop.Name] = prop.Value.Clone();
+                    result.Entities[entity.Name] = dict;
+                }
+            }
+        }
+
+        // Parse relationships — convert objects to entities, keep strings
+        if (root.TryGetProperty("relationships", out var rels) && rels.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var rel in rels.EnumerateObject())
+            {
+                if (rel.Value.ValueKind == JsonValueKind.String)
+                {
+                    result.Relationships[rel.Name] = rel.Value.GetString()!;
+                }
+                else if (rel.Value.ValueKind == JsonValueKind.Object)
+                {
+                    // Move object to entities if not already there
+                    if (!result.Entities.ContainsKey(rel.Name))
+                    {
+                        var dict = new Dictionary<string, object>();
+                        foreach (var prop in rel.Value.EnumerateObject())
+                            dict[prop.Name] = prop.Value.Clone();
+                        result.Entities[rel.Name] = dict;
+                    }
+                    // Also set string relationship as the first name-like field
+                    var nameStr = rel.Value.TryGetProperty("name", out var n) ? n.GetString()
+                        : rel.Value.TryGetProperty("firstName", out var fn2) && rel.Value.TryGetProperty("lastName", out var ln)
+                            ? $"{fn2.GetString()} {ln.GetString()}" : null;
+                    if (nameStr != null)
+                        result.Relationships[rel.Name] = nameStr;
+                }
+            }
+        }
+
+        // Parse raw_amounts
+        if (root.TryGetProperty("raw_amounts", out var amounts) && amounts.ValueKind == JsonValueKind.Array)
+            foreach (var a in amounts.EnumerateArray())
+                result.RawAmounts.Add(a.GetString() ?? a.GetRawText());
+
+        // Parse dates
+        if (root.TryGetProperty("dates", out var dates) && dates.ValueKind == JsonValueKind.Array)
+            foreach (var d in dates.EnumerateArray())
+                result.Dates.Add(d.GetString() ?? d.GetRawText());
+
+        return result;
     }
 
     /// <summary>Regex-based fallback when LLM is unavailable (content filter, rate limit, etc.)</summary>

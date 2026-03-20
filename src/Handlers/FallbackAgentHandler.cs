@@ -67,6 +67,19 @@ public class FallbackAgentHandler : ITaskHandler
         }
         """));
 
+    private static readonly ChatTool SearchHelpTool = ChatTool.CreateFunctionTool(
+        "search_help",
+        "Search Tripletex help documentation for guidance on how to perform operations. Use when unsure about API endpoints, required fields, or workflows.",
+        BinaryData.FromString("""
+        {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Search query in Norwegian, e.g. 'faktura', 'kreditnota', 'reiseregning'" }
+            },
+            "required": ["query"]
+        }
+        """));
+
     private static readonly ChatTool DoneTool = ChatTool.CreateFunctionTool(
         "task_complete",
         "Call this when the task has been completed successfully.",
@@ -111,9 +124,12 @@ public class FallbackAgentHandler : ITaskHandler
         - Delete entity: GET /entity?search → DELETE /entity/{id}
         """;
 
-    public FallbackAgentHandler(string apiKey, ILogger<FallbackAgentHandler> logger)
+    private readonly TripletexKnowledgeService _knowledge;
+
+    public FallbackAgentHandler(string apiKey, TripletexKnowledgeService knowledge, ILogger<FallbackAgentHandler> logger)
     {
         _logger = logger;
+        _knowledge = knowledge;
         var credential = new ApiKeyCredential(apiKey);
         var options = new OpenAIClientOptions
         {
@@ -179,7 +195,7 @@ public class FallbackAgentHandler : ITaskHandler
         var chatOptions = new ChatCompletionOptions
         {
             Temperature = 0f,
-            Tools = { GetTool, PostTool, PutTool, DeleteTool, DoneTool }
+            Tools = { GetTool, PostTool, PutTool, DeleteTool, SearchHelpTool, DoneTool }
         };
 
         for (int i = 0; i < MaxIterations; i++)
@@ -216,6 +232,7 @@ public class FallbackAgentHandler : ITaskHandler
                         "api_post" => await HandlePost(api, args),
                         "api_put" => await HandlePut(api, args),
                         "api_delete" => await HandleDelete(api, args),
+                        "search_help" => await HandleSearchHelp(args),
                         "task_complete" => HandleComplete(args),
                         _ => $"Unknown tool: {toolCall.FunctionName}"
                     };
@@ -242,6 +259,13 @@ public class FallbackAgentHandler : ITaskHandler
         }
 
         _logger.LogWarning("Fallback agent reached max iterations ({Max})", MaxIterations);
+    }
+
+    private async Task<string> HandleSearchHelp(JsonElement args)
+    {
+        var query = args.GetProperty("query").GetString()!;
+        _logger.LogInformation("Fallback agent searching help: {Query}", query);
+        return await _knowledge.SearchAsync(query);
     }
 
     private async Task<string> HandleGet(TripletexApiClient api, JsonElement args)

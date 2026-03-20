@@ -167,16 +167,38 @@ public class SandboxValidator
         CheckStringField(val, entity, "organizationNumber", report, 1);
         CheckStringField(val, entity, "phoneNumber", report, 1);
 
-        // Address check
-        if (entity.ContainsKey("address") || entity.ContainsKey("postalCode") || entity.ContainsKey("city"))
+        // Address check — competition validates individual address fields, not just presence
+        // Extract expected address values from entity (may be stored as address/addressLine1/street + postalCode + city)
+        var addrKeys = new[] { "address", "addressLine1", "street", "postalCode", "city" };
+        if (addrKeys.Any(k => entity.ContainsKey(k)))
         {
-            if (val.TryGetProperty("physicalAddress", out var addr) && addr.ValueKind == JsonValueKind.Object)
+            string? expectedLine1 = entity.TryGetValue("addressLine1", out var l1) ? l1?.ToString()
+                : entity.TryGetValue("address", out var l1b) ? l1b?.ToString()
+                : entity.TryGetValue("street", out var l1c) ? l1c?.ToString() : null;
+            string? expectedPostalCode = entity.TryGetValue("postalCode", out var pc) ? pc?.ToString() : null;
+            string? expectedCity = entity.TryGetValue("city", out var ct) ? ct?.ToString() : null;
+
+            // Competition checks physicalAddress fields
+            JsonElement addr = default;
+            bool hasAddr = val.TryGetProperty("physicalAddress", out addr) && addr.ValueKind == JsonValueKind.Object;
+
+            if (expectedLine1 != null)
             {
-                report.Checks.Add(new ValidationCheck("has_address", "true", "true", true, 1));
+                var actual = hasAddr && addr.TryGetProperty("addressLine1", out var prop) ? prop.GetString() : null;
+                report.Checks.Add(new ValidationCheck("address.addressLine1", expectedLine1,
+                    actual ?? "(null)", string.Equals(expectedLine1.Trim(), actual?.Trim(), StringComparison.OrdinalIgnoreCase), 1));
             }
-            else
+            if (expectedPostalCode != null)
             {
-                report.Checks.Add(new ValidationCheck("has_address", "true", "false", false, 1));
+                var actual = hasAddr && addr.TryGetProperty("postalCode", out var prop) ? prop.GetString() : null;
+                report.Checks.Add(new ValidationCheck("address.postalCode", expectedPostalCode,
+                    actual ?? "(null)", string.Equals(expectedPostalCode.Trim(), actual?.Trim(), StringComparison.OrdinalIgnoreCase), 1));
+            }
+            if (expectedCity != null)
+            {
+                var actual = hasAddr && addr.TryGetProperty("city", out var prop) ? prop.GetString() : null;
+                report.Checks.Add(new ValidationCheck("address.city", expectedCity,
+                    actual ?? "(null)", string.Equals(expectedCity.Trim(), actual?.Trim(), StringComparison.OrdinalIgnoreCase), 1));
             }
         }
     }
@@ -386,7 +408,56 @@ public class SandboxValidator
     {
         if (!result.EntityId.HasValue) return;
 
-        report.Checks.Add(new ValidationCheck("salary_transaction_created", "true", "true", true, 3));
+        // Verify transaction is actually accessible via GET (competition queries this)
+        try
+        {
+            var txn = await api.GetAsync($"/salary/transaction/{result.EntityId}",
+                new Dictionary<string, string> { ["fields"] = "id,employee,date" });
+            var val = txn.GetProperty("value");
+
+            report.Checks.Add(new ValidationCheck("salary_transaction_found", "true", "true", true, 2));
+
+            // Check employee link
+            if (val.TryGetProperty("employee", out var empRef) && empRef.ValueKind == JsonValueKind.Object
+                && empRef.TryGetProperty("id", out var empId) && empId.GetInt64() > 0)
+                report.Checks.Add(new ValidationCheck("has_employee_link", "true", "true", true, 2));
+            else
+                report.Checks.Add(new ValidationCheck("has_employee_link", "true", "false", false, 2));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Payroll validation: GET transaction failed: {Msg}", ex.Message);
+            report.Checks.Add(new ValidationCheck("salary_transaction_found", "true", "false", false, 2));
+        }
+
+        // Check payslip is generated (competition likely queries this)
+        try
+        {
+            var entity = extracted.Entities.GetValueOrDefault("payroll")
+                ?? extracted.Entities.GetValueOrDefault("employee") ?? new();
+            var yearStr = entity.TryGetValue("year", out var y) ? y?.ToString() : null
+                ?? DateTime.Now.Year.ToString();
+            var monthStr = entity.TryGetValue("month", out var m) ? m?.ToString() : null
+                ?? DateTime.Now.Month.ToString();
+
+            var payslips = await api.GetAsync("/salary/payslip",
+                new Dictionary<string, string>
+                {
+                    ["from"] = "0",
+                    ["count"] = "10",
+                    ["fields"] = "id,employee,month,year",
+                    ["year"] = yearStr,
+                    ["month"] = monthStr
+                });
+
+            if (payslips.TryGetProperty("values", out var vals))
+            {
+                var count = vals.GetArrayLength();
+                report.Checks.Add(new ValidationCheck("payslip_generated", "> 0",
+                    count.ToString(), count > 0, 2));
+            }
+        }
+        catch { /* payslip check is best-effort */ }
     }
 
     // --- Helper methods ---

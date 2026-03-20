@@ -4,6 +4,10 @@
 
 **Always read `knowledge.md` at the repo root before debugging, implementing handlers, or investigating failures.** It contains verified learnings from real submission runs — API quirks, extraction pitfalls, scoring details, and efficiency baselines. **After fixing a bug, discovering an API quirk, or learning something new about scoring/validation, update `knowledge.md`** by appending to the relevant category with a short entry and the date.
 
+**Read `entity-model.md` at the repo root when working on entity relationships, dependency chains, or debugging complex multi-step tasks.** It maps all Tripletex entity schemas, required fields, cross-references, dependency chains per task type, action endpoints, and common pitfalls. Use it as a quick lookup before implementing or fixing handlers.
+
+**Keep `SandboxValidator.cs` (`src/Services/SandboxValidator.cs`) in sync with actual competition checks.** After every submission, compare local validation scores to competition scores. Any divergence means our validator is wrong — fix it immediately. See the "Validation Feedback Loop" section below for the process.
+
 ## Project Overview
 
 This is a hackathon competition agent for NM i AI 2026. It exposes a single `POST /solve` HTTPS endpoint that receives accounting task prompts (in 7 languages), uses an LLM to parse them, executes Tripletex API calls, and returns `{"status": "completed"}`.
@@ -131,55 +135,95 @@ Two tunnel options are available. Prefer ngrok (cloudflared has TLS issues on so
 
 ```powershell
 $env:AINM_TOKEN = "<access_token from browser cookies>"
-.\scripts\Submit-Run.ps1               # auto-detects tunnel, submits, polls for results
-.\scripts\Submit-Run.ps1 -NoWait       # submit without polling
+.\scripts\Submit-Run.ps1               # auto-starts agent + tunnel, submits, polls 2 min, replays locally
+.\scripts\Submit-Run.ps1 -NoWait       # submit without polling or replay
+.\scripts\Submit-Run.ps1 -NoReplay     # submit + poll but skip local replay
 ```
 
-The script checks that the agent is running, finds the active tunnel URL (tries cloudflared first, falls back to ngrok), sends a health check ping, then submits to the competition API. After submission it polls for results every 10s for up to 10 minutes.
+The script:
+
+1. Checks agent is running — auto-starts via `Start-Agent.ps1 -Background` if not
+2. Checks tunnel is running — auto-starts cloudflared if no tunnel found
+3. Sends a health check ping, then submits to the competition API
+4. Polls for results every 10s for up to 2 minutes
+5. After completion, replays new requests from `submissions.jsonl` locally via `Test-Solve.ps1` and prints a summary
 
 **Competition constraints:** Max 32 submissions/day, max 3 concurrent (429 if exceeded).
+
+**Competition vs local sandbox:** Competition submission runs use a **clean Tripletex environment** every time — no pre-existing customers, products, employees, etc. The local sandbox reuses state across test runs, so entities created in previous tests persist. Never assume entities exist in competition; always create them. Conversely, don't add "search before create" logic just because the local sandbox already has a duplicate — that wastes API calls in competition.
 
 **Never do these:**
 
 - Don't run `dotnet run` without first stopping the old process — it will fail with a port/file lock
 - Don't manually `Get-Process -Name TripletexAgent | Kill` followed by `dotnet run` — use `Start-Agent.ps1` instead
 
-## File Structure Convention
+## Validation Feedback Loop (MANDATORY)
+
+`SandboxValidator.cs` is our local mirror of the competition validator. It runs after every local `Test-Solve.ps1` call and logs scores to `logs/validations.jsonl`. **The sole purpose is to predict competition scores accurately so we know when a fix is real before spending a submission.**
+
+### Process — After Every Competition Submission
+
+1. **Compare scores**: For each task type in the submission replay, compare `local_score / local_max` vs `competition_score / competition_max`.
+2. **Identify divergence**: If local says pass but competition says fail (false positive), our validator is missing a check. If local says fail but competition says pass (false negative), our check is too strict or wrong.
+3. **Update `SandboxValidator.cs`** to match — add missing checks, fix wrong checks, adjust point weights.
+4. **Update `knowledge.md`** with what the competition actually checks for that task type.
+
+### Known Competition Check Mapping (update as you learn more)
+
+| Task type               | Competition checks (as observed)                                                                            | Notes                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `create_employee`       | employee_found, firstName, lastName, email, admin_role                                                      | admin_role worth ~50% of total                                     |
+| `create_customer`       | customer_found, name, email, organizationNumber, addr.addressLine1, addr.postalCode, addr.city, phoneNumber | Competition checks individual address fields, NOT just has_address |
+| `create_supplier`       | supplier_found, name, email, organizationNumber, phoneNumber                                                | phoneNumber check present even when not in prompt                  |
+| `create_product`        | product_found, name, number, price                                                                          |                                                                    |
+| `create_department`     | department_found, name, departmentNumber                                                                    |                                                                    |
+| `create_project`        | project_found, name, has_customer, has_project_manager                                                      |                                                                    |
+| `create_invoice`        | invoice_found, has_customer, has_amount, correct_amount                                                     | Amount = invoice total incl. VAT at correct rate                   |
+| `register_payment`      | invoice_found, payment_registered (amountOutstanding = 0)                                                   |                                                                    |
+| `run_payroll`           | salary_transaction_found, has_employee_link, payslip_generated, correct_amount                              | All 4 fail = transaction not persisted or wrong structure          |
+| `create_travel_expense` | travel_expense_found, has_title, has_employee, has_costs                                                    |                                                                    |
+| `create_credit_note`    | credit_note_created                                                                                         |                                                                    |
+| `create_voucher`        | voucher_found, has_description, has_postings (≥ 2)                                                          |                                                                    |
+
+### Golden Rule
+
+**A local score of 100% means nothing if competition disagrees.** When competition fails a check we pass locally, stop and fix the validator BEFORE fixing the handler. The validator is the ground truth for local development.
+
+Start-Agent.ps1 — Kill + restart agent (supports -Background)
+Start-Tunnel.ps1 — Start ngrok HTTPS tunnel
+Start-Cloudflared.ps1 — Start cloudflare quick tunnel (supports -Kill)
+Test-Solve.ps1 — Send test prompt to agent, tail logs
+Submit-Run.ps1 — Full submission flow: auto-start, submit, poll, replay
+src/
+Program.cs — Minimal API setup, /solve endpoint, ping fast-path
+Models/
+SolveRequest.cs — Request DTOs
+ExtractionResult.cs — LLM extraction output model
+Services/
+TripletexApiClient.cs — HTTP client wrapper (auth, logging, errors)
+LlmExtractor.cs — GPT-4o structured extraction (3-retry + regex fallback)
+TaskRouter.cs — Routes task_type to handler
+ReferenceDataService.cs — Lazy-loaded VAT types, payment types, accounts
+Handlers/
+ITaskHandler.cs — Handler interface
+EmployeeHandler.cs — Create/update employee + role assignment
+CustomerHandler.cs — Create customer (with address parsing)
+SupplierHandler.cs — Create supplier
+ProductHandler.cs — Create product
+DepartmentHandler.cs — Create department (with collision retry)
+ProjectHandler.cs — Create project (customer + PM resolution)
+InvoiceHandler.cs — Full invoice chain (customer → order → invoice → send)
+PaymentHandler.cs — Register payment (optimized: 7 calls)
+CreditNoteHandler.cs — Create credit note on existing invoice
+ContactHandler.cs — Create contact person for customer
+TravelExpenseHandler.cs — Create travel expense with cost lines
+FallbackAgentHandler.cs — LLM tool-use loop for unmapped tasks
+... — One handler per task type
+logs/
+sandbox.jsonl — Sandbox test submission logs
+submissions.jsonl — Competition submission logs
+agent-\*.log — Serilog application logs
 
 ```
-scripts/
-  Start-Agent.ps1               — Kill + restart agent (supports -Background)
-  Start-Tunnel.ps1              — Start ngrok HTTPS tunnel
-  Start-Cloudflared.ps1         — Start cloudflare quick tunnel (supports -Kill)
-  Test-Solve.ps1                — Send test prompt to agent, tail logs
-  Submit-Run.ps1                — Submit competition run, poll for results
-src/
-  Program.cs                    — Minimal API setup, /solve endpoint, ping fast-path
-  Models/
-    SolveRequest.cs             — Request DTOs
-    ExtractionResult.cs         — LLM extraction output model
-  Services/
-    TripletexApiClient.cs       — HTTP client wrapper (auth, logging, errors)
-    LlmExtractor.cs             — GPT-4o structured extraction (3-retry + regex fallback)
-    TaskRouter.cs               — Routes task_type to handler
-    ReferenceDataService.cs     — Lazy-loaded VAT types, payment types, accounts
-  Handlers/
-    ITaskHandler.cs             — Handler interface
-    EmployeeHandler.cs          — Create/update employee + role assignment
-    CustomerHandler.cs          — Create customer (with address parsing)
-    SupplierHandler.cs          — Create supplier
-    ProductHandler.cs           — Create product
-    DepartmentHandler.cs        — Create department (with collision retry)
-    ProjectHandler.cs           — Create project (customer + PM resolution)
-    InvoiceHandler.cs           — Full invoice chain (customer → order → invoice → send)
-    PaymentHandler.cs           — Register payment (optimized: 7 calls)
-    CreditNoteHandler.cs        — Create credit note on existing invoice
-    ContactHandler.cs           — Create contact person for customer
-    TravelExpenseHandler.cs     — Create travel expense with cost lines
-    FallbackAgentHandler.cs     — LLM tool-use loop for unmapped tasks
-    ...                         — One handler per task type
-  logs/
-    sandbox.jsonl               — Sandbox test submission logs
-    submissions.jsonl           — Competition submission logs
-    agent-*.log                 — Serilog application logs
+
 ```
