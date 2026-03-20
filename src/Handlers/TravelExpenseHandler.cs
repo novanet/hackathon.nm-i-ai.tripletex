@@ -32,6 +32,17 @@ public class TravelExpenseHandler : ITaskHandler
         var empLastName = GetStringField(empEntity, "lastName");
         var empEmail = GetStringField(empEntity, "email");
 
+        // Fallback: extract nested employee object from travelExpense entity
+        if (empFirstName == null && empLastName == null && empEmail == null
+            && travel.TryGetValue("employee", out var nestedEmp) && nestedEmp is JsonElement empJe
+            && empJe.ValueKind == JsonValueKind.Object)
+        {
+            if (empJe.TryGetProperty("firstName", out var fn)) empFirstName = fn.GetString();
+            if (empJe.TryGetProperty("lastName", out var ln)) empLastName = ln.GetString();
+            if (empJe.TryGetProperty("email", out var em)) empEmail = em.GetString();
+            _logger.LogInformation("Extracted nested employee: {First} {Last} ({Email})", empFirstName, empLastName, empEmail);
+        }
+
         if (empFirstName != null && empLastName != null)
         {
             employeeId = await ResolveEmployeeByName(api, empFirstName, empLastName);
@@ -47,27 +58,23 @@ public class TravelExpenseHandler : ITaskHandler
         if (!employeeId.HasValue)
         {
             var employeeName = extracted.Relationships.GetValueOrDefault("employee")
-                ?? GetStringField(travel, "employee");
-            if (employeeName != null && !employeeName.Contains('@'))
+                ?? GetStringField(travel, "employeeName");
+            if (employeeName != null && !employeeName.Contains('{') && !employeeName.Contains('@'))
                 employeeId = await ResolveEmployeeId(api, employeeName);
         }
 
-        // Last resort: get first available employee
-        if (!employeeId.HasValue)
+        // Last resort: create the employee so the expense links to the correct person
+        if (!employeeId.HasValue && empFirstName != null && empLastName != null)
         {
-            var empResult = await api.GetAsync("/employee", new Dictionary<string, string>
+            _logger.LogInformation("Employee not found, creating: {First} {Last}", empFirstName, empLastName);
+            var empBody = new Dictionary<string, object>
             {
-                ["count"] = "1",
-                ["fields"] = "id"
-            });
-            if (empResult.TryGetProperty("values", out var vals))
-            {
-                foreach (var v in vals.EnumerateArray())
-                {
-                    employeeId = v.GetProperty("id").GetInt64();
-                    break;
-                }
-            }
+                ["firstName"] = empFirstName,
+                ["lastName"] = empLastName
+            };
+            if (empEmail != null) empBody["email"] = empEmail;
+            var empResult = await api.PostAsync("/employee", empBody);
+            employeeId = empResult.GetProperty("value").GetProperty("id").GetInt64();
         }
 
         // Step 2: Build travel expense body
@@ -186,13 +193,25 @@ public class TravelExpenseHandler : ITaskHandler
         var travelDetailsSrc = extracted.Entities.GetValueOrDefault("travelDetails") ?? new();
         // Also check inside the travel entity
         var durationStr = GetStringField(travelDetailsSrc, "durationDays") ?? GetStringField(travel, "durationDays");
-        var rateStr = GetStringField(travelDetailsSrc, "dailyAllowanceRate") ?? GetStringField(travel, "dailyAllowanceRate");
+        var rateStr = GetStringField(travelDetailsSrc, "dailyAllowanceRate")
+            ?? GetStringField(travelDetailsSrc, "perDiemRate")
+            ?? GetStringField(travelDetailsSrc, "dailyRate")
+            ?? GetStringField(travel, "dailyAllowanceRate")
+            ?? GetStringField(travel, "perDiemRate")
+            ?? GetStringField(travel, "dailyRate");
         if (travel.TryGetValue("travelDetails", out var tdVal) && tdVal is JsonElement tdElem && tdElem.ValueKind == JsonValueKind.Object)
         {
             if (durationStr == null && tdElem.TryGetProperty("durationDays", out var dd2))
                 durationStr = dd2.GetRawText();
-            if (rateStr == null && tdElem.TryGetProperty("dailyAllowanceRate", out var dr2))
-                rateStr = dr2.GetRawText();
+            if (rateStr == null)
+            {
+                if (tdElem.TryGetProperty("dailyAllowanceRate", out var dr2))
+                    rateStr = dr2.GetRawText();
+                else if (tdElem.TryGetProperty("perDiemRate", out var pr2))
+                    rateStr = pr2.GetRawText();
+                else if (tdElem.TryGetProperty("dailyRate", out var dlr2))
+                    rateStr = dlr2.GetRawText();
+            }
         }
 
         if (durationStr != null && rateStr != null
@@ -223,17 +242,20 @@ public class TravelExpenseHandler : ITaskHandler
             }
         }
 
+        // Pre-resolve payment type once (cached for all cost lines)
+        long? cachedPaymentTypeId = null;
+
         // Post each cost line
         foreach (var costLine in costLines)
         {
             costLine["travelExpense"] = new { id = travelId };
 
-            // Resolve payment type if not set
+            // Resolve payment type if not set (cached after first call)
             if (!costLine.ContainsKey("paymentType"))
             {
-                var ptId = await ResolvePaymentTypeId(api);
-                if (ptId.HasValue)
-                    costLine["paymentType"] = new { id = ptId.Value };
+                cachedPaymentTypeId ??= await ResolvePaymentTypeId(api);
+                if (cachedPaymentTypeId.HasValue)
+                    costLine["paymentType"] = new { id = cachedPaymentTypeId.Value };
             }
 
             _logger.LogInformation("Adding cost to travel expense {TravelId}", travelId);

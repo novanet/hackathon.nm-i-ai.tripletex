@@ -50,23 +50,23 @@
 
 We don't know the exact task number ↔ task type mapping, but from submission logs and score patterns:
 
-| Likely Task Type            | Task # (guess) | Score     | Evidence                  |
-| --------------------------- | -------------- | --------- | ------------------------- |
-| create_employee             | 01-03 range    | 2.00      | Tier 1, works well        |
-| create_customer             | 01-03 range    | 2.00      | Tier 1, 1 API call        |
-| create_supplier             | 05/07/08       | 2.00      | Tier 1, 1 API call        |
-| create_product              | 05/07/08       | 2.00      | Tier 1, 2 API calls       |
-| create_department           | 05/07/08       | 2.00      | Tier 1, works well        |
-| create_project              | **04**         | **0.86**  | PM fails on some variants |
-| create_invoice              | 09/10          | 3.67-3.71 | Tier 2, near-perfect      |
-| register_payment            | 12 or 13       | 1.00-1.38 | Tier 2, amount bugs       |
-| run_payroll                 | **11**         | **0.00**  | Tier 2, completely broken |
-| create_travel_expense       | 14-17 range    | 4.00      | Tier 2, works perfectly   |
-| create_voucher              | 14-17 range    | 4.00      | Tier 2, works perfectly   |
-| create_credit_note          | 14-17 range    | 4.00      | Tier 2, works perfectly   |
-| delete_entity               | 14-17 range    | 4.00      | Tier 2, works well        |
-| composite (project+invoice) | 12 or 13       | 1.00-1.38 | Tier 2, partially broken  |
-| enable_module               | 06?            | 1.83      | Near-perfect              |
+| Likely Task Type            | Task # (guess) | Score     | Evidence                                   |
+| --------------------------- | -------------- | --------- | ------------------------------------------ |
+| create_employee             | 01-03 range    | 2.00      | Tier 1, ✅ FIXED: Nynorsk+division+logging |
+| create_customer             | 01-03 range    | 2.00      | Tier 1, 1 API call                         |
+| create_supplier             | 05/07/08       | 2.00      | Tier 1, 1 API call                         |
+| create_product              | 05/07/08       | 2.00      | Tier 1, 2 API calls                        |
+| create_department           | 05/07/08       | 2.00      | Tier 1, works well                         |
+| create_project              | **04**         | **0.86**  | PM fails on some variants                  |
+| create_invoice              | 09/10          | 3.67-3.71 | Tier 2, near-perfect                       |
+| register_payment            | 12 or 13       | 1.00-1.38 | Tier 2, amount bugs                        |
+| run_payroll                 | **11**         | **0.00**  | Tier 2, completely broken                  |
+| create_travel_expense       | 14-17 range    | 4.00      | Tier 2, works perfectly                    |
+| create_voucher              | 14-17 range    | 4.00      | Tier 2, works perfectly                    |
+| create_credit_note          | 14-17 range    | 4.00      | Tier 2, works perfectly                    |
+| delete_entity               | 14-17 range    | 4.00      | Tier 2, works well                         |
+| composite (project+invoice) | 12 or 13       | 1.00-1.38 | Tier 2, partially broken                   |
+| enable_module               | 06?            | 1.83      | Near-perfect                               |
 
 ---
 

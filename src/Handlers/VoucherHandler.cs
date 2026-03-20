@@ -378,16 +378,41 @@ public class VoucherHandler : ITaskHandler
             }
         }
 
-        // 3. Resolve expense account + VAT type
-        var (accountId, vatId) = await ResolveAccountId(api, account);
+        // 3. Resolve expense account (ignore its default vatType — we need input VAT)
+        var (accountId, _) = await ResolveAccountId(api, account);
 
         // 4. Resolve creditor account (2400 = leverandørgjeld)
-        var (creditorId, _) = await ResolveAccountId(api, "2400");
+        var (creditorId, _unused) = await ResolveAccountId(api, "2400");
 
-        // 5. Build postings
+        // 5. Resolve correct INPUT VAT type (inbound, 25% = number 1)
+        // Account defaults may return outbound VAT which is wrong for supplier invoices
+        var vatRate = GetStringField(voucher, "vatRate") ?? GetStringField(voucher, "vatPercentage");
+        var vatNumber = "1"; // Default: inbound 25%
+        if (vatRate != null)
+        {
+            if (vatRate.Contains("15")) vatNumber = "11";
+            else if (vatRate.Contains("12")) vatNumber = "13";
+        }
+        long? inputVatId = null;
+        var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
+        {
+            ["number"] = vatNumber,
+            ["count"] = "1",
+            ["fields"] = "id"
+        });
+        if (vatResult.TryGetProperty("values", out var vatVals))
+        {
+            foreach (var vv in vatVals.EnumerateArray())
+            {
+                inputVatId = vv.GetProperty("id").GetInt64();
+                break;
+            }
+        }
+
+        // 6. Build postings
         var postings = new List<Dictionary<string, object>>();
 
-        // Debit posting: expense account with input VAT
+        // Debit posting: expense account with INPUT VAT
         var debitPosting = new Dictionary<string, object>
         {
             ["date"] = date,
@@ -398,7 +423,7 @@ public class VoucherHandler : ITaskHandler
             ["supplier"] = new { id = supplierId },
             ["row"] = 1
         };
-        if (vatId.HasValue) debitPosting["vatType"] = new { id = vatId.Value };
+        if (inputVatId.HasValue) debitPosting["vatType"] = new { id = inputVatId.Value };
         if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
         postings.Add(debitPosting);
 
@@ -416,9 +441,9 @@ public class VoucherHandler : ITaskHandler
         if (invoiceNumber != null) creditPosting["invoiceNumber"] = invoiceNumber;
         postings.Add(creditPosting);
 
-        _logger.LogInformation("Creating supplier invoice voucher: {Description} amount={Amount} supplier={Supplier}", description, amount, supplierName);
+        _logger.LogInformation("Creating supplier invoice voucher: {Description} amount={Amount} supplier={Supplier} inputVatId={VatId}", description, amount, supplierName, inputVatId);
 
-        // 6. Create voucher
+        // 7. Create voucher
         var body = new Dictionary<string, object>
         {
             ["date"] = date,

@@ -48,7 +48,7 @@ public class LlmExtractor
         - For employee tasks, you MUST extract "firstName" and "lastName" from the full name. The name appears after words like 'named', 'navn', 'name', 'nombre', 'llamado/llamada', 'namens', 'nommé', 'Nome'. Split the full name: first word = firstName, rest = lastName. Also extract ALL mentioned fields: email, dateOfBirth (YYYY-MM-DD), startDate (YYYY-MM-DD), phoneNumberMobile, nationalIdentityNumber, bankAccountNumber
         - If the prompt grants special access or elevated role to an employee, set "roles": ["admin"]
         - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates. If the prompt says the amount is "without VAT", "ex VAT", "ekskl. mva", "uten mva", "sem IVA", "ohne MwSt", "hors TVA", "excl. IVA", or similar, set "vatIncluded": false in the invoice entity.
-        - For travel expense, extract employee reference, title, travel details, and cost items
+        - For travel expense, extract employee reference, title, travel details, and cost items. IMPORTANT: Always extract the employee as a SEPARATE top-level "employee" entity with "firstName", "lastName", "email" — NEVER nest the employee inside the travelExpense entity. Use "dailyAllowanceRate" (not "perDiemRate" or "dailyRate") for per diem rate.
         - If the prompt mentions registering/recording a payment, use "register_payment" even if it also describes creating the invoice
         - For credit notes, use "create_credit_note"
         - For vouchers/journal entries/postings, use "create_voucher"
@@ -58,6 +58,7 @@ public class LlmExtractor
         - For projects, extract the project manager as a nested object: "projectManager": {"firstName": "...", "lastName": "...", "email": "..."}
         - For payroll/salary tasks (running payroll, creating salary slips, paying salary), use "run_payroll". Extract into entities: "employee": {"firstName", "lastName", "email"} and "payroll": {"baseSalary": <number>, "bonus": <number>}
         - For vouchers with custom accounting dimensions, extract the dimension in a separate "dimension" entity: {"name": "Region", "values": ["Vestlandet", "Sør-Norge"]}. In the voucher entity, include "dimensionValue": "Vestlandet" for the value to link to the posting, plus "account": "6300" and "amount": 35500. If the prompt specifies debit/credit accounts explicitly, use "debitAccount" and "creditAccount" in the voucher entity instead.
+        - For supplier invoices (incoming invoices from suppliers), use task_type "create_voucher". In the voucher entity, include: "supplierName", "supplierOrgNumber", "invoiceNumber", "account" (expense account number), "amount" (gross amount incl. VAT), "date", and "vatRate" (e.g. "25") if specified.
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)
