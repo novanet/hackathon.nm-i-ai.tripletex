@@ -76,6 +76,16 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
 
         // Post-processing: fix common LLM misclassifications
         var promptLower = request.Prompt.ToLowerInvariant();
+
+        // Override to create_employee if LLM missed it
+        if (extracted.TaskType is "unknown" or "create_contact" &&
+            System.Text.RegularExpressions.Regex.IsMatch(promptLower,
+                @"\b(ansatt|employee|empleado|funcionário|funcionario|mitarbeiter|employé|empregado)\b"))
+        {
+            extracted.TaskType = "create_employee";
+            logger.LogInformation("Overriding task_type to create_employee (employee keywords detected)");
+        }
+
         if (extracted.TaskType == "create_invoice" &&
             System.Text.RegularExpressions.Regex.IsMatch(promptLower,
                 @"\b(innbetaling|betaling|payment|pago|pagamento|zahlung|paiement)\b"))
@@ -121,7 +131,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
             if (!emp.ContainsKey("dateOfBirth"))
             {
                 var dobMatch = System.Text.RegularExpressions.Regex.Match(request.Prompt,
-                    @"(?:født|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})",
+                    @"(?:født|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|em\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 if (dobMatch.Success)
                 {
@@ -146,6 +156,17 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
                         emp["startDate"] = dateStr;
                         logger.LogInformation("Post-processing: extracted startDate {Date}", dateStr);
                     }
+                }
+            }
+            // Extract email if missing
+            if (!emp.ContainsKey("email"))
+            {
+                var emailMatch = System.Text.RegularExpressions.Regex.Match(request.Prompt,
+                    @"[\w.+-]+@[\w.-]+\.\w{2,}");
+                if (emailMatch.Success)
+                {
+                    emp["email"] = emailMatch.Value;
+                    logger.LogInformation("Post-processing: extracted email {Email}", emailMatch.Value);
                 }
             }
             extracted.Entities["employee"] = emp;
