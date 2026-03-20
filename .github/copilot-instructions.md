@@ -2,6 +2,8 @@
 
 **Always read `opening-strategy.md` at the repo root before making architectural decisions or implementing new task handlers.** It contains the complete API mapping for all 30 task types, dependency chains, scoring rules, and the LLM system prompt. Treat it as the source of truth.
 
+**Always read `knowledge.md` at the repo root before debugging, implementing handlers, or investigating failures.** It contains verified learnings from real submission runs — API quirks, extraction pitfalls, scoring details, and efficiency baselines. **After fixing a bug, discovering an API quirk, or learning something new about scoring/validation, update `knowledge.md`** by appending to the relevant category with a short entry and the date.
+
 ## Project Overview
 
 This is a hackathon competition agent for NM i AI 2026. It exposes a single `POST /solve` HTTPS endpoint that receives accounting task prompts (in 7 languages), uses an LLM to parse them, executes Tripletex API calls, and returns `{"status": "completed"}`.
