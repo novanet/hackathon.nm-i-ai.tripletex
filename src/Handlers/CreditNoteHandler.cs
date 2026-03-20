@@ -33,7 +33,7 @@ public class CreditNoteHandler : ITaskHandler
         {
             // Need to create the full invoice chain first, then credit it
             _logger.LogInformation("No invoice ID found, creating invoice chain first");
-            invoiceId = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
+            (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
         }
 
         // Build credit note query params
@@ -59,7 +59,11 @@ public class CreditNoteHandler : ITaskHandler
     private static string? GetStringField(Dictionary<string, object> dict, string key)
     {
         if (dict.TryGetValue(key, out var val) && val is not null)
-            return val is JsonElement je ? je.GetString() : val.ToString();
+        {
+            if (val is JsonElement je)
+                return je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText();
+            return val.ToString();
+        }
         return null;
     }
 }

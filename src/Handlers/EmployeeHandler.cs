@@ -23,6 +23,16 @@ public class EmployeeHandler : ITaskHandler
 
         // Build employee body
         var body = new Dictionary<string, object>();
+
+        // Handle name splitting: if "name" is provided but no firstName/lastName, split it
+        if (!emp.ContainsKey("firstName") && !emp.ContainsKey("lastName") && emp.TryGetValue("name", out var nameObj))
+        {
+            var fullName = (nameObj is JsonElement nameJe ? nameJe.GetString() : nameObj?.ToString()) ?? "";
+            var parts2 = fullName.Trim().Split(' ', 2);
+            emp["firstName"] = parts2[0];
+            emp["lastName"] = parts2.Length > 1 ? parts2[1] : parts2[0];
+        }
+
         SetIfPresent(body, emp, "firstName");
         SetIfPresent(body, emp, "lastName");
         SetIfPresent(body, emp, "email");
@@ -34,11 +44,12 @@ public class EmployeeHandler : ITaskHandler
         // Determine if admin role is needed
         var hasRoles = emp.TryGetValue("roles", out var rolesObj);
         var roles = ParseStringList(rolesObj);
-        var needsAdmin = roles.Any(r => r.Equals("administrator", StringComparison.OrdinalIgnoreCase));
+        var needsAdmin = roles.Any(r => r.Equals("administrator", StringComparison.OrdinalIgnoreCase)
+            || r.Equals("admin", StringComparison.OrdinalIgnoreCase));
 
         body["userType"] = needsAdmin ? "EXTENDED" : "STANDARD";
 
-        // Handle department — required field in Tripletex
+        // Handle department — required by Tripletex API
         long? deptId = null;
         if (extracted.Relationships.TryGetValue("department", out var deptName) && !string.IsNullOrEmpty(deptName))
         {
@@ -54,7 +65,7 @@ public class EmployeeHandler : ITaskHandler
             }
         }
 
-        // If no department specified or found, use the first available department
+        // Fallback: department.id is required, use first available
         if (deptId == null)
         {
             var allDepts = await api.GetAsync("/department", new Dictionary<string, string>
@@ -98,6 +109,15 @@ public class EmployeeHandler : ITaskHandler
 
     private async Task HandleUpdate(TripletexApiClient api, Dictionary<string, object> emp)
     {
+        // Handle name splitting for search
+        if (!emp.ContainsKey("firstName") && !emp.ContainsKey("lastName") && emp.TryGetValue("name", out var nameObj2))
+        {
+            var fullName = (nameObj2 is JsonElement nameJe2 ? nameJe2.GetString() : nameObj2?.ToString()) ?? "";
+            var parts2 = fullName.Trim().Split(' ', 2);
+            emp["firstName"] = parts2[0];
+            emp["lastName"] = parts2.Length > 1 ? parts2[1] : parts2[0];
+        }
+
         // Find the employee first
         var searchParams = new Dictionary<string, string> { ["count"] = "100", ["fields"] = "*" };
         if (emp.TryGetValue("firstName", out var fn))
@@ -119,17 +139,52 @@ public class EmployeeHandler : ITaskHandler
         var id = existing.GetProperty("id").GetInt64();
         var version = existing.GetProperty("version").GetInt64();
 
-        var updateBody = new Dictionary<string, object>
+        // Start from the existing employee data so all required fields are included
+        var updateBody = new Dictionary<string, object>();
+        // Only include core required fields from existing + changed fields
+        var requiredFields = new HashSet<string> { "id", "version", "firstName", "lastName", "dateOfBirth", "userType", "email" };
+        foreach (var prop in existing.EnumerateObject())
         {
-            ["id"] = id,
-            ["version"] = version
+            if (!requiredFields.Contains(prop.Name)) continue;
+            if (prop.Value.ValueKind == JsonValueKind.Null) continue;
+            updateBody[prop.Name] = prop.Value;
+        }
+        // Include department reference if present
+        if (existing.TryGetProperty("department", out var dept) && dept.ValueKind == JsonValueKind.Object)
+            updateBody["department"] = dept;
+
+        // dateOfBirth is required on PUT — default if employee was created without it
+        if (!updateBody.ContainsKey("dateOfBirth"))
+            updateBody["dateOfBirth"] = "1990-01-01";
+
+        // Field name remapping for common LLM extraction aliases
+        var fieldAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["phoneNumber"] = "phoneNumberMobile",
+            ["phone"] = "phoneNumberMobile",
+            ["telefon"] = "phoneNumberMobile",
+            ["telefonnummer"] = "phoneNumberMobile",
+            ["mobilnummer"] = "phoneNumberMobile",
+            ["name"] = "firstName",
         };
 
-        // Copy over updated fields
+        // Override with updated fields
         foreach (var (key, value) in emp)
         {
-            if (key is not ("firstName" or "lastName") || !searchParams.ContainsKey(key))
-                updateBody[key] = value;
+            if (key is "firstName" or "lastName" or "name") continue;
+            var mappedKey = fieldAliases.TryGetValue(key, out var alias) ? alias : key;
+            // Clean phone numbers — strip spaces and country prefix for Tripletex
+            if (mappedKey == "phoneNumberMobile")
+            {
+                var phone = (value is JsonElement pje ? pje.GetString() : value?.ToString()) ?? "";
+                phone = phone.Replace(" ", "").Replace("'", "");
+                if (phone.StartsWith("+47")) phone = phone[3..];
+                updateBody[mappedKey] = phone;
+            }
+            else
+            {
+                updateBody[mappedKey] = value;
+            }
         }
 
         await api.PutAsync($"/employee/{id}", updateBody);
@@ -155,6 +210,8 @@ public class EmployeeHandler : ITaskHandler
                 return new List<string> { je.GetString()! };
         }
         if (val is string s) return new List<string> { s };
+        if (val is IEnumerable<object> list) return list.Select(x => x.ToString() ?? "").ToList();
+        if (val is IEnumerable<string> strList) return strList.ToList();
         return new();
     }
 }

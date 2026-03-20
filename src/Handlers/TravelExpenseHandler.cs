@@ -275,7 +275,19 @@ public class TravelExpenseHandler : ITaskHandler
     private static string? GetStringField(Dictionary<string, object> dict, string key)
     {
         if (dict.TryGetValue(key, out var val) && val is not null)
-            return val is JsonElement je ? je.GetString() : val.ToString();
+        {
+            if (val is JsonElement je)
+            {
+                return je.ValueKind switch
+                {
+                    JsonValueKind.String => je.GetString(),
+                    JsonValueKind.Number => je.GetRawText(),
+                    JsonValueKind.Object => je.TryGetProperty("name", out var n) ? n.GetString() : je.GetRawText(),
+                    _ => je.GetRawText()
+                };
+            }
+            return val.ToString();
+        }
         return null;
     }
 

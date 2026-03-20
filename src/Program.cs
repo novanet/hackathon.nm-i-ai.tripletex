@@ -68,6 +68,24 @@ app.MapPost("/solve", async (SolveRequest request, LlmExtractor llm, TaskRouter 
     {
         // Step 1: Extract structured data from prompt via LLM (with file content if present)
         var extracted = await llm.ExtractAsync(request.Prompt, request.Files);
+
+        // Post-processing: fix common LLM misclassifications
+        var promptLower = request.Prompt.ToLowerInvariant();
+        if (extracted.TaskType == "create_invoice" &&
+            System.Text.RegularExpressions.Regex.IsMatch(promptLower,
+                @"\b(innbetaling|betaling|payment|pago|pagamento|zahlung|paiement)\b"))
+        {
+            extracted.TaskType = "register_payment";
+            logger.LogInformation("Overriding task_type from create_invoice to register_payment (payment keywords detected)");
+        }
+        if (extracted.TaskType == "create_invoice" &&
+            System.Text.RegularExpressions.Regex.IsMatch(promptLower,
+                @"\b(kreditnota|credit\s*note|nota de crédito|gutschrift|note de crédit)\b"))
+        {
+            extracted.TaskType = "create_credit_note";
+            logger.LogInformation("Overriding task_type from create_invoice to create_credit_note (credit note keywords detected)");
+        }
+
         logger.LogInformation("Extracted task_type: {TaskType}, action: {Action}",
             extracted.TaskType, extracted.Action);
 
@@ -110,9 +128,12 @@ static void LogSubmission(SolveRequest request, ExtractionResult extracted, Trip
 {
     try
     {
+        var baseUrl = request.TripletexCredentials?.BaseUrl ?? "";
+        var env = baseUrl.Contains("tx-proxy.ainm.no") ? "competition" : "sandbox";
         var entry = new
         {
             timestamp = DateTime.UtcNow.ToString("o"),
+            environment = env,
             prompt = request.Prompt.Length > 500 ? request.Prompt[..500] : request.Prompt,
             files = request.Files?.Select(f => f.Filename).ToList() ?? new List<string>(),
             task_type = extracted.TaskType,
@@ -123,7 +144,8 @@ static void LogSubmission(SolveRequest request, ExtractionResult extracted, Trip
         };
         var json = JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = false });
         Directory.CreateDirectory("logs");
-        File.AppendAllText("logs/submissions.jsonl", json + Environment.NewLine);
+        var logFile = env == "competition" ? "logs/submissions.jsonl" : "logs/sandbox.jsonl";
+        File.AppendAllText(logFile, json + Environment.NewLine);
     }
     catch { /* never fail the response due to logging */ }
 }

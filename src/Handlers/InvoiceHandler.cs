@@ -16,7 +16,7 @@ public class InvoiceHandler : ITaskHandler
         await CreateInvoiceChainAsync(api, extracted);
     }
 
-    public async Task<long> CreateInvoiceChainAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<(long invoiceId, decimal amount)> CreateInvoiceChainAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         // Full chain: Customer → Order (with OrderLines + VatType) → Invoice
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
@@ -81,10 +81,12 @@ public class InvoiceHandler : ITaskHandler
         };
 
         var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
-        var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
+        var invoiceValue = invoiceResult.GetProperty("value");
+        var invoiceId = invoiceValue.GetProperty("id").GetInt64();
+        var invoiceAmount = invoiceValue.TryGetProperty("amount", out var amtProp) ? amtProp.GetDecimal() : 0m;
         _logger.LogInformation("Created invoice ID: {Id}", invoiceId);
 
-        return invoiceId;
+        return (invoiceId, invoiceAmount);
     }
 
     internal static List<Dictionary<string, object>> BuildOrderLines(ExtractionResult extracted, long vatTypeId)
@@ -206,7 +208,11 @@ public class InvoiceHandler : ITaskHandler
     private static string? GetStringField(Dictionary<string, object> dict, string key)
     {
         if (dict.TryGetValue(key, out var val) && val is not null)
-            return val is JsonElement je ? je.GetString() : val.ToString();
+        {
+            if (val is JsonElement je)
+                return je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText();
+            return val.ToString();
+        }
         return null;
     }
 

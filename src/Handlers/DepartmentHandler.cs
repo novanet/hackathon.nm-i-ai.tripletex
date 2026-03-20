@@ -21,7 +21,9 @@ public class DepartmentHandler : ITaskHandler
         // Resolve department manager if specified
         if (dept.TryGetValue("departmentManager", out var mgrName) && mgrName is not null)
         {
-            var mgrStr = mgrName is JsonElement je ? je.GetString() : mgrName.ToString();
+            var mgrStr = mgrName is JsonElement je
+                ? (je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText())
+                : mgrName.ToString();
             if (!string.IsNullOrEmpty(mgrStr))
             {
                 var parts = mgrStr!.Split(' ', 2);

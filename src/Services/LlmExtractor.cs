@@ -1,5 +1,6 @@
 using System.ClientModel;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using OpenAI;
 using OpenAI.Chat;
 using TripletexAgent.Models;
@@ -13,8 +14,8 @@ public class LlmExtractor
     private readonly ILogger<LlmExtractor> _logger;
 
     private const string SystemPrompt = """
-        You are an accounting task parser for the Tripletex API. Given a task
-        prompt (in any of 7 languages), extract structured data for execution.
+        You are an accounting task parser for Tripletex. Given a task prompt
+        (in any language), extract structured data for execution.
 
         Respond ONLY with valid JSON matching this schema:
         {
@@ -43,19 +44,13 @@ public class LlmExtractor
         - Parse monetary amounts as numbers (strip currency symbols)
         - Convert all dates to YYYY-MM-DD format
         - If the task type is ambiguous, use "unknown"
-        - Norwegian "kontoadministrator" = role "administrator"
-        - Spanish "administrador" = role "administrator"
-        - German "Kontoverwalter" or "Administrator" = role "administrator"
-        - French "administrateur" = role "administrator"
-        - Portuguese "administrador" = role "administrator"
-        - English "account administrator" or "admin" = role "administrator"
-        - Nynorsk "kontoadministrator" = role "administrator"
-        - For employee tasks, extract "roles" as an array (e.g. ["administrator"])
+        - For employee tasks, always split full name into "firstName" and "lastName"
+        - If the prompt grants special access or elevated role to an employee, set "roles": ["admin"]
         - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates
         - For travel expense, extract employee reference, title, travel details, and cost items
-        - If the prompt mentions registering/recording a payment ("betaling", "payment", "pago", "pagamento", "Zahlung", "paiement", "innbetaling"), use "register_payment" even if it also describes creating the invoice
-        - For credit notes ("kreditnota", "credit note", "nota de crédito", "Gutschrift", "note de crédit"), use "create_credit_note"
-        - For vouchers/journal entries ("bilag", "voucher", "journal entry", "asiento", "lançamento", "Buchung", "écriture"), use "create_voucher"
+        - If the prompt mentions registering/recording a payment, use "register_payment" even if it also describes creating the invoice
+        - For credit notes, use "create_credit_note"
+        - For vouchers/journal entries/postings, use "create_voucher"
         - For deleting entities, use "delete_entity" and set action to "delete"
         """;
 
@@ -108,13 +103,173 @@ public class LlmExtractor
             ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat()
         };
 
-        var completion = await _chatClient.CompleteChatAsync(messages, options);
-        var content = completion.Value.Content[0].Text;
+        // Retry up to 3 times for content filter or transient errors, then fall back to regex
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                var completion = await _chatClient.CompleteChatAsync(messages, options);
+                var content = completion.Value.Content[0].Text;
 
-        _logger.LogInformation("LLM response: {Content}", content);
+                _logger.LogInformation("LLM response: {Content}", content);
 
-        var result = JsonSerializer.Deserialize<ExtractionResult>(content);
-        return result ?? new ExtractionResult { TaskType = "unknown" };
+                var result = JsonSerializer.Deserialize<ExtractionResult>(content);
+                return result ?? new ExtractionResult { TaskType = "unknown" };
+            }
+            catch (Exception ex)
+            {
+                var isRetryable = ex.Message.Contains("content management policy") || ex.Message.Contains("content_filter") || ex.Message.Contains("429");
+                if (attempt < 3 && isRetryable)
+                {
+                    _logger.LogWarning("LLM attempt {Attempt} failed ({Error}), retrying...", attempt, ex.Message.Split('\n')[0]);
+                    await Task.Delay(attempt * 500);
+                }
+                else
+                {
+                    _logger.LogWarning("LLM extraction failed after {Attempt} attempts, using regex fallback: {Error}", attempt, ex.Message.Split('\n')[0]);
+                    return RegexFallbackExtract(prompt);
+                }
+            }
+        }
+
+        // Should never reach here, but just in case
+        return RegexFallbackExtract(prompt);
+    }
+
+    /// <summary>Regex-based fallback when LLM is unavailable (content filter, rate limit, etc.)</summary>
+    private ExtractionResult RegexFallbackExtract(string prompt)
+    {
+        var lower = prompt.ToLowerInvariant();
+        var result = new ExtractionResult { Action = "create" };
+
+        // Detect task type by keywords (multi-language)
+        if (Regex.IsMatch(lower, @"\b(ansatt|employee|empleado|empregado|mitarbeiter|employé|tilsett)\b"))
+        {
+            result.TaskType = lower.Contains("oppdater") || lower.Contains("update") || lower.Contains("endre") ? "update_employee" : "create_employee";
+
+            var emp = new Dictionary<string, object>();
+
+            // Extract name in quotes or after "navn/name/nombre/nom"
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            if (nameMatch.Success)
+            {
+                var parts = nameMatch.Groups[1].Value.Trim().Split(' ', 2);
+                emp["firstName"] = parts[0];
+                emp["lastName"] = parts.Length > 1 ? parts[1] : parts[0];
+            }
+            // Also try "fornavn" / "etternavn" pattern
+            var fnMatch = Regex.Match(prompt, @"(?:fornavn|first\s*name)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            var lnMatch = Regex.Match(prompt, @"(?:etternavn|last\s*name|surname)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            if (fnMatch.Success) emp["firstName"] = fnMatch.Groups[1].Value;
+            if (lnMatch.Success) emp["lastName"] = lnMatch.Groups[1].Value;
+
+            // Extract email
+            var emailMatch = Regex.Match(prompt, @"[\w.-]+@[\w.-]+\.\w{2,}");
+            if (emailMatch.Success) emp["email"] = emailMatch.Value;
+
+            // Extract phone
+            var phoneMatch = Regex.Match(prompt, @"(?:telefon|phone|mobil|tlf)[^\d]*([+\d\s]{8,})", RegexOptions.IgnoreCase);
+            if (phoneMatch.Success) emp["phoneNumberMobile"] = phoneMatch.Groups[1].Value.Trim();
+
+            // Check for admin role
+            if (Regex.IsMatch(lower, @"administrator|admin|kontoadministrator|administratortilgang|elevated|privileges"))
+                emp["roles"] = new List<string> { "admin" };
+
+            result.Entities["employee"] = emp;
+        }
+        else if (Regex.IsMatch(lower, @"\b(kunde|customer|cliente|client|Kunde)\b"))
+        {
+            result.TaskType = "create_customer";
+            var cust = new Dictionary<string, object>();
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            if (nameMatch.Success) cust["name"] = nameMatch.Groups[1].Value;
+            var emailMatch = Regex.Match(prompt, @"[\w.-]+@[\w.-]+\.\w{2,}");
+            if (emailMatch.Success) cust["email"] = emailMatch.Value;
+            var orgMatch = Regex.Match(prompt, @"(?:organisasjonsnummer|org\.?\s*nr|org\.?\s*number|CIF|CNPJ)\s*'?(\d{9})'?", RegexOptions.IgnoreCase);
+            if (orgMatch.Success) cust["organizationNumber"] = orgMatch.Groups[1].Value;
+            result.Entities["customer"] = cust;
+        }
+        else if (Regex.IsMatch(lower, @"\b(produkt|product|producto|produit|Produkt)\b"))
+        {
+            result.TaskType = "create_product";
+            var prod = new Dictionary<string, object>();
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            if (nameMatch.Success) prod["name"] = nameMatch.Groups[1].Value;
+            result.Entities["product"] = prod;
+        }
+        else if (Regex.IsMatch(lower, @"\b(avdeling|department|departamento|département|Abteilung)\b"))
+        {
+            result.TaskType = "create_department";
+            var dept = new Dictionary<string, object>();
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            if (nameMatch.Success) dept["name"] = nameMatch.Groups[1].Value;
+            result.Entities["department"] = dept;
+        }
+        else if (Regex.IsMatch(lower, @"\b(leverandør|supplier|proveedor|fournisseur|Lieferant|fornecedor)\b"))
+        {
+            result.TaskType = "create_supplier";
+            var sup = new Dictionary<string, object>();
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            if (nameMatch.Success) sup["name"] = nameMatch.Groups[1].Value;
+            result.Entities["supplier"] = sup;
+        }
+        else if (Regex.IsMatch(lower, @"\b(betaling|payment|pago|pagamento|Zahlung|paiement|innbetaling)\b"))
+        {
+            result.TaskType = "register_payment";
+        }
+        else if (Regex.IsMatch(lower, @"\b(kreditnota|credit\s*note|nota de crédito|Gutschrift|note de crédit)\b"))
+        {
+            result.TaskType = "create_credit_note";
+        }
+        else if (Regex.IsMatch(lower, @"\b(faktura|invoice|factura|fatura|Rechnung|facture)\b"))
+        {
+            result.TaskType = "create_invoice";
+        }
+        else if (Regex.IsMatch(lower, @"\b(prosjekt|project|proyecto|projet|Projekt|projeto)\b"))
+        {
+            result.TaskType = "create_project";
+            var proj = new Dictionary<string, object>();
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+            if (nameMatch.Success) proj["name"] = nameMatch.Groups[1].Value;
+            result.Entities["project"] = proj;
+        }
+        else if (Regex.IsMatch(lower, @"\b(reise|travel|viaje|viagem|Reise|voyage)\b"))
+        {
+            result.TaskType = lower.Contains("slett") || lower.Contains("delete") || lower.Contains("eliminar") ? "delete_travel_expense" : "create_travel_expense";
+            if (result.TaskType == "delete_travel_expense") result.Action = "delete";
+        }
+        else if (Regex.IsMatch(lower, @"\b(bilag|voucher|journal|asiento|lançamento|Buchung|écriture)\b"))
+        {
+            result.TaskType = "create_voucher";
+        }
+        else if (Regex.IsMatch(lower, @"\b(slett|delete|eliminar|excluir|löschen|supprimer)\b"))
+        {
+            result.TaskType = "delete_entity";
+            result.Action = "delete";
+        }
+        else if (Regex.IsMatch(lower, @"\b(modul|module|módulo)\b"))
+        {
+            result.TaskType = "enable_module";
+        }
+        else
+        {
+            result.TaskType = "unknown";
+        }
+
+        // Extract amounts
+        var amountMatches = Regex.Matches(prompt, @"(\d[\d\s]*[.,]\d{2})\b");
+        foreach (Match m in amountMatches)
+            result.RawAmounts.Add(m.Groups[1].Value.Replace(" ", "").Replace(",", "."));
+
+        // Extract dates
+        var dateMatches = Regex.Matches(prompt, @"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})");
+        foreach (Match m in dateMatches)
+            result.Dates.Add(m.Groups[1].Value);
+
+        _logger.LogInformation("Regex fallback extracted: task_type={TaskType}, entities={Entities}",
+            result.TaskType, System.Text.Json.JsonSerializer.Serialize(result.Entities));
+
+        return result;
     }
 
     private FileProcessingResult ProcessFiles(List<SolveFile>? files)

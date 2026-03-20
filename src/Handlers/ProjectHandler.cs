@@ -48,14 +48,22 @@ public class ProjectHandler : ITaskHandler
                 body["customer"] = new { id = customerId.Value };
         }
 
-        // Resolve project manager
+        // Resolve project manager (required field)
         var managerName = extracted.Relationships.GetValueOrDefault("projectManager")
-            ?? GetStringField(project, "projectManager");
+            ?? GetStringField(project, "projectManager")
+            ?? GetStringField(project, "manager");
         if (managerName != null)
         {
             var managerId = await ResolveEmployeeId(api, managerName);
             if (managerId.HasValue)
                 body["projectManager"] = new { id = managerId.Value };
+        }
+        // If no manager specified, use the first employee as fallback
+        if (!body.ContainsKey("projectManager"))
+        {
+            var fallbackId = await ResolveFirstEmployeeId(api);
+            if (fallbackId.HasValue)
+                body["projectManager"] = new { id = fallbackId.Value };
         }
 
         // Resolve department
@@ -130,10 +138,29 @@ public class ProjectHandler : ITaskHandler
         return null;
     }
 
+    private async Task<long?> ResolveFirstEmployeeId(TripletexApiClient api)
+    {
+        var result = await api.GetAsync("/employee", new Dictionary<string, string>
+        {
+            ["count"] = "1",
+            ["fields"] = "id"
+        });
+        if (result.TryGetProperty("values", out var vals))
+        {
+            foreach (var v in vals.EnumerateArray())
+                return v.GetProperty("id").GetInt64();
+        }
+        return null;
+    }
+
     private static string? GetStringField(Dictionary<string, object> dict, string key)
     {
         if (dict.TryGetValue(key, out var val) && val is not null)
-            return val is JsonElement je ? je.GetString() : val.ToString();
+        {
+            if (val is JsonElement je)
+                return je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText();
+            return val.ToString();
+        }
         return null;
     }
 

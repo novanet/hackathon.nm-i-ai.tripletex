@@ -123,7 +123,11 @@ public class DeleteEntityHandler : ITaskHandler
     private static string? GetStringField(Dictionary<string, object> dict, string key)
     {
         if (dict.TryGetValue(key, out var val) && val is not null)
-            return val is JsonElement je ? je.GetString() : val.ToString();
+        {
+            if (val is JsonElement je)
+                return je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText();
+            return val.ToString();
+        }
         return null;
     }
 }

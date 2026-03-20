@@ -21,17 +21,18 @@ public class PaymentHandler : ITaskHandler
         // Full chain: Customer → Order → Invoice → Payment
 
         // Step 1-3: Create the invoice (reuse InvoiceHandler logic)
-        var invoiceId = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
+        var (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
 
-        // Get invoice details (amount) for payment
+        // Get invoice details — need amountOutstanding for correct payment including VAT
         var invoiceResult = await api.GetAsync($"/invoice/{invoiceId}", new Dictionary<string, string>
         {
-            ["fields"] = "id,amount"
+            ["fields"] = "id,amount,amountOutstanding"
         });
 
         var invoiceData = invoiceResult.GetProperty("value");
-        var invoiceAmount = invoiceData.TryGetProperty("amount", out var amt)
-            ? amt.GetDecimal() : 0m;
+        var invoiceAmount = invoiceData.TryGetProperty("amountOutstanding", out var outst) && outst.ValueKind == JsonValueKind.Number
+            ? outst.GetDecimal()
+            : invoiceData.TryGetProperty("amount", out var amt) ? amt.GetDecimal() : 0m;
 
         // Resolve payment type
         var paymentTypeId = await ResolvePaymentTypeId(api);
@@ -41,7 +42,10 @@ public class PaymentHandler : ITaskHandler
         var payment = extracted.Entities.GetValueOrDefault("payment");
         if (payment is not null && payment.TryGetValue("amount", out var payAmt))
         {
-            if (decimal.TryParse(payAmt is JsonElement je ? je.GetString() : payAmt.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+            var amtStr = payAmt is JsonElement je
+                ? (je.ValueKind == JsonValueKind.Number ? je.GetDecimal().ToString(CultureInfo.InvariantCulture) : je.GetString())
+                : payAmt.ToString();
+            if (decimal.TryParse(amtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
                 paidAmount = parsed;
         }
 

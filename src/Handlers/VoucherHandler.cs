@@ -34,16 +34,18 @@ public class VoucherHandler : ITaskHandler
                 if (item.TryGetProperty("accountNumber", out var an))
                 {
                     var accStr = an.ValueKind == JsonValueKind.Number ? an.GetInt64().ToString() : an.GetString()!;
-                    var accId = await ResolveAccountId(api, accStr);
+                    var (accId, vatId) = await ResolveAccountId(api, accStr);
                     if (accId.HasValue) posting["account"] = new { id = accId.Value };
+                    if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
                 }
                 else if (item.TryGetProperty("account", out var acc))
                 {
                     var accStr = acc.ValueKind == JsonValueKind.Number ? acc.GetInt64().ToString() : acc.GetString()!;
                     if (accStr.Length <= 4)
                     {
-                        var accId = await ResolveAccountId(api, accStr);
+                        var (accId, vatId) = await ResolveAccountId(api, accStr);
                         if (accId.HasValue) posting["account"] = new { id = accId.Value };
+                        if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
                     }
                 }
                 if (item.TryGetProperty("amountGross", out var ag))
@@ -66,9 +68,11 @@ public class VoucherHandler : ITaskHandler
                 // Resolve account by number
                 if (je.TryGetProperty("accountNumber", out var accNum))
                 {
-                    var accountId = await ResolveAccountId(api, accNum.GetString()!);
+                    var (accountId, vatId) = await ResolveAccountId(api, accNum.GetString()!);
                     if (accountId.HasValue)
                         posting["account"] = new { id = accountId.Value };
+                    if (vatId.HasValue)
+                        posting["vatType"] = new { id = vatId.Value };
                 }
                 else if (je.TryGetProperty("account", out var acc))
                 {
@@ -77,9 +81,11 @@ public class VoucherHandler : ITaskHandler
                     if (int.TryParse(accStr, out var accId) && accStr.Length <= 4)
                     {
                         // Likely an account number
-                        var resolvedId = await ResolveAccountId(api, accStr);
+                        var (resolvedId, vatId) = await ResolveAccountId(api, accStr);
                         if (resolvedId.HasValue)
                             posting["account"] = new { id = resolvedId.Value };
+                        if (vatId.HasValue)
+                            posting["vatType"] = new { id = vatId.Value };
                     }
                     else
                     {
@@ -114,31 +120,35 @@ public class VoucherHandler : ITaskHandler
 
             if (debitAccount != null)
             {
-                var debitId = await ResolveAccountId(api, debitAccount);
+                var (debitId, debitVatId) = await ResolveAccountId(api, debitAccount);
                 if (debitId.HasValue)
                 {
-                    postings.Add(new Dictionary<string, object>
+                    var p = new Dictionary<string, object>
                     {
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = debitId.Value },
                         ["amountGross"] = amount
-                    });
+                    };
+                    if (debitVatId.HasValue) p["vatType"] = new { id = debitVatId.Value };
+                    postings.Add(p);
                 }
             }
 
             if (creditAccount != null)
             {
-                var creditId = await ResolveAccountId(api, creditAccount);
+                var (creditId, creditVatId) = await ResolveAccountId(api, creditAccount);
                 if (creditId.HasValue)
                 {
-                    postings.Add(new Dictionary<string, object>
+                    var p = new Dictionary<string, object>
                     {
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = creditId.Value },
                         ["amountGross"] = -amount
-                    });
+                    };
+                    if (creditVatId.HasValue) p["vatType"] = new { id = creditVatId.Value };
+                    postings.Add(p);
                 }
             }
         }
@@ -168,20 +178,30 @@ public class VoucherHandler : ITaskHandler
         _logger.LogInformation("Created voucher ID: {Id}", voucherId);
     }
 
-    private async Task<long?> ResolveAccountId(TripletexApiClient api, string accountNumber)
+    private async Task<(long? accountId, long? vatTypeId)> ResolveAccountId(TripletexApiClient api, string accountNumber)
     {
         var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
         {
             ["number"] = accountNumber,
             ["count"] = "1",
-            ["fields"] = "id,number"
+            ["fields"] = "id,number,vatType(id)"
         });
         if (result.TryGetProperty("values", out var vals))
         {
             foreach (var v in vals.EnumerateArray())
-                return v.GetProperty("id").GetInt64();
+            {
+                var id = v.GetProperty("id").GetInt64();
+                long? vatId = null;
+                if (v.TryGetProperty("vatType", out var vt) && vt.ValueKind == JsonValueKind.Object
+                    && vt.TryGetProperty("id", out var vtId) && vtId.ValueKind == JsonValueKind.Number)
+                {
+                    vatId = vtId.GetInt64();
+                    if (vatId == 0) vatId = null;
+                }
+                return (id, vatId);
+            }
         }
-        return null;
+        return (null, null);
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)

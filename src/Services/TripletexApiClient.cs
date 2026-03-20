@@ -29,7 +29,7 @@ public class TripletexApiClient
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _logger = logger;
-        _http = new HttpClient();
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
         var authBytes = Encoding.ASCII.GetBytes($"0:{sessionToken}");
         _http.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));

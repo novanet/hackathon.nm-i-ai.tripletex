@@ -39,13 +39,18 @@ A PowerShell script is included to send test prompts to your locally running age
 
 ```powershell
 # Start the agent
-dotnet run --project src/TripletexAgent.csproj
+.\scripts\Start-Agent.ps1 -Background
+
+# Start HTTPS tunnel (in a separate terminal)
+.\scripts\Start-Tunnel.ps1
 
 # In another terminal, send a test prompt
 .\scripts\Test-Solve.ps1 "Opprett en kunde med navn 'Test AS'"
 ```
 
-The script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
+For real submissions, copy the ngrok HTTPS URL and enter it at https://app.ainm.no/submit/tripletex as `https://xxxx.ngrok-free.app/solve` with your API key.
+
+The test script reads Tripletex credentials and the API key from .NET user-secrets automatically. You can also pass them explicitly:
 
 ```powershell
 .\scripts\Test-Solve.ps1 -Prompt "Create an employee named Ola Nordmann" `
