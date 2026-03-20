@@ -101,6 +101,56 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
             extracted.Entities["invoice"] = inv;
         }
 
+        // Post-processing: ensure employee has firstName/lastName and dateOfBirth
+        if (extracted.TaskType is "create_employee" or "update_employee")
+        {
+            var emp = extracted.Entities.GetValueOrDefault("employee") ?? new();
+            if (!emp.ContainsKey("firstName") && !emp.ContainsKey("lastName") && !emp.ContainsKey("name"))
+            {
+                var nameMatch = System.Text.RegularExpressions.Regex.Match(request.Prompt,
+                    @"(?:navn|name|nombre|nom|Nome|namens|llamad[oa]|nommée?|chamad[oa])\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)",
+                    System.Text.RegularExpressions.RegexOptions.None);
+                if (nameMatch.Success)
+                {
+                    var parts = nameMatch.Groups[1].Value.Trim().Split(' ', 2);
+                    emp["firstName"] = parts[0];
+                    emp["lastName"] = parts.Length > 1 ? parts[1] : parts[0];
+                    logger.LogInformation("Post-processing: extracted employee name {First} {Last}", parts[0], parts.Length > 1 ? parts[1] : parts[0]);
+                }
+            }
+            if (!emp.ContainsKey("dateOfBirth"))
+            {
+                var dobMatch = System.Text.RegularExpressions.Regex.Match(request.Prompt,
+                    @"(?:født|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (dobMatch.Success)
+                {
+                    var dateStr = LlmExtractor.TryParseDate(dobMatch);
+                    if (dateStr != null)
+                    {
+                        emp["dateOfBirth"] = dateStr;
+                        logger.LogInformation("Post-processing: extracted dateOfBirth {Date}", dateStr);
+                    }
+                }
+            }
+            if (!emp.ContainsKey("startDate"))
+            {
+                var sdMatch = System.Text.RegularExpressions.Regex.Match(request.Prompt,
+                    @"(?:startdato|startdatum|start\s*date|fecha\s*de\s*inicio|data\s*de\s*início|date\s*de\s*début|début)\s*(?:el\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (sdMatch.Success)
+                {
+                    var dateStr = LlmExtractor.TryParseDate(sdMatch);
+                    if (dateStr != null)
+                    {
+                        emp["startDate"] = dateStr;
+                        logger.LogInformation("Post-processing: extracted startDate {Date}", dateStr);
+                    }
+                }
+            }
+            extracted.Entities["employee"] = emp;
+        }
+
         logger.LogInformation("Extracted task_type: {TaskType}, action: {Action}",
             extracted.TaskType, extracted.Action);
 

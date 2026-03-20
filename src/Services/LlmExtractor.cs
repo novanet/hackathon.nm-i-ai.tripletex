@@ -45,7 +45,7 @@ public class LlmExtractor
         - Parse monetary amounts as numbers (strip currency symbols)
         - Convert all dates to YYYY-MM-DD format
         - If the task type is ambiguous, use "unknown"
-        - For employee tasks, always split full name into "firstName" and "lastName". Include ALL mentioned fields: email, dateOfBirth (YYYY-MM-DD), startDate (YYYY-MM-DD), phoneNumberMobile, nationalIdentityNumber, bankAccountNumber
+        - For employee tasks, you MUST extract "firstName" and "lastName" from the full name. The name appears after words like 'named', 'navn', 'name', 'nombre', 'llamado/llamada', 'namens', 'nommé', 'Nome'. Split the full name: first word = firstName, rest = lastName. Also extract ALL mentioned fields: email, dateOfBirth (YYYY-MM-DD), startDate (YYYY-MM-DD), phoneNumberMobile, nationalIdentityNumber, bankAccountNumber
         - If the prompt grants special access or elevated role to an employee, set "roles": ["admin"]
         - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates
         - For travel expense, extract employee reference, title, travel details, and cost items
@@ -154,9 +154,9 @@ public class LlmExtractor
             var emp = new Dictionary<string, object>();
 
             // Extract name in quotes or after "navn/name/nombre/nom"
-            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|namens)\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)", RegexOptions.None);
+            var nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|namens|llamad[oa]|nommée?|chamad[oa])\s+'?([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)", RegexOptions.None);
             if (!nameMatch.Success)
-                nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome)\s*'([^']+)'", RegexOptions.IgnoreCase);
+                nameMatch = Regex.Match(prompt, @"(?:navn|name|nombre|nom|Nome|llamad[oa]|nommée?)\s*'([^']+)'", RegexOptions.IgnoreCase);
             if (nameMatch.Success)
             {
                 var parts = nameMatch.Groups[1].Value.Trim().Split(' ', 2);
@@ -178,11 +178,11 @@ public class LlmExtractor
             if (phoneMatch.Success) emp["phoneNumberMobile"] = phoneMatch.Groups[1].Value.Trim();
 
             // Extract dates (dateOfBirth, startDate) — look for date patterns near keywords
-            var dobMatch = Regex.Match(prompt, @"(?:født|born|geboren|nascid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:am\s*|den\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
-            if (dobMatch.Success) { var d = ParseDate(dobMatch); if (d != null) emp["dateOfBirth"] = d; }
+            var dobMatch = Regex.Match(prompt, @"(?:født|born|geboren|nascid[oa]|nacid[oa]|né[e]?|fødselsdato|date\s*of\s*birth)\s*(?:el\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
+            if (dobMatch.Success) { var d = TryParseDate(dobMatch); if (d != null) emp["dateOfBirth"] = d; }
 
-            var sdMatch = Regex.Match(prompt, @"(?:startdato|startdatum|start\s*date|fecha\s*de\s*inicio|data\s*de\s*início|date\s*de\s*début)\s*(?::?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
-            if (sdMatch.Success) { var d = ParseDate(sdMatch); if (d != null) emp["startDate"] = d; }
+            var sdMatch = Regex.Match(prompt, @"(?:startdato|startdatum|start\s*date|fecha\s*de\s*inicio|data\s*de\s*início|date\s*de\s*début|début)\s*(?:el\s*|am\s*|den\s*|le\s*|:?\s*)(\d{1,2})[.\s]+(\w+)\s+(\d{4})", RegexOptions.IgnoreCase);
+            if (sdMatch.Success) { var d = TryParseDate(sdMatch); if (d != null) emp["startDate"] = d; }
 
             // Check for admin role
             if (Regex.IsMatch(lower, @"administrator|admin|kontoadministrator|administratortilgang|elevated|privileges"))
@@ -346,11 +346,11 @@ public class LlmExtractor
         ["décembre"] = 12,
     };
 
-    private static string? ParseDate(Match m)
+    public static string? TryParseDate(Match m)
     {
         if (int.TryParse(m.Groups[1].Value, out var day) && int.TryParse(m.Groups[3].Value, out var year))
         {
-            var monthStr = m.Groups[2].Value.TrimEnd('.');
+            var monthStr = m.Groups[2].Value.TrimEnd('.').ToLowerInvariant();
             if (MonthNames.TryGetValue(monthStr, out var month))
                 return $"{year:D4}-{month:D2}-{day:D2}";
             if (int.TryParse(monthStr, out month) && month >= 1 && month <= 12)
