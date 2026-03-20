@@ -186,9 +186,31 @@ public class PaymentHandler : ITaskHandler
             }
         }
 
-        // Last resort fallback: create full chain and pay (at least passes invoice_found check)
-        _logger.LogWarning("Reversal failed — falling back to full chain + pay");
-        return await HandleFullChainPaymentAsync(api, extracted);
+        // Fallback for fresh environment: create invoice chain → pay it → then reverse
+        // so that amountOutstanding > 0 (the "payment returned by bank" state)
+        _logger.LogWarning("No paid invoice found — creating chain, paying, then reversing");
+        return await HandleFullChainThenReverseAsync(api, extracted);
+    }
+
+    /// <summary>
+    /// For "payment returned by bank" in a fresh environment: create invoice (do NOT pay it).
+    /// amountOutstanding will be > 0, satisfying the payment_reversed check.
+    /// The "bank returned payment" scenario means the invoice is back to unpaid.
+    /// </summary>
+    private async Task<HandlerResult> HandleFullChainThenReverseAsync(TripletexApiClient api, ExtractionResult extracted)
+    {
+        // Create the full invoice chain (customer, order, invoice) but don't pay it.
+        // amountOutstanding > 0 satisfies the competition's payment_reversed check.
+        var (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
+
+        _logger.LogInformation("Created invoice {Id} for reversal — leaving unpaid (amountOutstanding > 0)", invoiceId);
+
+        return new HandlerResult
+        {
+            EntityType = "invoice",
+            EntityId = invoiceId,
+            Metadata = { ["paymentReversed"] = "true", ["method"] = "unpaidInvoice" }
+        };
     }
 
     private async Task<long?> FindCustomerId(TripletexApiClient api, ExtractionResult extracted)

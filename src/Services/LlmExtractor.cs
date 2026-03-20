@@ -47,14 +47,14 @@ public class LlmExtractor
         - If the task type is ambiguous, use "unknown"
         - For employee tasks, you MUST extract "firstName" and "lastName" from the full name. The name appears after words like 'named', 'navn', 'name', 'nombre', 'llamado/llamada', 'namens', 'nommé', 'Nome'. Split the full name: first word = firstName, rest = lastName. Also extract ALL mentioned fields: email, dateOfBirth (YYYY-MM-DD), startDate (YYYY-MM-DD), phoneNumberMobile, nationalIdentityNumber, bankAccountNumber
         - If the prompt grants special access or elevated role to an employee, set "roles": ["admin"]
-        - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates. If the prompt says the amount is "without VAT", "ex VAT", "ekskl. mva", "uten mva", "sem IVA", "ohne MwSt", "hors TVA", "excl. IVA", or similar, set "vatIncluded": false in the invoice entity.
+        - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates. Prices are ALWAYS treated as EXCLUDING VAT by default — do NOT set "vatIncluded" at all unless the prompt EXPLICITLY says prices include VAT (e.g. "inkl. mva", "inkludert mva", "including VAT", "incl. VAT", "con IVA incluido", "IVA inclusa", "inkl. MwSt", "TTC"). Only then set "vatIncluded": true.
         - For travel expense, extract employee reference, title, travel details, and cost items. IMPORTANT: Always extract the employee as a SEPARATE top-level "employee" entity with "firstName", "lastName", "email" — NEVER nest the employee inside the travelExpense entity. Use "dailyAllowanceRate" (not "perDiemRate" or "dailyRate") for per diem rate.
         - If the prompt mentions registering/recording a payment, use "register_payment" even if it also describes creating the invoice
         - For credit notes, use "create_credit_note"
         - For vouchers/journal entries/postings, use "create_voucher"
         - For deleting entities, use "delete_entity" and set action to "delete"
         - When creating MULTIPLE entities of the same type (e.g. "create 3 departments"), use separate entity keys: "department1": {"name": "A"}, "department2": {"name": "B"}, etc. Each entity gets its own key with a numeric suffix.
-        - For projects referencing a customer like "Fjordkraft AS (org.nr 944845712)", put the CUSTOMER NAME in relationships.customer ("Fjordkraft AS") and the org number in the project entity as "customerOrgNumber": "944845712"
+        - For projects referencing a customer like "Fjordkraft AS (org.nr 944845712)", put the CUSTOMER NAME in BOTH relationships.customer ("Fjordkraft AS") AND in the project entity as "customerName": "Fjordkraft AS", and the org number in the project entity as "customerOrgNumber": "944845712"
         - For projects, extract the project manager as a nested object: "projectManager": {"firstName": "...", "lastName": "...", "email": "..."}
         - When the prompt mentions logging/registering hours on a project and creating/generating a project invoice, use task_type "create_project". Extract: "timesheet": {"hours": 27, "hourlyRate": 1050, "activityName": "Rådgivning"} and "employee": {"firstName": "...", "lastName": "...", "email": "..."}. Also extract customer and project entities as usual.
         - For payroll/salary tasks (running payroll, creating salary slips, paying salary), use "run_payroll". Extract into entities: "employee": {"firstName", "lastName", "email"} and "payroll": {"baseSalary": <number>, "bonus": <number>}
@@ -122,7 +122,9 @@ public class LlmExtractor
                 _logger.LogInformation("LLM response: {Content}", content);
 
                 var result = SafeDeserialize(content);
-                return result ?? new ExtractionResult { TaskType = "unknown" };
+                var final = result ?? new ExtractionResult { TaskType = "unknown" };
+                final.RawPrompt = prompt;
+                return final;
             }
             catch (Exception ex)
             {
@@ -396,6 +398,7 @@ public class LlmExtractor
         _logger.LogInformation("Regex fallback extracted: task_type={TaskType}, entities={Entities}",
             result.TaskType, System.Text.Json.JsonSerializer.Serialize(result.Entities));
 
+        result.RawPrompt = prompt;
         return result;
     }
 

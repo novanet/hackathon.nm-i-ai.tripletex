@@ -319,7 +319,7 @@ public class SandboxValidator
         if (!result.EntityId.HasValue) return;
 
         var proj = await api.GetAsync($"/project/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "*" });
+            new Dictionary<string, string> { ["fields"] = "id,name,customer,projectManager,isFixedPrice,fixedprice,invoicingPlan,preliminaryInvoice" });
         var val = proj.GetProperty("value");
 
         var entity = extracted.Entities.GetValueOrDefault("project") ?? new();
@@ -334,6 +334,58 @@ public class SandboxValidator
         if (val.TryGetProperty("projectManager", out var pmRef) && pmRef.ValueKind == JsonValueKind.Object
             && pmRef.TryGetProperty("id", out var pmId) && pmId.GetInt64() > 0)
             report.Checks.Add(new ValidationCheck("has_project_manager", "true", "true", true, 1));
+
+        // Check isFixedPrice if fixedPrice was requested
+        bool fixedPriceRequested = entity.ContainsKey("fixedPrice") || entity.ContainsKey("fixedprice");
+        if (fixedPriceRequested)
+        {
+            bool isFixed = val.TryGetProperty("isFixedPrice", out var fp) && fp.ValueKind == JsonValueKind.True;
+            report.Checks.Add(new ValidationCheck("isFixedPrice", "true", isFixed.ToString().ToLower(), isFixed, 2));
+        }
+
+        // Check if invoice was created for the project (invoicingPlan, preliminaryInvoice, or /invoice?projectId)
+        var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice");
+        if (invoiceEntity != null && invoiceEntity.Count > 0)
+        {
+            bool hasInvoice = false;
+            if (val.TryGetProperty("invoicingPlan", out var plan) && plan.ValueKind == JsonValueKind.Array && plan.GetArrayLength() > 0)
+                hasInvoice = true;
+            else if (val.TryGetProperty("preliminaryInvoice", out var pre) && pre.ValueKind == JsonValueKind.Object
+                && pre.TryGetProperty("id", out var preId) && preId.GetInt64() > 0)
+                hasInvoice = true;
+            else
+            {
+                // Check via /order?projectId=X (order-linked to project gives invoice)
+                try
+                {
+                    var orderSearch = await api.GetAsync("/order", new Dictionary<string, string>
+                    { ["projectId"] = result.EntityId.Value.ToString(), ["count"] = "5", ["fields"] = "id" });
+                    if (orderSearch.TryGetProperty("values", out var ordVals) && ordVals.GetArrayLength() > 0)
+                        hasInvoice = true;
+                }
+                catch { }
+
+                if (!hasInvoice)
+                {
+                    // Fallback: /invoice?projectId=X with broad date range
+                    try
+                    {
+                        var invSearch = await api.GetAsync("/invoice", new Dictionary<string, string>
+                        {
+                            ["projectId"] = result.EntityId.Value.ToString(),
+                            ["invoiceDateFrom"] = "2020-01-01",
+                            ["invoiceDateTo"] = "2030-12-31",
+                            ["count"] = "5",
+                            ["fields"] = "id"
+                        });
+                        if (invSearch.TryGetProperty("values", out var invVals) && invVals.GetArrayLength() > 0)
+                            hasInvoice = true;
+                    }
+                    catch { }
+                }
+            }
+            report.Checks.Add(new ValidationCheck("has_project_invoice", "true", hasInvoice.ToString().ToLower(), hasInvoice, 2));
+        }
     }
 
     private async Task ValidateTravelExpense(TripletexApiClient api, ExtractionResult extracted,
@@ -429,6 +481,7 @@ public class SandboxValidator
             // Check employee link and payslip from inline payslips array
             bool hasEmployee = false;
             int payslipCount = 0;
+            decimal totalAmount = 0;
             if (val.TryGetProperty("payslips", out var payslips) && payslips.ValueKind == JsonValueKind.Array)
             {
                 payslipCount = payslips.GetArrayLength();
@@ -438,8 +491,10 @@ public class SandboxValidator
                         && empRef.TryGetProperty("id", out var empId) && empId.GetInt64() > 0)
                     {
                         hasEmployee = true;
-                        break;
                     }
+                    // Sum up gross amount across payslips
+                    if (ps.TryGetProperty("amount", out var amountProp))
+                        totalAmount += amountProp.ValueKind == JsonValueKind.Number ? amountProp.GetDecimal() : 0;
                 }
             }
 
@@ -447,6 +502,24 @@ public class SandboxValidator
                 hasEmployee ? "true" : "false", hasEmployee, 2));
             report.Checks.Add(new ValidationCheck("payslip_generated", "> 0",
                 payslipCount.ToString(), payslipCount > 0, 2));
+
+            // correct_amount: sum of baseSalary + bonus from extraction vs actual payslip amount
+            var payrollEntity = extracted.Entities.GetValueOrDefault("payroll")
+                ?? extracted.Entities.GetValueOrDefault("salary")
+                ?? new();
+            decimal expectedBase = GetDecimalFromEntity(payrollEntity, "baseSalary")
+                ?? GetDecimalFromEntity(payrollEntity, "amount") ?? 0;
+            decimal expectedBonus = GetDecimalFromEntity(payrollEntity, "bonus") ?? 0;
+            decimal expectedTotal = expectedBase + expectedBonus;
+
+            if (expectedTotal > 0)
+            {
+                bool amountOk = totalAmount > 0 && Math.Abs(totalAmount - expectedTotal) < 1m;
+                report.Checks.Add(new ValidationCheck("correct_amount",
+                    expectedTotal.ToString("F0"),
+                    totalAmount.ToString("F0"),
+                    amountOk, 2));
+            }
         }
         catch (Exception ex)
         {
@@ -501,6 +574,21 @@ public class SandboxValidator
 
         var passed = expectedVal == actualVal;
         report.Checks.Add(new ValidationCheck(field, expectedVal.ToString(), actualVal.ToString(), passed, points));
+    }
+
+    private static decimal? GetDecimalFromEntity(Dictionary<string, object> entity, string key)
+    {
+        if (!entity.TryGetValue(key, out var v)) return null;
+        if (v is JsonElement je)
+        {
+            if (je.ValueKind == JsonValueKind.Number) return je.GetDecimal();
+            if (decimal.TryParse(je.GetString(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var d)) return d;
+            return null;
+        }
+        if (decimal.TryParse(v?.ToString(), System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var d2)) return d2;
+        return null;
     }
 }
 

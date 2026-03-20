@@ -392,6 +392,24 @@ public class InvoiceHandler : ITaskHandler
             };
         }
 
+        // Code-level safeguard: only trust vatIncluded=true if the prompt actually contains
+        // VAT-inclusive keywords. The LLM sometimes hallucinate vatIncluded=true.
+        if (useIncludingVatPrice)
+        {
+            var prompt = (extracted.RawPrompt ?? "").ToLowerInvariant();
+            var vatInclKeywords = new[] {
+                "inkl. mva", "inkl mva", "inklusive mva", "inkludert mva", "inkl.mva",
+                "including vat", "incl. vat", "incl vat", "vat included", "vat-inclusive",
+                "con iva incluido", "iva incluido", "iva inclusa", "iva incluso",
+                "inkl. mwst", "inkl mwst", "inklusive mwst", "einschließlich mwst",
+                "ttc", "tva incluse", "tva comprise",
+                "inkl. moms", "inkl moms", "inklusive moms",
+                "com iva incluído", "com iva"
+            };
+            if (!vatInclKeywords.Any(k => prompt.Contains(k)))
+                useIncludingVatPrice = false;
+        }
+
         // Try to parse from orderLines entity
         var orderLinesEntity = extracted.Entities.GetValueOrDefault("orderLines");
         if (orderLinesEntity is { Count: > 0 })

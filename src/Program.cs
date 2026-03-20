@@ -60,6 +60,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
     ExtractionResult? extracted = null;
     TripletexApiClient? api = null;
     string? handlerName = null;
+    HandlerResult? handlerResult = null;
 
     try
     {
@@ -207,7 +208,10 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         api = new TripletexApiClient(baseUrl, sessionToken, apiLogger);
 
         // Step 3: Route to handler
-        var (handled, handlerResult, routedHandlerName) = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
+        var routeResult = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
+        var handled = routeResult.handled;
+        handlerResult = routeResult.result;
+        var routedHandlerName = routeResult.handlerName;
         handlerName = routedHandlerName;
 
         if (!handled)
@@ -236,7 +240,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         }
 
         // Structured submission log (submissions.jsonl)
-        LogSubmission(request, extracted, api, handlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext);
+        LogSubmission(request, extracted, api, handlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext, handlerResult);
 
         return Results.Json(new { status = "completed" });
     }
@@ -244,7 +248,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
     {
         sw.Stop();
         logger.LogError(ex, "Error processing /solve request");
-        LogSubmission(request, extracted, api, handlerName ?? router.GetHandlerName(extracted?.TaskType ?? "unknown"), sw.ElapsedMilliseconds, success: false, error: ex.Message, httpContext);
+        LogSubmission(request, extracted, api, handlerName ?? router.GetHandlerName(extracted?.TaskType ?? "unknown"), sw.ElapsedMilliseconds, success: false, error: ex.Message, httpContext, handlerResult);
         return Results.Json(new { status = "completed" });
     }
 });
@@ -277,7 +281,8 @@ static void LogRecon(SolveRequest request, ExtractionResult extracted, string ha
 }
 
 static void LogSubmission(SolveRequest request, ExtractionResult? extracted, TripletexApiClient? api,
-    string? handlerName, long elapsedMs, bool success, string? error, HttpContext? httpContext = null)
+    string? handlerName, long elapsedMs, bool success, string? error, HttpContext? httpContext = null,
+    HandlerResult? handlerResult = null)
 {
     try
     {
@@ -296,6 +301,8 @@ static void LogSubmission(SolveRequest request, ExtractionResult? extracted, Tri
             language = extracted?.Language,
             handler = handlerName,
             entities = extracted?.Entities,
+            handler_metadata = (handlerResult?.Metadata?.Count > 0) ? handlerResult.Metadata : null,
+            entity_id = handlerResult?.EntityId,
             success,
             error,
             elapsed_ms = elapsedMs,

@@ -27,4 +27,8 @@ public class ExtractionResult
 
     [JsonPropertyName("language")]
     public string? Language { get; set; }
+
+    /// <summary>Original prompt text (set by LlmExtractor, not from JSON)</summary>
+    [JsonIgnore]
+    public string? RawPrompt { get; set; }
 }

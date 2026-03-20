@@ -183,7 +183,8 @@ public class ProjectHandler : ITaskHandler
                 body["department"] = new { id = deptId.Value };
         }
 
-        _logger.LogInformation("Creating project: {Name}", body.GetValueOrDefault("name"));
+        _logger.LogInformation("Creating project: {Name}, isFixedPrice={IsFixed}, fixedprice={FixedAmt}",
+            body.GetValueOrDefault("name"), body.GetValueOrDefault("isFixedPrice"), body.GetValueOrDefault("fixedprice"));
 
         var result = await api.PostAsync("/project", body);
         var projectId = result.GetProperty("value").GetProperty("id").GetInt64();
@@ -433,17 +434,15 @@ public class ProjectHandler : ITaskHandler
             return;
         }
 
-        // Ensure bank account + resolve VAT type in parallel
-        var bankTask = EnsureBankAccount(api);
-        var vatTask = ResolveVatTypeId(api);
-        await Task.WhenAll(bankTask, vatTask);
-        var vatTypeId = vatTask.Result;
+        // Ensure bank account
+        await EnsureBankAccount(api);
 
-        // Create order with a single line for the invoice amount
+        // Create order with a single line for the invoice amount, linked to project (no vatType — project-linked orders inherit vatType from project)
         var invoiceDate = DateTime.Now.ToString("yyyy-MM-dd");
         var orderBody = new Dictionary<string, object>
         {
             ["customer"] = new { id = customerId.Value },
+            ["project"] = new { id = projectId },
             ["orderDate"] = invoiceDate,
             ["deliveryDate"] = invoiceDate,
             ["orderLines"] = new[]
@@ -452,8 +451,7 @@ public class ProjectHandler : ITaskHandler
                 {
                     ["description"] = GetStringField(invoiceEntity, "description") ?? $"Delfakturering prosjekt",
                     ["count"] = 1,
-                    ["unitPriceExcludingVatCurrency"] = invoiceAmount,
-                    ["vatType"] = new { id = vatTypeId }
+                    ["unitPriceExcludingVatCurrency"] = invoiceAmount
                 }
             }
         };
@@ -474,6 +472,24 @@ public class ProjectHandler : ITaskHandler
         var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
         var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created project invoice ID: {Id}, amount: {Amount}", invoiceId, invoiceAmount);
+
+        // Link invoice to project via preliminaryInvoice (writable field on Project schema)
+        try
+        {
+            var projectGet = await api.GetAsync($"/project/{projectId}", new Dictionary<string, string> { ["fields"] = "id,version" });
+            var projectVersion = projectGet.GetProperty("value").GetProperty("version").GetInt32();
+            await api.PutAsync($"/project/{projectId}", new Dictionary<string, object>
+            {
+                ["id"] = projectId,
+                ["version"] = projectVersion,
+                ["preliminaryInvoice"] = new { id = invoiceId }
+            });
+            _logger.LogInformation("Linked invoice {InvoiceId} to project {ProjectId} via preliminaryInvoice", invoiceId, projectId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to link preliminaryInvoice to project (non-fatal)");
+        }
     }
 
     private async Task EnsureBankAccount(TripletexApiClient api)
