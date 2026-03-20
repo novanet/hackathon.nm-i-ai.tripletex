@@ -67,27 +67,70 @@ public class DepartmentHandler : ITaskHandler
         }
 
         var deptNumber = 1;
+        var existingNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (dept.TryGetValue("departmentNumber", out var dnVal) && dnVal is not null)
         {
             var dnStr = dnVal is JsonElement dje ? dje.ToString() : dnVal.ToString();
             int.TryParse(dnStr, out deptNumber);
         }
+        else
+        {
+            // Query existing departments to find the next available number and existing names
+            try
+            {
+                var existing = await api.GetAsync("/department", new Dictionary<string, string>
+                {
+                    ["from"] = "0",
+                    ["count"] = "1000",
+                    ["fields"] = "departmentNumber,name"
+                });
+                if (existing.TryGetProperty("values", out var vals))
+                {
+                    var maxNum = 0;
+                    foreach (var d in vals.EnumerateArray())
+                    {
+                        if (d.TryGetProperty("departmentNumber", out var dn) && dn.TryGetInt32(out var n) && n > maxNum)
+                            maxNum = n;
+                        if (d.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String)
+                            existingNames.Add(nm.GetString()!);
+                    }
+                    deptNumber = maxNum + 1;
+                }
+            }
+            catch { /* fallback to 1 */ }
+        }
 
         foreach (var name in names)
         {
+            // Skip if department with this name already exists
+            if (existingNames.Contains(name))
+            {
+                _logger.LogInformation("Department '{Name}' already exists, skipping", name);
+                continue;
+            }
+
             var body = new Dictionary<string, object> { ["name"] = name };
-            // Auto-assign department numbers for multi-department creation
-            if (names.Count > 1)
-                body["departmentNumber"] = deptNumber++;
-            else if (dept.ContainsKey("departmentNumber"))
-                body["departmentNumber"] = deptNumber;
             if (managerRef is not null)
                 body["departmentManager"] = managerRef;
 
-            _logger.LogInformation("Creating department: {Name}", name);
-            var result = await api.PostAsync("/department", body);
-            var deptId = result.GetProperty("value").GetProperty("id").GetInt64();
-            _logger.LogInformation("Created department ID: {Id}", deptId);
+            // Try creating with auto-assigned number, retry on collision
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                body["departmentNumber"] = deptNumber++;
+                try
+                {
+                    _logger.LogInformation("Creating department: {Name} (number {Num})", name, (int)body["departmentNumber"]);
+                    var result = await api.PostAsync("/department", body);
+                    var deptId = result.GetProperty("value").GetProperty("id").GetInt64();
+                    _logger.LogInformation("Created department ID: {Id}", deptId);
+                    break;
+                }
+                catch (TripletexApiException ex) when (ex.Message.Contains("Nummeret er i bruk"))
+                {
+                    _logger.LogWarning("Department number {Num} in use, trying next", (int)body["departmentNumber"]);
+                    if (attempt == 4) throw;
+                }
+            }
         }
     }
 
