@@ -22,6 +22,7 @@ param(
 $ErrorActionPreference = "Stop"
 $taskId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 $apiBase = "https://api.ainm.no"
+$leaderboardUrl = "$apiBase/tripletex/leaderboard/996fca4f-53fc-4585-bc65-b7a632fe7478"
 
 # --- Resolve auth token ---
 if (-not $Token) {
@@ -304,6 +305,39 @@ if ($finalState -and $mySub) {
     catch {
         Write-Host "WARNING: Failed to save results: $_" -ForegroundColor Yellow
     }
+}
+
+# --- Fetch leaderboard snapshot ---
+try {
+    $leaderboardFile = Join-Path $PSScriptRoot "..\src\logs\leaderboard.jsonl"
+    [System.IO.Directory]::CreateDirectory((Split-Path $leaderboardFile)) | Out-Null
+
+    $leaderboardData = Invoke-RestMethod -Uri $leaderboardUrl -Method GET -TimeoutSec 15 -ErrorAction Stop
+
+    $totalScore = ($leaderboardData | Measure-Object -Property best_score -Sum).Sum
+    $taskCount = ($leaderboardData | Measure-Object).Count
+    $zeroTasks = $leaderboardData | Where-Object { $_.best_score -eq 0 } | ForEach-Object { $_.tx_task_id }
+
+    $leaderboardEntry = @{
+        timestamp        = (Get-Date).ToUniversalTime().ToString("o")
+        submission_id    = $submissionId
+        total_best_score = [Math]::Round($totalScore, 4)
+        task_count       = $taskCount
+        tasks            = $leaderboardData
+    }
+
+    $lbJson = $leaderboardEntry | ConvertTo-Json -Depth 5 -Compress
+    Add-Content -Path $leaderboardFile -Value $lbJson -Encoding UTF8
+
+    Write-Host ""
+    Write-Host "Leaderboard snapshot saved to leaderboard.jsonl" -ForegroundColor Green
+    Write-Host "  Total: $([Math]::Round($totalScore, 2)) across $taskCount tasks" -ForegroundColor Yellow
+    if ($zeroTasks) {
+        Write-Host "  Zero-score tasks: $($zeroTasks -join ', ')" -ForegroundColor Yellow
+    }
+}
+catch {
+    Write-Host "WARNING: Failed to fetch leaderboard: $_" -ForegroundColor Yellow
 }
 
 # --- Replay new competition requests locally ---
