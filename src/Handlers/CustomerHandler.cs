@@ -40,6 +40,17 @@ public class CustomerHandler : ITaskHandler
         SetIfPresent(body, cust, "invoiceEmail");
         SetIfPresent(body, cust, "isPrivateIndividual");
 
+        // Handle orgNumber alias
+        if (!body.ContainsKey("organizationNumber"))
+            SetIfPresent(body, cust, "orgNumber", "organizationNumber");
+
+        // Parse combined address string into structured fields if needed
+        if (!cust.ContainsKey("addressLine1") && cust.TryGetValue("address", out var addrObj))
+        {
+            var addrStr = (addrObj is JsonElement je ? je.GetString() : addrObj?.ToString()) ?? "";
+            ParseAddressString(cust, addrStr);
+        }
+
         // Handle address if present
         var address = BuildAddress(cust);
         if (address.Count > 0)
@@ -75,6 +86,25 @@ public class CustomerHandler : ITaskHandler
         SetIfPresent(addr, cust, "postalPostalCode", "postalCode");
         SetIfPresent(addr, cust, "postalCity", "city");
         return addr;
+    }
+
+    /// <summary>Parse "Solveien 7, 4006 Stavanger" into addressLine1/postalCode/city</summary>
+    private static void ParseAddressString(Dictionary<string, object> cust, string address)
+    {
+        // Pattern: "Street 123, 1234 City" or "Street 123, City"
+        var match = System.Text.RegularExpressions.Regex.Match(address,
+            @"^(.+?),\s*(\d{4,5})\s+(.+)$");
+        if (match.Success)
+        {
+            cust["addressLine1"] = match.Groups[1].Value.Trim();
+            cust["postalCode"] = match.Groups[2].Value;
+            cust["city"] = match.Groups[3].Value.Trim();
+        }
+        else
+        {
+            // Fallback: just use the whole string as addressLine1
+            cust["addressLine1"] = address;
+        }
     }
 
     private static void SetIfPresent(Dictionary<string, object> body, Dictionary<string, object> source, string key, string? targetKey = null)
