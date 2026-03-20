@@ -89,6 +89,6 @@ Batch run: 20:36:57 – 20:45:48 | Daily usage: 89 → 98 / 180
 ## Priority Fix Order
 
 1. ~~**SupplierHandler**: Always include `organizationNumber` in POST body → fixes 0/7 → 7/7 potential~~ ✅ DONE
-2. **ProductHandler**: Include `priceExcludingVatCurrency` in POST body → fixes 5/7 → 7/7 potential
+2. ~~**ProductHandler**: Include `priceExcludingVatCurrency` in POST body → fixes 5/7 → 7/7 potential~~ ✅ DONE
 3. **InvoiceHandler**: Fix VAT type mapping for 15% food and 0% exempt → fixes 5/8 → 8/8 potential
 4. **ProjectHandler**: Fix milestone percentage invoice amount calculation → fixes 2/8 → 8/8 potential
