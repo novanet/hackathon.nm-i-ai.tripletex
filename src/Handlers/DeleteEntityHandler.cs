@@ -24,20 +24,20 @@ public class DeleteEntityHandler : ITaskHandler
         ["supplier"] = "/supplier",
     };
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         // Determine entity type from extraction
         var entityType = DetermineEntityType(extracted);
         if (entityType == null)
         {
             _logger.LogWarning("Could not determine entity type for deletion");
-            return;
+            return HandlerResult.Empty;
         }
 
         if (!EntityPaths.TryGetValue(entityType, out var basePath))
         {
             _logger.LogWarning("Unsupported entity type for deletion: {EntityType}", entityType);
-            return;
+            return HandlerResult.Empty;
         }
 
         var entity = extracted.Entities.GetValueOrDefault(entityType)
@@ -50,7 +50,7 @@ public class DeleteEntityHandler : ITaskHandler
         {
             _logger.LogInformation("Deleting {EntityType} ID: {Id}", entityType, directId);
             await api.DeleteAsync($"{basePath}/{directId}");
-            return;
+            return new HandlerResult { EntityType = entityType, EntityId = directId, Metadata = { ["action"] = "deleted" } };
         }
 
         // Search for the entity
@@ -59,11 +59,13 @@ public class DeleteEntityHandler : ITaskHandler
         {
             _logger.LogInformation("Deleting {EntityType} ID: {Id}", entityType, entityId.Value);
             await api.DeleteAsync($"{basePath}/{entityId.Value}");
+            return new HandlerResult { EntityType = entityType, EntityId = entityId.Value, Metadata = { ["action"] = "deleted" } };
         }
         else
         {
             _logger.LogWarning("Could not find {EntityType} to delete", entityType);
         }
+        return HandlerResult.Empty;
     }
 
     private string? DetermineEntityType(ExtractionResult extracted)

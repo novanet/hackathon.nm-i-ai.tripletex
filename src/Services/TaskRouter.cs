@@ -47,19 +47,19 @@ public class TaskRouter
         return "FallbackAgentHandler";
     }
 
-    public async Task<bool> RouteAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt = "", List<Models.SolveFile>? files = null)
+    public async Task<(bool handled, HandlerResult result)> RouteAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt = "", List<Models.SolveFile>? files = null)
     {
         if (_handlers.TryGetValue(extracted.TaskType, out var handler))
         {
             LastHandlerName = handler.GetType().Name;
             _logger.LogInformation("Routing to deterministic handler for {TaskType} ({Handler})", extracted.TaskType, LastHandlerName);
-            await handler.HandleAsync(api, extracted);
-            return true;
+            var result = await handler.HandleAsync(api, extracted);
+            return (true, result);
         }
 
         LastHandlerName = "FallbackAgentHandler";
         _logger.LogInformation("No deterministic handler for {TaskType} — using fallback agent", extracted.TaskType);
         await _fallback.HandleWithPromptAsync(api, extracted, originalPrompt, files);
-        return true;
+        return (true, HandlerResult.Empty);
     }
 }

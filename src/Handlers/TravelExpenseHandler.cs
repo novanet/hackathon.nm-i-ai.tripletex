@@ -11,12 +11,12 @@ public class TravelExpenseHandler : ITaskHandler
 
     public TravelExpenseHandler(ILogger<TravelExpenseHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         if (extracted.Action == "delete")
         {
             await HandleDelete(api, extracted);
-            return;
+            return HandlerResult.Empty;
         }
 
         var travel = extracted.Entities.GetValueOrDefault("travelExpense")
@@ -107,6 +107,8 @@ public class TravelExpenseHandler : ITaskHandler
 
         _logger.LogInformation("Created travel expense ID: {Id}", travelId);
 
+        var handlerResult = new HandlerResult { EntityType = "travelExpense", EntityId = travelId };
+
         // Step 3: Add cost lines if present
         var costs = extracted.Entities.GetValueOrDefault("costs") ?? new();
         var costLines = new List<Dictionary<string, object>>();
@@ -186,6 +188,7 @@ public class TravelExpenseHandler : ITaskHandler
             _logger.LogInformation("Adding cost to travel expense {TravelId}", travelId);
             await api.PostAsync("/travelExpense/cost", costLine);
         }
+        return handlerResult;
     }
 
     private async Task HandleDelete(TripletexApiClient api, ExtractionResult extracted)

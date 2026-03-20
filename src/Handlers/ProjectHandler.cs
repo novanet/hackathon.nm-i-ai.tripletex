@@ -11,11 +11,12 @@ public class ProjectHandler : ITaskHandler
 
     public ProjectHandler(ILogger<ProjectHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var project = extracted.Entities.GetValueOrDefault("project") ?? new();
 
         var body = new Dictionary<string, object>();
+        var handlerResult = new HandlerResult { EntityType = "project" };
 
         SetIfPresent(body, project, "name");
         SetIfPresent(body, project, "number");
@@ -177,6 +178,7 @@ public class ProjectHandler : ITaskHandler
         var projectId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created project ID: {Id}", projectId);
+        handlerResult.EntityId = projectId;
 
         // If extraction includes an invoice entity, create an invoice for the project (e.g. partial payment)
         var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice");
@@ -184,6 +186,7 @@ public class ProjectHandler : ITaskHandler
         {
             await CreateProjectInvoice(api, extracted, projectId, body);
         }
+        return handlerResult;
     }
 
     private async Task CreateProjectInvoice(TripletexApiClient api, ExtractionResult extracted, long projectId, Dictionary<string, object> projectBody)

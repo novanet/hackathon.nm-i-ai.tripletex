@@ -5,5 +5,5 @@ namespace TripletexAgent.Handlers;
 
 public interface ITaskHandler
 {
-    Task HandleAsync(TripletexApiClient api, ExtractionResult extracted);
+    Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted);
 }

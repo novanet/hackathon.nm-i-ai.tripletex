@@ -10,7 +10,7 @@ public class SupplierHandler : ITaskHandler
 
     public SupplierHandler(ILogger<SupplierHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         // Collect all supplier entities (support multi-entity: supplier, supplier1, supplier2, ...)
         var supplierEntities = new List<Dictionary<string, object>>();
@@ -22,13 +22,19 @@ public class SupplierHandler : ITaskHandler
         if (supplierEntities.Count == 0)
             supplierEntities.Add(new());
 
+        var handlerResult = new HandlerResult { EntityType = "supplier" };
         foreach (var sup in supplierEntities)
         {
-            await CreateSingleSupplier(api, sup);
+            var id = await CreateSingleSupplier(api, sup);
+            if (handlerResult.EntityId == null)
+                handlerResult.EntityId = id;
+            else
+                handlerResult.AdditionalEntityIds.Add(id);
         }
+        return handlerResult;
     }
 
-    private async Task CreateSingleSupplier(TripletexApiClient api, Dictionary<string, object> sup)
+    private async Task<long> CreateSingleSupplier(TripletexApiClient api, Dictionary<string, object> sup)
     {
         var body = new Dictionary<string, object>();
         SetIfPresent(body, sup, "name");
@@ -52,6 +58,7 @@ public class SupplierHandler : ITaskHandler
         var supplierId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created supplier ID: {Id}", supplierId);
+        return supplierId;
     }
     private static void SetIfPresent(Dictionary<string, object> body, Dictionary<string, object> source, string key)
     {

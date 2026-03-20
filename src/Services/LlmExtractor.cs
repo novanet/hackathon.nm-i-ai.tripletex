@@ -57,6 +57,7 @@ public class LlmExtractor
         - For projects referencing a customer like "Fjordkraft AS (org.nr 944845712)", put the CUSTOMER NAME in relationships.customer ("Fjordkraft AS") and the org number in the project entity as "customerOrgNumber": "944845712"
         - For projects, extract the project manager as a nested object: "projectManager": {"firstName": "...", "lastName": "...", "email": "..."}
         - For payroll/salary tasks (running payroll, creating salary slips, paying salary), use "run_payroll". Extract into entities: "employee": {"firstName", "lastName", "email"} and "payroll": {"baseSalary": <number>, "bonus": <number>}
+        - For vouchers with custom accounting dimensions, extract the dimension in a separate "dimension" entity: {"name": "Region", "values": ["Vestlandet", "Sør-Norge"]}. In the voucher entity, include "dimensionValue": "Vestlandet" for the value to link to the posting, plus "account": "6300" and "amount": 35500. If the prompt specifies debit/credit accounts explicitly, use "debitAccount" and "creditAccount" in the voucher entity instead.
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)

@@ -10,7 +10,7 @@ public class CustomerHandler : ITaskHandler
 
     public CustomerHandler(ILogger<CustomerHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         // Collect all customer entities (support multi-entity: customer, customer1, customer2, ...)
         var customerEntities = new List<Dictionary<string, object>>();
@@ -22,13 +22,19 @@ public class CustomerHandler : ITaskHandler
         if (customerEntities.Count == 0)
             customerEntities.Add(new());
 
+        var handlerResult = new HandlerResult { EntityType = "customer" };
         foreach (var cust in customerEntities)
         {
-            await CreateSingleCustomer(api, cust);
+            var id = await CreateSingleCustomer(api, cust);
+            if (handlerResult.EntityId == null)
+                handlerResult.EntityId = id;
+            else
+                handlerResult.AdditionalEntityIds.Add(id);
         }
+        return handlerResult;
     }
 
-    private async Task CreateSingleCustomer(TripletexApiClient api, Dictionary<string, object> cust)
+    private async Task<long> CreateSingleCustomer(TripletexApiClient api, Dictionary<string, object> cust)
     {
         var body = new Dictionary<string, object> { ["isCustomer"] = true };
 
@@ -67,6 +73,7 @@ public class CustomerHandler : ITaskHandler
         var customerId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created customer ID: {Id}", customerId);
+        return customerId;
     }
     private static Dictionary<string, object> BuildAddress(Dictionary<string, object> cust)
     {

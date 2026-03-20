@@ -15,7 +15,7 @@ public class CreditNoteHandler : ITaskHandler
         _invoiceHandler = invoiceHandler;
     }
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var creditNote = extracted.Entities.GetValueOrDefault("creditNote") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
@@ -54,6 +54,7 @@ public class CreditNoteHandler : ITaskHandler
         await api.PutAsync($"/invoice/{invoiceId}/:createCreditNote", null, queryParams);
 
         _logger.LogInformation("Credit note created for invoice {InvoiceId}", invoiceId);
+        return new HandlerResult { EntityType = "creditNote", EntityId = invoiceId };
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)

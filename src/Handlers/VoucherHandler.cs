@@ -11,114 +11,131 @@ public class VoucherHandler : ITaskHandler
 
     public VoucherHandler(ILogger<VoucherHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var voucher = extracted.Entities.GetValueOrDefault("voucher") ?? new();
-        var postingsEntity = extracted.Entities.GetValueOrDefault("postings") ?? new();
 
-        var date = GetStringField(voucher, "date")
-            ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd"));
+        // --- Step 1: Create custom dimension + values if present ---
+        int? dimensionIndex = null;
+        long? linkedDimensionValueId = null;
 
-        var description = GetStringField(voucher, "description") ?? "Bilag";
-
-        // Build postings
-        var postings = new List<Dictionary<string, object>>();
-
-        // Check for postings nested inside the voucher entity (LLM often does this)
-        if (voucher.TryGetValue("postings", out var pVal) && pVal is JsonElement pArr && pArr.ValueKind == JsonValueKind.Array)
+        var dimensionEntity = extracted.Entities.GetValueOrDefault("dimension");
+        if (dimensionEntity != null)
         {
-            foreach (var item in pArr.EnumerateArray())
+            var dimName = GetStringField(dimensionEntity, "name");
+            if (dimName != null)
             {
-                var posting = new Dictionary<string, object> { ["date"] = date };
-                if (item.TryGetProperty("description", out var d)) posting["description"] = d.GetString()!;
-                if (item.TryGetProperty("accountNumber", out var an))
+                // Search for existing dimension first
+                var searchResult = await api.GetAsync("/ledger/accountingDimensionName/search",
+                    new Dictionary<string, string> { ["count"] = "10", ["fields"] = "id,dimensionName,dimensionIndex" });
+                long? dimId = null;
+                if (searchResult.TryGetProperty("values", out var dims))
                 {
-                    var accStr = an.ValueKind == JsonValueKind.Number ? an.GetInt64().ToString() : an.GetString()!;
-                    var (accId, vatId) = await ResolveAccountId(api, accStr);
-                    if (accId.HasValue) posting["account"] = new { id = accId.Value };
-                    if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
-                }
-                else if (item.TryGetProperty("account", out var acc))
-                {
-                    var accStr = acc.ValueKind == JsonValueKind.Number ? acc.GetInt64().ToString() : acc.GetString()!;
-                    if (accStr.Length <= 4)
+                    foreach (var dim in dims.EnumerateArray())
                     {
-                        var (accId, vatId) = await ResolveAccountId(api, accStr);
-                        if (accId.HasValue) posting["account"] = new { id = accId.Value };
-                        if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
+                        if (dim.TryGetProperty("dimensionName", out var dn)
+                            && string.Equals(dn.GetString(), dimName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            dimensionIndex = dim.GetProperty("dimensionIndex").GetInt32();
+                            dimId = dim.GetProperty("id").GetInt64();
+                            break;
+                        }
                     }
                 }
-                if (item.TryGetProperty("amountGross", out var ag))
-                    posting["amountGross"] = ag.ValueKind == JsonValueKind.Number ? ag.GetDouble() : double.Parse(ag.GetString()!, CultureInfo.InvariantCulture);
-                if (item.TryGetProperty("amount", out var am))
-                    posting["amountGross"] = am.ValueKind == JsonValueKind.Number ? am.GetDouble() : double.Parse(am.GetString()!, CultureInfo.InvariantCulture);
-                postings.Add(posting);
-            }
-        }
 
-        foreach (var (key, val) in postingsEntity)
-        {
-            if (val is JsonElement je && je.ValueKind == JsonValueKind.Object)
-            {
-                var posting = new Dictionary<string, object> { ["date"] = date };
-
-                if (je.TryGetProperty("description", out var desc))
-                    posting["description"] = desc.GetString()!;
-
-                // Resolve account by number
-                if (je.TryGetProperty("accountNumber", out var accNum))
+                if (dimensionIndex == null)
                 {
-                    var (accountId, vatId) = await ResolveAccountId(api, accNum.GetString()!);
-                    if (accountId.HasValue)
-                        posting["account"] = new { id = accountId.Value };
-                    if (vatId.HasValue)
-                        posting["vatType"] = new { id = vatId.Value };
+                    var dimResult = await api.PostAsync("/ledger/accountingDimensionName",
+                        new { dimensionName = dimName });
+                    dimensionIndex = dimResult.GetProperty("value").GetProperty("dimensionIndex").GetInt32();
+                    _logger.LogInformation("Created dimension '{Name}' at index {Index}", dimName, dimensionIndex);
                 }
-                else if (je.TryGetProperty("account", out var acc))
+                else
                 {
-                    // Could be an ID directly or a number
-                    var accStr = acc.GetString()!;
-                    if (int.TryParse(accStr, out var accId) && accStr.Length <= 4)
+                    _logger.LogInformation("Found existing dimension '{Name}' at index {Index}", dimName, dimensionIndex);
+                }
+
+                // Extract values to create
+                var values = ExtractStringList(dimensionEntity, "values");
+
+                // Determine which value to link to the posting
+                var linkedValue = GetStringField(voucher, "dimensionValue")
+                    ?? GetStringField(voucher, "linked_dimension_value");
+
+                // Also check nested dimension object in voucher entity
+                if (linkedValue == null && voucher.TryGetValue("dimension", out var dimObj) && dimObj is JsonElement dimJe
+                    && dimJe.ValueKind == JsonValueKind.Object)
+                {
+                    if (dimJe.TryGetProperty("value", out var dvProp))
+                        linkedValue = dvProp.GetString();
+                }
+
+                // Search for existing dimension values
+                var existingValues = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                var valSearch = await api.GetAsync("/ledger/accountingDimensionValue/search",
+                    new Dictionary<string, string> { ["dimensionIndex"] = dimensionIndex.Value.ToString(), ["count"] = "100", ["fields"] = "id,displayName" });
+                if (valSearch.TryGetProperty("values", out var existingVals))
+                {
+                    foreach (var ev in existingVals.EnumerateArray())
                     {
-                        // Likely an account number
-                        var (resolvedId, vatId) = await ResolveAccountId(api, accStr);
-                        if (resolvedId.HasValue)
-                            posting["account"] = new { id = resolvedId.Value };
-                        if (vatId.HasValue)
-                            posting["vatType"] = new { id = vatId.Value };
+                        if (ev.TryGetProperty("displayName", out var dn))
+                            existingValues[dn.GetString()!] = ev.GetProperty("id").GetInt64();
+                    }
+                }
+
+                foreach (var val in values)
+                {
+                    long valId;
+                    if (existingValues.TryGetValue(val, out var existingId))
+                    {
+                        valId = existingId;
+                        _logger.LogInformation("Found existing dimension value '{Value}' with ID {Id}", val, valId);
                     }
                     else
                     {
-                        posting["account"] = new { id = long.Parse(accStr) };
+                        var valResult = await api.PostAsync("/ledger/accountingDimensionValue",
+                            new { displayName = val, dimensionIndex = dimensionIndex.Value, active = true, showInVoucherRegistration = true });
+                        valId = valResult.GetProperty("value").GetProperty("id").GetInt64();
+                        _logger.LogInformation("Created dimension value '{Value}' with ID {Id}", val, valId);
                     }
+
+                    if (string.Equals(val, linkedValue, StringComparison.OrdinalIgnoreCase))
+                        linkedDimensionValueId = valId;
                 }
-
-                if (je.TryGetProperty("amount", out var amt))
-                    posting["amountGross"] = amt.GetDouble();
-                if (je.TryGetProperty("amountGross", out var amtGross))
-                    posting["amountGross"] = amtGross.GetDouble();
-
-                postings.Add(posting);
             }
         }
 
-        // If no structured postings, try to build from debit/credit in voucher entity
+        // --- Step 2: Determine date & description ---
+        var date = GetStringField(voucher, "date")
+            ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd"));
+        var description = GetStringField(voucher, "description") ?? "Bilag";
+
+        // --- Step 3: Build postings ---
+        var postings = new List<Dictionary<string, object>>();
+
+        // Try structured postings nested in voucher entity
+        if (voucher.TryGetValue("postings", out var pVal) && pVal is JsonElement pArr && pArr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in pArr.EnumerateArray())
+                postings.Add(await BuildPostingFromJson(api, item, date));
+        }
+
+        // Try separate postings entity
+        var postingsEntity = extracted.Entities.GetValueOrDefault("postings") ?? new();
+        foreach (var (_, val) in postingsEntity)
+        {
+            if (val is JsonElement je && je.ValueKind == JsonValueKind.Object)
+                postings.Add(await BuildPostingFromJson(api, je, date));
+        }
+
+        // Try debit/credit account pair
         if (postings.Count == 0)
         {
             var debitAccount = GetStringField(voucher, "debitAccount") ?? GetStringField(voucher, "debit_account");
             var creditAccount = GetStringField(voucher, "creditAccount") ?? GetStringField(voucher, "credit_account");
+            decimal amount = ExtractAmount(voucher, extracted);
 
-            // Try debit/credit-specific amounts, then fall back to raw amounts
-            decimal amount = 0m;
-            var debitAmtStr = GetStringField(voucher, "debit_amount") ?? GetStringField(voucher, "debitAmount") ?? GetStringField(voucher, "amount");
-            var creditAmtStr = GetStringField(voucher, "credit_amount") ?? GetStringField(voucher, "creditAmount");
-
-            if (debitAmtStr != null && decimal.TryParse(debitAmtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var da))
-                amount = da;
-            else if (extracted.RawAmounts.Count > 0 && decimal.TryParse(extracted.RawAmounts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out var ra))
-                amount = ra;
-
-            if (debitAccount != null)
+            if (debitAccount != null && amount != 0)
             {
                 var (debitId, debitVatId) = await ResolveAccountId(api, debitAccount);
                 if (debitId.HasValue)
@@ -128,14 +145,14 @@ public class VoucherHandler : ITaskHandler
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = debitId.Value },
-                        ["amountGross"] = amount
+                        ["amountGross"] = amount,
+                        ["amountGrossCurrency"] = amount
                     };
                     if (debitVatId.HasValue) p["vatType"] = new { id = debitVatId.Value };
                     postings.Add(p);
                 }
             }
-
-            if (creditAccount != null)
+            if (creditAccount != null && amount != 0)
             {
                 var (creditId, creditVatId) = await ResolveAccountId(api, creditAccount);
                 if (creditId.HasValue)
@@ -145,7 +162,8 @@ public class VoucherHandler : ITaskHandler
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = creditId.Value },
-                        ["amountGross"] = -amount
+                        ["amountGross"] = -amount,
+                        ["amountGrossCurrency"] = -amount
                     };
                     if (creditVatId.HasValue) p["vatType"] = new { id = creditVatId.Value };
                     postings.Add(p);
@@ -153,14 +171,54 @@ public class VoucherHandler : ITaskHandler
             }
         }
 
-        // Assign row numbers starting from 1 (row 0 is system-generated)
-        // Also set amountGrossCurrency = amountGross for NOK postings
+        // Fallback: single account + amount → auto-generate counter-posting
+        if (postings.Count == 0)
+        {
+            var account = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber");
+            decimal amount = ExtractAmount(voucher, extracted);
+
+            if (account != null && amount != 0)
+            {
+                var (accountId, vatId) = await ResolveAccountId(api, account);
+                if (accountId.HasValue)
+                {
+                    var debitPosting = new Dictionary<string, object>
+                    {
+                        ["date"] = date,
+                        ["description"] = description,
+                        ["account"] = new { id = accountId.Value },
+                        ["amountGross"] = amount,
+                        ["amountGrossCurrency"] = amount
+                    };
+                    if (vatId.HasValue) debitPosting["vatType"] = new { id = vatId.Value };
+                    postings.Add(debitPosting);
+
+                    // Counter-account: 1920 (bank) as safe default
+                    var (counterId, _) = await ResolveAccountId(api, "1920");
+                    if (counterId.HasValue)
+                    {
+                        postings.Add(new Dictionary<string, object>
+                        {
+                            ["date"] = date,
+                            ["description"] = description,
+                            ["account"] = new { id = counterId.Value },
+                            ["amountGross"] = -amount,
+                            ["amountGrossCurrency"] = -amount
+                        });
+                    }
+                }
+            }
+        }
+
+        // Assign row numbers and link dimension values to first (debit) posting
         for (int i = 0; i < postings.Count; i++)
         {
             postings[i]["row"] = i + 1;
-            if (postings[i].TryGetValue("amountGross", out var ag))
-                postings[i]["amountGrossCurrency"] = ag;
+            if (i == 0 && linkedDimensionValueId.HasValue && dimensionIndex.HasValue)
+                postings[i][$"freeAccountingDimension{dimensionIndex.Value}"] = new { id = linkedDimensionValueId.Value };
         }
+
+        _logger.LogInformation("Creating voucher: {Description} with {PostingCount} postings", description, postings.Count);
 
         var body = new Dictionary<string, object>
         {
@@ -169,13 +227,73 @@ public class VoucherHandler : ITaskHandler
             ["postings"] = postings
         };
 
-        _logger.LogInformation("Creating voucher: {Description} with {PostingCount} postings", description, postings.Count);
-
-        var queryParams = new Dictionary<string, string> { ["sendToLedger"] = "true" };
-        var result = await api.PostAsync($"/ledger/voucher?sendToLedger=true", body);
+        var result = await api.PostAsync("/ledger/voucher?sendToLedger=true", body);
         var voucherId = result.GetProperty("value").GetProperty("id").GetInt64();
-
         _logger.LogInformation("Created voucher ID: {Id}", voucherId);
+        return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
+    }
+
+    private async Task<Dictionary<string, object>> BuildPostingFromJson(TripletexApiClient api, JsonElement item, string date)
+    {
+        var posting = new Dictionary<string, object> { ["date"] = date };
+        if (item.TryGetProperty("description", out var d)) posting["description"] = d.GetString()!;
+
+        string? accountStr = null;
+        if (item.TryGetProperty("accountNumber", out var an))
+            accountStr = an.ValueKind == JsonValueKind.Number ? an.GetInt64().ToString() : an.GetString()!;
+        else if (item.TryGetProperty("account", out var acc))
+            accountStr = acc.ValueKind == JsonValueKind.Number ? acc.GetInt64().ToString() : acc.GetString()!;
+
+        if (accountStr != null && accountStr.Length <= 4)
+        {
+            var (accId, vatId) = await ResolveAccountId(api, accountStr);
+            if (accId.HasValue) posting["account"] = new { id = accId.Value };
+            if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
+        }
+
+        if (item.TryGetProperty("amountGross", out var ag))
+        {
+            var val = ag.ValueKind == JsonValueKind.Number ? ag.GetDouble() : double.Parse(ag.GetString()!, CultureInfo.InvariantCulture);
+            posting["amountGross"] = val;
+            posting["amountGrossCurrency"] = val;
+        }
+        else if (item.TryGetProperty("amount", out var am))
+        {
+            var val = am.ValueKind == JsonValueKind.Number ? am.GetDouble() : double.Parse(am.GetString()!, CultureInfo.InvariantCulture);
+            posting["amountGross"] = val;
+            posting["amountGrossCurrency"] = val;
+        }
+
+        return posting;
+    }
+
+    private decimal ExtractAmount(Dictionary<string, object> voucher, ExtractionResult extracted)
+    {
+        var amountStr = GetStringField(voucher, "amount")
+            ?? GetStringField(voucher, "amountGross")
+            ?? GetStringField(voucher, "debit_amount")
+            ?? GetStringField(voucher, "debitAmount");
+
+        if (amountStr != null && decimal.TryParse(amountStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var amount))
+            return amount;
+
+        if (extracted.RawAmounts.Count > 0 && decimal.TryParse(extracted.RawAmounts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out var rawAmount))
+            return rawAmount;
+
+        return 0m;
+    }
+
+    private static List<string> ExtractStringList(Dictionary<string, object> dict, string key)
+    {
+        var result = new List<string>();
+        if (dict.TryGetValue(key, out var val) && val is JsonElement je)
+        {
+            if (je.ValueKind == JsonValueKind.Array)
+                foreach (var item in je.EnumerateArray()) result.Add(item.GetString()!);
+            else if (je.ValueKind == JsonValueKind.String)
+                result.Add(je.GetString()!);
+        }
+        return result;
     }
 
     private async Task<(long? accountId, long? vatTypeId)> ResolveAccountId(TripletexApiClient api, string accountNumber)

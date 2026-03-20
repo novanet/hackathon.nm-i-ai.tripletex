@@ -1,0 +1,11 @@
+.git
+src/obj/
+src/bin/
+src/logs/
+discovery/
+scripts/
+*.md
+*.txt
+*.json
+.github/
+publish/logs/

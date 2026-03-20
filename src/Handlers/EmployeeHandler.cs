@@ -10,7 +10,7 @@ public class EmployeeHandler : ITaskHandler
 
     public EmployeeHandler(ILogger<EmployeeHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var emp = extracted.Entities.GetValueOrDefault("employee") ?? new();
         var action = extracted.Action;
@@ -18,7 +18,7 @@ public class EmployeeHandler : ITaskHandler
         if (action == "update")
         {
             await HandleUpdate(api, emp);
-            return;
+            return HandlerResult.Empty;
         }
 
         // Build employee body
@@ -92,10 +92,12 @@ public class EmployeeHandler : ITaskHandler
         _logger.LogInformation("Creating employee: {FirstName} {LastName}",
             body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"));
 
-        var result = await api.PostAsync("/employee", body);
-        var employeeId = result.GetProperty("value").GetProperty("id").GetInt64();
+        var apiResult = await api.PostAsync("/employee", body);
+        var employeeId = apiResult.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created employee ID: {Id}", employeeId);
+
+        var result = new HandlerResult { EntityType = "employee", EntityId = employeeId };
 
         // Create employment record if startDate is specified
         if (!string.IsNullOrEmpty(startDate))
@@ -120,7 +122,10 @@ public class EmployeeHandler : ITaskHandler
                     ["employeeId"] = employeeId.ToString(),
                     ["template"] = "ALL_PRIVILEGES"
                 });
+            result.Metadata["adminRole"] = "true";
         }
+
+        return result;
     }
 
     private async Task HandleUpdate(TripletexApiClient api, Dictionary<string, object> emp)

@@ -16,7 +16,7 @@ public class PaymentHandler : ITaskHandler
         _logger = logger;
     }
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         // Full chain: Customer → Order → Invoice → Payment
 
@@ -29,7 +29,7 @@ public class PaymentHandler : ITaskHandler
         // Resolve payment type (already started, just await)
         var paymentTypeId = await paymentTypeTask;
 
-        // Get payment amount from extracted data or use invoice amount (default = full payment)
+        // Get payment amount — default to full invoice amount (includes VAT)
         var paidAmount = invoiceAmount;
         var payment = extracted.Entities.GetValueOrDefault("payment");
         if (payment is not null && payment.TryGetValue("amount", out var payAmt))
@@ -37,8 +37,17 @@ public class PaymentHandler : ITaskHandler
             var amtStr = payAmt is JsonElement je
                 ? (je.ValueKind == JsonValueKind.Number ? je.GetDecimal().ToString(CultureInfo.InvariantCulture) : je.GetString())
                 : payAmt.ToString();
-            if (decimal.TryParse(amtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                paidAmount = parsed;
+            if (decimal.TryParse(amtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
+            {
+                // Check if extracted amount is the pre-VAT total (common LLM mistake)
+                // Standard Norwegian VAT rates: 25%, 15%, 12%
+                bool looksLikePreVat = new[] { 1.25m, 1.15m, 1.12m }
+                    .Any(r => Math.Abs(invoiceAmount - parsed * r) < 0.01m);
+                if (looksLikePreVat)
+                    _logger.LogInformation("Ignoring extracted payment amount {Extracted} (pre-VAT of invoice total {Total})", parsed, invoiceAmount);
+                else
+                    paidAmount = parsed;
+            }
         }
 
         var paymentDate = DateTime.Now.ToString("yyyy-MM-dd");
@@ -59,6 +68,12 @@ public class PaymentHandler : ITaskHandler
             });
 
         _logger.LogInformation("Registered payment of {Amount} on invoice {InvoiceId}", paidAmount, invoiceId);
+        return new HandlerResult
+        {
+            EntityType = "invoice",
+            EntityId = invoiceId,
+            Metadata = { ["paymentRegistered"] = "true", ["paidAmount"] = paidAmount.ToString(System.Globalization.CultureInfo.InvariantCulture) }
+        };
     }
 
     private async Task<long> ResolvePaymentTypeId(TripletexApiClient api)

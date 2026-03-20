@@ -10,9 +10,10 @@ public class DepartmentHandler : ITaskHandler
 
     public DepartmentHandler(ILogger<DepartmentHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var dept = extracted.Entities.GetValueOrDefault("department") ?? new();
+        var handlerResult = new HandlerResult { EntityType = "department" };
 
         // Handle multi-department creation: LLM may return "names": ["A", "B", "C"]
         var names = new List<string>();
@@ -68,37 +69,39 @@ public class DepartmentHandler : ITaskHandler
 
         var deptNumber = 1;
         var existingNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var existingNumbers = new HashSet<int>();
+
+        // Always query existing departments to avoid number collisions (each 4xx hurts efficiency score)
+        try
+        {
+            var existing = await api.GetAsync("/department", new Dictionary<string, string>
+            {
+                ["from"] = "0",
+                ["count"] = "1000",
+                ["fields"] = "departmentNumber,name"
+            });
+            if (existing.TryGetProperty("values", out var vals))
+            {
+                foreach (var d in vals.EnumerateArray())
+                {
+                    if (d.TryGetProperty("departmentNumber", out var dn) && dn.TryGetInt32(out var n))
+                        existingNumbers.Add(n);
+                    if (d.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String)
+                        existingNames.Add(nm.GetString()!);
+                }
+            }
+        }
+        catch { /* fallback */ }
+
         if (dept.TryGetValue("departmentNumber", out var dnVal) && dnVal is not null)
         {
             var dnStr = dnVal is JsonElement dje ? dje.ToString() : dnVal.ToString();
             int.TryParse(dnStr, out deptNumber);
         }
-        else
-        {
-            // Query existing departments to find the next available number and existing names
-            try
-            {
-                var existing = await api.GetAsync("/department", new Dictionary<string, string>
-                {
-                    ["from"] = "0",
-                    ["count"] = "1000",
-                    ["fields"] = "departmentNumber,name"
-                });
-                if (existing.TryGetProperty("values", out var vals))
-                {
-                    var maxNum = 0;
-                    foreach (var d in vals.EnumerateArray())
-                    {
-                        if (d.TryGetProperty("departmentNumber", out var dn) && dn.TryGetInt32(out var n) && n > maxNum)
-                            maxNum = n;
-                        if (d.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String)
-                            existingNames.Add(nm.GetString()!);
-                    }
-                    deptNumber = maxNum + 1;
-                }
-            }
-            catch { /* fallback to 1 */ }
-        }
+
+        // Find first available number at or above deptNumber
+        while (existingNumbers.Contains(deptNumber))
+            deptNumber++;
 
         foreach (var name in names)
         {
@@ -113,8 +116,8 @@ public class DepartmentHandler : ITaskHandler
             if (managerRef is not null)
                 body["departmentManager"] = managerRef;
 
-            // Try creating with auto-assigned number, retry on collision
-            for (var attempt = 0; attempt < 5; attempt++)
+            // Try creating with auto-assigned number, retry on collision (pre-query handles known numbers)
+            for (var attempt = 0; attempt < 3; attempt++)
             {
                 body["departmentNumber"] = deptNumber++;
                 try
@@ -123,15 +126,20 @@ public class DepartmentHandler : ITaskHandler
                     var result = await api.PostAsync("/department", body);
                     var deptId = result.GetProperty("value").GetProperty("id").GetInt64();
                     _logger.LogInformation("Created department ID: {Id}", deptId);
+                    if (handlerResult.EntityId == null)
+                        handlerResult.EntityId = deptId;
+                    else
+                        handlerResult.AdditionalEntityIds.Add(deptId);
                     break;
                 }
                 catch (TripletexApiException ex) when (ex.Message.Contains("Nummeret er i bruk"))
                 {
                     _logger.LogWarning("Department number {Num} in use, trying next", (int)body["departmentNumber"]);
-                    if (attempt == 4) throw;
+                    if (attempt == 2) throw;
                 }
             }
         }
+        return handlerResult;
     }
 
     private static void SetIfPresent(Dictionary<string, object> body, Dictionary<string, object> source, string key)

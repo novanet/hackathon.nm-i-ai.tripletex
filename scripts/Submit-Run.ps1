@@ -24,8 +24,20 @@ if (-not $Token) {
     $Token = $env:AINM_TOKEN
 }
 if (-not $Token) {
-    Write-Host "No auth token provided. Set `$env:AINM_TOKEN or pass -Token." -ForegroundColor Red
-    Write-Host "Get it from browser DevTools > Application > Cookies > access_token" -ForegroundColor Gray
+    # Try user-secrets
+    $secretsJson = dotnet user-secrets list --project "$PSScriptRoot\..\src" --id "54b40cce-1f78-4e18-ab1b-c1501ef7f7da" 2>$null
+    if ($secretsJson) {
+        foreach ($line in $secretsJson) {
+            if ($line -match '^AinmToken\s*=\s*(.+)$') {
+                $Token = $Matches[1].Trim()
+                break
+            }
+        }
+    }
+}
+if (-not $Token) {
+    Write-Host "No auth token provided. Set `$env:AINM_TOKEN, pass -Token, or configure AinmToken in user-secrets." -ForegroundColor Red
+    Write-Host "  dotnet user-secrets set AinmToken '<value>' --project src --id 54b40cce-1f78-4e18-ab1b-c1501ef7f7da" -ForegroundColor Gray
     return
 }
 

@@ -57,7 +57,7 @@ public class EnableModuleHandler : ITaskHandler
 
     public EnableModuleHandler(ILogger<EnableModuleHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var module = extracted.Entities.GetValueOrDefault("module") ?? new();
 
@@ -80,6 +80,7 @@ public class EnableModuleHandler : ITaskHandler
         await api.PostAsync("/company/salesmodules", body);
 
         _logger.LogInformation("Module {Module} enabled", apiModuleName);
+        return new HandlerResult { EntityType = "module", Metadata = { ["moduleName"] = apiModuleName } };
     }
 
     private static string ResolveModuleName(string input)

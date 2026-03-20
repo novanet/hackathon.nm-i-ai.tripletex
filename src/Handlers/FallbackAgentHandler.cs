@@ -123,9 +123,10 @@ public class FallbackAgentHandler : ITaskHandler
         _chatClient = client.GetChatClient("openai/gpt-4o");
     }
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         await HandleWithPromptAsync(api, extracted, "");
+        return HandlerResult.Empty;
     }
 
     public async Task HandleWithPromptAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt, List<SolveFile>? files = null)

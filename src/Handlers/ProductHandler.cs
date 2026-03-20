@@ -11,7 +11,7 @@ public class ProductHandler : ITaskHandler
 
     public ProductHandler(ILogger<ProductHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var prod = extracted.Entities.GetValueOrDefault("product") ?? new();
 
@@ -59,6 +59,7 @@ public class ProductHandler : ITaskHandler
         var productId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created product ID: {Id}", productId);
+        return new HandlerResult { EntityType = "product", EntityId = productId };
     }
 
     private async Task<long?> ResolveVatTypeId(TripletexApiClient api, string vatHint)

@@ -30,6 +30,7 @@ builder.Services.AddSingleton<DeleteEntityHandler>();
 builder.Services.AddSingleton<EnableModuleHandler>();
 builder.Services.AddSingleton<PayrollHandler>();
 builder.Services.AddSingleton<TaskRouter>();
+builder.Services.AddSingleton<SandboxValidator>();
 
 // LLM extractor
 var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
@@ -49,7 +50,7 @@ if (isDryRun)
 
 app.MapGet("/", () => "Tripletex Agent is running");
 
-app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmExtractor llm, TaskRouter router, ILogger<Program> logger) =>
+app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmExtractor llm, TaskRouter router, SandboxValidator validator, ILogger<Program> logger) =>
 {
     var sw = Stopwatch.StartNew();
     logger.LogInformation("Received /solve request ({PromptLength} chars, {FileCount} files)",
@@ -194,7 +195,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         api = new TripletexApiClient(baseUrl, sessionToken, apiLogger);
 
         // Step 3: Route to handler
-        var handled = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
+        var (handled, handlerResult) = await router.RouteAsync(api, extracted, request.Prompt, request.Files);
 
         if (!handled)
         {
@@ -204,6 +205,22 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         sw.Stop();
         logger.LogInformation("Completed. API calls: {Calls}, errors: {Errors}, elapsed: {Elapsed}ms",
             api.CallCount, api.ErrorCount, sw.ElapsedMilliseconds);
+
+        // Run sandbox validation (only for non-competition requests)
+        var isCompetition = baseUrl.Contains("tx-proxy.ainm.no")
+            || httpContext.Request.Headers.ContainsKey("X-Forwarded-For");
+        if (!isCompetition && handlerResult.EntityId.HasValue)
+        {
+            try
+            {
+                var validationReport = await validator.ValidateAsync(api, extracted, handlerResult);
+                LogValidation(request, extracted, validationReport, api.CallCount, sw.ElapsedMilliseconds);
+            }
+            catch (Exception vex)
+            {
+                logger.LogWarning(vex, "Validation check failed (non-fatal)");
+            }
+        }
 
         // Structured submission log (submissions.jsonl)
         LogSubmission(request, extracted, api, router.LastHandlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext);
@@ -277,6 +294,40 @@ static void LogSubmission(SolveRequest request, ExtractionResult? extracted, Tri
         Directory.CreateDirectory("logs");
         var logFile = env == "competition" ? "logs/submissions.jsonl" : "logs/sandbox.jsonl";
         File.AppendAllText(logFile, json + Environment.NewLine);
+    }
+    catch { /* never fail the response due to logging */ }
+}
+
+static void LogValidation(SolveRequest request, ExtractionResult extracted,
+    ValidationReport validationReport, int apiCalls, long elapsedMs)
+{
+    try
+    {
+        var entry = new
+        {
+            timestamp = DateTime.UtcNow.ToString("o"),
+            prompt = request.Prompt,
+            task_type = extracted.TaskType,
+            entity_type = validationReport.EntityType,
+            entity_id = validationReport.EntityId,
+            correctness = validationReport.Correctness,
+            points_earned = validationReport.PointsEarned,
+            max_points = validationReport.MaxPoints,
+            checks = validationReport.Checks.Select(c => new
+            {
+                field = c.Field,
+                expected = c.Expected,
+                actual = c.Actual,
+                passed = c.Passed,
+                points = c.Points
+            }),
+            api_calls = apiCalls,
+            elapsed_ms = elapsedMs,
+            error = validationReport.Error
+        };
+        var json = JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = false });
+        Directory.CreateDirectory("logs");
+        File.AppendAllText("logs/validations.jsonl", json + Environment.NewLine);
     }
     catch { /* never fail the response due to logging */ }
 }

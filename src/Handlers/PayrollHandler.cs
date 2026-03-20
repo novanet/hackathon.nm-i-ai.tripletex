@@ -10,7 +10,7 @@ public class PayrollHandler : ITaskHandler
 
     public PayrollHandler(ILogger<PayrollHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var emp = extracted.Entities.GetValueOrDefault("employee") ?? new();
 
@@ -41,7 +41,7 @@ public class PayrollHandler : ITaskHandler
         if (!empResult.TryGetProperty("values", out var emps) || emps.GetArrayLength() == 0)
         {
             _logger.LogWarning("Employee not found for payroll");
-            return;
+            return HandlerResult.Empty;
         }
         var employeeId = emps[0].GetProperty("id").GetInt64();
         _logger.LogInformation("Found employee {Id} for payroll", employeeId);
@@ -119,7 +119,7 @@ public class PayrollHandler : ITaskHandler
         if (baseSalaryTypeId == null)
         {
             _logger.LogWarning("Could not find base salary type (Fastlønn/1000)");
-            return;
+            return HandlerResult.Empty;
         }
 
         _logger.LogInformation("Salary types: base={BaseId}, bonus={BonusId}", baseSalaryTypeId, bonusTypeId);
@@ -169,6 +169,7 @@ public class PayrollHandler : ITaskHandler
         var transactionId = txResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created salary transaction {Id} for employee {EmpId}: base={Base}, bonus={Bonus}",
             transactionId, employeeId, baseSalary, bonus);
+        return new HandlerResult { EntityType = "salaryTransaction", EntityId = transactionId };
     }
 
     private static string? GetString(Dictionary<string, object> dict, string key)

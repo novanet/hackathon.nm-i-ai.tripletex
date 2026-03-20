@@ -11,9 +11,10 @@ public class InvoiceHandler : ITaskHandler
 
     public InvoiceHandler(ILogger<InvoiceHandler> logger) => _logger = logger;
 
-    public async Task HandleAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
-        await CreateInvoiceChainAsync(api, extracted);
+        var (invoiceId, _) = await CreateInvoiceChainAsync(api, extracted);
+        return new HandlerResult { EntityType = "invoice", EntityId = invoiceId };
     }
 
     public async Task<(long invoiceId, decimal amount)> CreateInvoiceChainAsync(TripletexApiClient api, ExtractionResult extracted)

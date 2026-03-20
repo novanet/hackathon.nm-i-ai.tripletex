@@ -12,6 +12,7 @@ env/
 # .NET
 src/bin/
 src/obj/
+publish/
 
 # Environment
 .env
