@@ -18,32 +18,13 @@ public class InvoiceHandler : ITaskHandler
 
     public async Task<(long invoiceId, decimal amount)> CreateInvoiceChainAsync(TripletexApiClient api, ExtractionResult extracted)
     {
-        // Full chain: Customer → Order (with OrderLines + VatType) → Invoice
+        // Full chain: Customer (find or create) → Order (with OrderLines + VatType) → Invoice → optionally Send
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
-        var orderLines = extracted.Entities.GetValueOrDefault("orderLines");
 
-        // Step 1: Create customer
-        var custBody = new Dictionary<string, object> { ["isCustomer"] = true };
-        SetIfPresent(custBody, cust, "name");
-        SetIfPresent(custBody, cust, "email");
-        SetIfPresent(custBody, cust, "organizationNumber");
-
-        // Also check invoice entity and relationships for customer name
-        if (!custBody.ContainsKey("name"))
-        {
-            var custName = GetStringField(invoice, "customer")
-                ?? extracted.Relationships.GetValueOrDefault("customer");
-            if (custName != null) custBody["name"] = custName;
-        }
-
-        // Use a default name if none extracted
-        if (!custBody.ContainsKey("name"))
-            custBody["name"] = "Kunde";
-
-        var custResult = await api.PostAsync("/customer", custBody);
-        var customerId = custResult.GetProperty("value").GetProperty("id").GetInt64();
-        _logger.LogInformation("Created customer ID: {Id}", customerId);
+        // Step 1: Find or create customer
+        var customerId = await ResolveOrCreateCustomer(api, cust, invoice, extracted);
+        _logger.LogInformation("Using customer ID: {Id}", customerId);
 
         // Step 2: Resolve VAT type (need at least one for order lines)
         var vatTypeId = await ResolveDefaultVatTypeId(api);
@@ -86,7 +67,75 @@ public class InvoiceHandler : ITaskHandler
         var invoiceAmount = invoiceValue.TryGetProperty("amount", out var amtProp) ? amtProp.GetDecimal() : 0m;
         _logger.LogInformation("Created invoice ID: {Id}", invoiceId);
 
+        // Step 6: Send invoice if prompt says "send"
+        if (extracted.Action == "send" || extracted.Action == "create_and_send"
+            || (extracted.Entities.GetValueOrDefault("invoice")?.ContainsKey("send") ?? false))
+        {
+            await SendInvoice(api, invoiceId);
+        }
+
         return (invoiceId, invoiceAmount);
+    }
+
+    private async Task<long> ResolveOrCreateCustomer(TripletexApiClient api,
+        Dictionary<string, object> cust, Dictionary<string, object> invoice, ExtractionResult extracted)
+    {
+        // Try to find customer name and org number from all available sources
+        var custName = GetStringField(cust, "name")
+            ?? GetStringField(invoice, "customer")
+            ?? GetStringField(invoice, "customerName")
+            ?? extracted.Relationships.GetValueOrDefault("customer");
+
+        var orgNumber = GetStringField(cust, "organizationNumber")
+            ?? GetStringField(invoice, "customerOrgNumber")
+            ?? GetStringField(invoice, "organizationNumber");
+
+        // Single search: prefer org number, fallback to name
+        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,name" };
+        if (!string.IsNullOrEmpty(orgNumber))
+            searchParams["organizationNumber"] = orgNumber;
+        else if (!string.IsNullOrEmpty(custName))
+            searchParams["name"] = custName;
+
+        if (searchParams.Count > 2) // has a search criterion beyond count/fields
+        {
+            var result = await api.GetAsync("/customer", searchParams);
+            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+                return vals[0].GetProperty("id").GetInt64();
+        }
+
+        // Not found — create
+        var custBody = new Dictionary<string, object> { ["isCustomer"] = true };
+        if (!string.IsNullOrEmpty(custName)) custBody["name"] = custName;
+        else custBody["name"] = "Kunde";
+        if (!string.IsNullOrEmpty(orgNumber)) custBody["organizationNumber"] = orgNumber;
+        SetIfPresent(custBody, cust, "email");
+
+        var custResult = await api.PostAsync("/customer", custBody);
+        return custResult.GetProperty("value").GetProperty("id").GetInt64();
+    }
+
+    private async Task SendInvoice(TripletexApiClient api, long invoiceId)
+    {
+        _logger.LogInformation("Sending invoice {Id}", invoiceId);
+        try
+        {
+            await api.PutAsync($"/invoice/{invoiceId}/:send", body: null,
+                queryParams: new Dictionary<string, string> { ["sendType"] = "EMAIL" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send invoice {Id}, trying MANUAL", invoiceId);
+            try
+            {
+                await api.PutAsync($"/invoice/{invoiceId}/:send", body: null,
+                    queryParams: new Dictionary<string, string> { ["sendType"] = "MANUAL" });
+            }
+            catch (Exception ex2)
+            {
+                _logger.LogWarning(ex2, "Failed to send invoice {Id} with MANUAL too", invoiceId);
+            }
+        }
     }
 
     internal static List<Dictionary<string, object>> BuildOrderLines(ExtractionResult extracted, long vatTypeId)
@@ -128,16 +177,37 @@ public class InvoiceHandler : ITaskHandler
             }
         }
 
-        // If no lines parsed, try to build from raw amounts
-        if (lines.Count == 0 && extracted.RawAmounts.Count > 0)
+        // If no lines parsed, try to build from invoice entity fields (description + amount)
+        if (lines.Count == 0)
         {
-            if (decimal.TryParse(extracted.RawAmounts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out var amount))
+            var invoice = extracted.Entities.GetValueOrDefault("invoice");
+            var desc = invoice != null ? (GetStringField(invoice, "description") ?? GetStringField(invoice, "lineDescription")) : null;
+            decimal? amt = null;
+
+            // Try amountExcludingVAT from invoice entity
+            if (invoice != null)
+            {
+                var amtStr = GetStringField(invoice, "amountExcludingVAT")
+                    ?? GetStringField(invoice, "amount")
+                    ?? GetStringField(invoice, "unitPrice");
+                if (amtStr != null && decimal.TryParse(amtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                    amt = parsed;
+            }
+
+            // Fall back to raw_amounts
+            if (amt == null && extracted.RawAmounts.Count > 0)
+            {
+                if (decimal.TryParse(extracted.RawAmounts[0], NumberStyles.Any, CultureInfo.InvariantCulture, out var rawAmt))
+                    amt = rawAmt;
+            }
+
+            if (amt != null)
             {
                 lines.Add(new Dictionary<string, object>
                 {
-                    ["description"] = "Vare",
+                    ["description"] = desc ?? "Vare",
                     ["count"] = 1,
-                    ["unitPriceExcludingVatCurrency"] = amount,
+                    ["unitPriceExcludingVatCurrency"] = amt.Value,
                     ["vatType"] = new { id = vatTypeId }
                 });
             }

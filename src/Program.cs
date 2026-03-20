@@ -91,6 +91,16 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
             logger.LogInformation("Overriding task_type from create_invoice to create_credit_note (credit note keywords detected)");
         }
 
+        // Detect "send" in invoice prompts
+        if (extracted.TaskType == "create_invoice" &&
+            System.Text.RegularExpressions.Regex.IsMatch(promptLower,
+                @"\b(send|sende|enviar|envoyer|senden|versenden)\b"))
+        {
+            var inv = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+            inv["send"] = true;
+            extracted.Entities["invoice"] = inv;
+        }
+
         logger.LogInformation("Extracted task_type: {TaskType}, action: {Action}",
             extracted.TaskType, extracted.Action);
 
