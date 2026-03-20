@@ -113,7 +113,7 @@ Prompts arrive in 7 languages: Norwegian bokmål, English, Spanish, Portuguese, 
 .\scripts\Start-Agent.ps1 -Background  # background (returns immediately)
 ```
 
-The script kills any existing `TripletexAgent` process, waits for file locks to release, then starts fresh.
+The script kills any existing `TripletexAgent` process, builds the project, waits for file locks to release, then starts fresh. **Never run `dotnet build` or `dotnet run` directly** — always use `Start-Agent.ps1`. It handles the full kill → build → start cycle and avoids file-lock errors from a running process.
 
 **Testing prompts against the running agent:**
 
@@ -156,8 +156,9 @@ The script:
 
 **Never do these:**
 
-- Don't run `dotnet run` without first stopping the old process — it will fail with a port/file lock
+- Don't run `dotnet build`, `dotnet run`, or any manual build/run commands — always use `Start-Agent.ps1`
 - Don't manually `Get-Process -Name TripletexAgent | Kill` followed by `dotnet run` — use `Start-Agent.ps1` instead
+- Don't try to build while the agent is running — the binary will be locked. `Start-Agent.ps1` kills first, then builds.
 
 ## Validation Feedback Loop (MANDATORY)
 

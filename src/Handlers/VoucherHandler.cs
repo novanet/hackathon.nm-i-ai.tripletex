@@ -324,7 +324,7 @@ public class VoucherHandler : ITaskHandler
         {
             ["number"] = accountNumber,
             ["count"] = "1",
-            ["fields"] = "id,number,vatType(id,number)"
+            ["fields"] = "id,number,vatLocked,vatType(id,number)"
         });
         if (result.TryGetProperty("values", out var vals))
         {
@@ -332,11 +332,10 @@ public class VoucherHandler : ITaskHandler
             {
                 var id = v.GetProperty("id").GetInt64();
                 long? vatId = null;
-                bool locked = false;
+                // Use the actual vatLocked field from the API
+                bool locked = v.TryGetProperty("vatLocked", out var vl) && vl.ValueKind == JsonValueKind.True;
                 if (v.TryGetProperty("vatType", out var vt) && vt.ValueKind == JsonValueKind.Object)
                 {
-                    // Account has a vatType association — it IS locked
-                    locked = true;
                     if (vt.TryGetProperty("id", out var vtId) && vtId.ValueKind == JsonValueKind.Number)
                     {
                         var rawId = vtId.GetInt64();
@@ -345,7 +344,6 @@ public class VoucherHandler : ITaskHandler
                             vatNumber = vtNum.GetInt32();
                         if (vatNumber != 0 && rawId > 0)
                             vatId = rawId;
-                        // vatNumber == 0 → locked to no-VAT, vatId stays null
                     }
                 }
                 return (id, vatId, locked);
