@@ -28,6 +28,7 @@ builder.Services.AddSingleton<CreditNoteHandler>();
 builder.Services.AddSingleton<VoucherHandler>();
 builder.Services.AddSingleton<DeleteEntityHandler>();
 builder.Services.AddSingleton<EnableModuleHandler>();
+builder.Services.AddSingleton<PayrollHandler>();
 builder.Services.AddSingleton<TaskRouter>();
 
 // LLM extractor
@@ -36,7 +37,12 @@ var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
     ?? throw new InvalidOperationException("GITHUB_TOKEN environment variable (or GitHubToken in appsettings) is required");
 builder.Services.AddSingleton(sp => new LlmExtractor(githubToken, sp.GetRequiredService<ILogger<LlmExtractor>>()));
 
+var isDryRun = string.Equals(Environment.GetEnvironmentVariable("DRY_RUN"), "true", StringComparison.OrdinalIgnoreCase);
+
 var app = builder.Build();
+
+if (isDryRun)
+    app.Logger.LogWarning("DRY_RUN mode enabled — no API calls will be made, returning bare 200");
 
 // API key auth middleware — disabled for competition (platform sends no key)
 // var apiKey = app.Configuration["ApiKey"] ?? Environment.GetEnvironmentVariable("API_KEY");
@@ -166,6 +172,17 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         logger.LogInformation("Extracted task_type: {TaskType}, action: {Action}",
             extracted.TaskType, extracted.Action);
 
+        // Dry-run mode: log extraction, skip API calls, return bare 200
+        if (isDryRun)
+        {
+            sw.Stop();
+            var handlerName = router.GetHandlerName(extracted.TaskType);
+            logger.LogInformation("DRY_RUN: would route to {Handler} for {TaskType} — skipping execution ({Elapsed}ms)",
+                handlerName, extracted.TaskType, sw.ElapsedMilliseconds);
+            LogRecon(request, extracted, handlerName, sw.ElapsedMilliseconds);
+            return Results.Ok();
+        }
+
         // Step 2: Create API client — use request credentials, fall back to config (for local testing)
         var baseUrl = request.TripletexCredentials?.BaseUrl
             ?? app.Configuration["Tripletex:BaseUrl"]
@@ -203,6 +220,31 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
 });
 
 app.Run();
+
+static void LogRecon(SolveRequest request, ExtractionResult extracted, string handlerName, long elapsedMs)
+{
+    try
+    {
+        var entry = new
+        {
+            timestamp = DateTime.UtcNow.ToString("o"),
+            prompt = request.Prompt,
+            files = request.Files?.Select(f => new { f.Filename, f.MimeType }).ToList(),
+            task_type = extracted.TaskType,
+            action = extracted.Action,
+            language = extracted.Language,
+            handler = handlerName,
+            entities = extracted.Entities,
+            relationships = extracted.Relationships,
+            dates = extracted.Dates,
+            elapsed_ms = elapsedMs
+        };
+        var json = JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = false });
+        Directory.CreateDirectory("logs");
+        File.AppendAllText("logs/recon.jsonl", json + Environment.NewLine);
+    }
+    catch { /* never fail the response due to logging */ }
+}
 
 static void LogSubmission(SolveRequest request, ExtractionResult? extracted, TripletexApiClient? api,
     string? handlerName, long elapsedMs, bool success, string? error, HttpContext? httpContext = null)

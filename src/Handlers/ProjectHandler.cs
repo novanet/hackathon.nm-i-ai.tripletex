@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
@@ -36,10 +37,25 @@ public class ProjectHandler : ITaskHandler
         if (!body.ContainsKey("startDate"))
             body["startDate"] = DateTime.Today.ToString("yyyy-MM-dd");
 
+        // Set fixed price
+        decimal? fixedPriceAmount = null;
+        if (project.TryGetValue("fixedPrice", out var fpVal) || project.TryGetValue("fixedprice", out fpVal))
+        {
+            if (fpVal is JsonElement fpElem && fpElem.ValueKind == JsonValueKind.Number)
+                fixedPriceAmount = fpElem.GetDecimal();
+            else if (decimal.TryParse(fpVal?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var fpParsed))
+                fixedPriceAmount = fpParsed;
+        }
+        if (fixedPriceAmount.HasValue)
+        {
+            body["fixedprice"] = fixedPriceAmount.Value;
+            body["isFixedPrice"] = true;
+        }
+
         // Set boolean flags
         if (project.TryGetValue("isInternal", out var isInt))
             body["isInternal"] = bool.Parse(isInt.ToString()!);
-        if (project.TryGetValue("isFixedPrice", out var isFp))
+        if (project.TryGetValue("isFixedPrice", out var isFp) && !body.ContainsKey("isFixedPrice"))
             body["isFixedPrice"] = bool.Parse(isFp.ToString()!);
 
         // Resolve customer if referenced
@@ -161,6 +177,152 @@ public class ProjectHandler : ITaskHandler
         var projectId = result.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created project ID: {Id}", projectId);
+
+        // If extraction includes an invoice entity, create an invoice for the project (e.g. partial payment)
+        var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice");
+        if (invoiceEntity != null && invoiceEntity.Count > 0)
+        {
+            await CreateProjectInvoice(api, extracted, projectId, body);
+        }
+    }
+
+    private async Task CreateProjectInvoice(TripletexApiClient api, ExtractionResult extracted, long projectId, Dictionary<string, object> projectBody)
+    {
+        var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+
+        // Determine invoice amount
+        decimal invoiceAmount = 0m;
+        if (invoiceEntity.TryGetValue("amount", out var amtVal))
+        {
+            if (amtVal is JsonElement amtElem && amtElem.ValueKind == JsonValueKind.Number)
+                invoiceAmount = amtElem.GetDecimal();
+            else
+                decimal.TryParse(amtVal?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out invoiceAmount);
+        }
+        if (invoiceAmount <= 0m && extracted.RawAmounts.Count > 0)
+        {
+            // Take the last raw amount as it's likely the invoice amount (first is typically the fixed price)
+            if (extracted.RawAmounts.Count >= 2)
+                decimal.TryParse(extracted.RawAmounts[^1], NumberStyles.Any, CultureInfo.InvariantCulture, out invoiceAmount);
+        }
+        if (invoiceAmount <= 0m)
+        {
+            _logger.LogWarning("No invoice amount found for project invoice, skipping");
+            return;
+        }
+
+        // Resolve customer ID from project body
+        long? customerId = null;
+        if (projectBody.TryGetValue("customer", out var custObj))
+        {
+            var json = JsonSerializer.Serialize(custObj);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("id", out var idProp))
+                customerId = idProp.GetInt64();
+        }
+        if (!customerId.HasValue)
+        {
+            _logger.LogWarning("No customer ID for project invoice, skipping");
+            return;
+        }
+
+        // Ensure bank account + resolve VAT type in parallel
+        var bankTask = EnsureBankAccount(api);
+        var vatTask = ResolveVatTypeId(api);
+        await Task.WhenAll(bankTask, vatTask);
+        var vatTypeId = vatTask.Result;
+
+        // Create order with a single line for the invoice amount
+        var invoiceDate = DateTime.Now.ToString("yyyy-MM-dd");
+        var orderBody = new Dictionary<string, object>
+        {
+            ["customer"] = new { id = customerId.Value },
+            ["orderDate"] = invoiceDate,
+            ["deliveryDate"] = invoiceDate,
+            ["orderLines"] = new[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["description"] = GetStringField(invoiceEntity, "description") ?? $"Delfakturering prosjekt",
+                    ["count"] = 1,
+                    ["unitPriceExcludingVatCurrency"] = invoiceAmount,
+                    ["vatType"] = new { id = vatTypeId }
+                }
+            }
+        };
+
+        var orderResult = await api.PostAsync("/order", orderBody);
+        var orderId = orderResult.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created order ID: {Id} for project invoice", orderId);
+
+        // Create invoice
+        var invoiceDueDate = DateTime.Now.AddDays(30).ToString("yyyy-MM-dd");
+        var invoiceBody = new Dictionary<string, object>
+        {
+            ["invoiceDate"] = invoiceDate,
+            ["invoiceDueDate"] = invoiceDueDate,
+            ["orders"] = new[] { new { id = orderId } }
+        };
+
+        var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
+        var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created project invoice ID: {Id}, amount: {Amount}", invoiceId, invoiceAmount);
+    }
+
+    private async Task EnsureBankAccount(TripletexApiClient api)
+    {
+        try
+        {
+            var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+            {
+                ["number"] = "1920",
+                ["count"] = "1",
+                ["fields"] = "id,version,bankAccountNumber,isBankAccount"
+            });
+            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+            {
+                var acct = vals[0];
+                var bankNum = acct.TryGetProperty("bankAccountNumber", out var bn) ? bn.GetString() : null;
+                if (string.IsNullOrEmpty(bankNum))
+                {
+                    var id = acct.GetProperty("id").GetInt64();
+                    var version = acct.GetProperty("version").GetInt32();
+                    await api.PutAsync($"/ledger/account/{id}", new { id, version, bankAccountNumber = "86011117947", isBankAccount = true });
+                    _logger.LogInformation("Set bank account number on ledger account 1920");
+                }
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "EnsureBankAccount failed (non-fatal)"); }
+    }
+
+    private async Task<long> ResolveVatTypeId(TripletexApiClient api)
+    {
+        var result = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
+        {
+            ["count"] = "100",
+            ["fields"] = "id,number,percentage"
+        });
+        if (result.TryGetProperty("values", out var vals))
+        {
+            foreach (var vt in vals.EnumerateArray())
+            {
+                if (vt.TryGetProperty("number", out var num))
+                {
+                    var n = num.ValueKind == JsonValueKind.Number ? num.GetInt32()
+                        : int.TryParse(num.GetString(), out var parsed) ? parsed : -1;
+                    if (n == 3) return vt.GetProperty("id").GetInt64();
+                }
+            }
+            // Fallback to first with percentage > 0
+            foreach (var vt in vals.EnumerateArray())
+            {
+                if (vt.TryGetProperty("percentage", out var pct) && pct.GetDecimal() > 0)
+                    return vt.GetProperty("id").GetInt64();
+            }
+            if (vals.GetArrayLength() > 0)
+                return vals[0].GetProperty("id").GetInt64();
+        }
+        return 0;
     }
 
     private async Task<long?> ResolveCustomerId(TripletexApiClient api, string? name, string? orgNumber)

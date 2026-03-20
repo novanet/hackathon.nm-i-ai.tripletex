@@ -22,10 +22,11 @@ public class InvoiceHandler : ITaskHandler
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
 
-        // Step 1+2: Find/create customer AND resolve VAT type in parallel
+        // Step 0+1+2: Ensure bank account, find/create customer, resolve VAT type — all in parallel
+        var bankTask = EnsureBankAccount(api);
         var customerTask = ResolveOrCreateCustomer(api, cust, invoice, extracted);
         var vatTypeTask = ResolveDefaultVatTypeId(api);
-        await Task.WhenAll(customerTask, vatTypeTask);
+        await Task.WhenAll(bankTask, customerTask, vatTypeTask);
         var customerId = customerTask.Result;
         var vatTypeId = vatTypeTask.Result;
         _logger.LogInformation("Using customer ID: {Id}", customerId);
@@ -65,8 +66,39 @@ public class InvoiceHandler : ITaskHandler
         var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
         var invoiceValue = invoiceResult.GetProperty("value");
         var invoiceId = invoiceValue.GetProperty("id").GetInt64();
-        var invoiceAmount = invoiceValue.TryGetProperty("amount", out var amtProp) ? amtProp.GetDecimal() : 0m;
-        _logger.LogInformation("Created invoice ID: {Id}", invoiceId);
+
+        // Try to get amount from invoice response (multiple fields)
+        var invoiceAmount = 0m;
+        if (invoiceValue.TryGetProperty("amount", out var amtProp) && amtProp.ValueKind == JsonValueKind.Number)
+            invoiceAmount = amtProp.GetDecimal();
+        else if (invoiceValue.TryGetProperty("amountCurrency", out var amtCurr) && amtCurr.ValueKind == JsonValueKind.Number)
+            invoiceAmount = amtCurr.GetDecimal();
+
+        // Fallback: calculate from order lines or extracted amounts
+        if (invoiceAmount == 0m)
+        {
+            // Sum from order lines we built
+            foreach (var line in lines)
+            {
+                if (line.TryGetValue("unitPriceExcludingVatCurrency", out var u))
+                {
+                    var unit = Convert.ToDecimal(u, CultureInfo.InvariantCulture);
+                    var count = line.TryGetValue("count", out var c) ? Convert.ToDecimal(c, CultureInfo.InvariantCulture) : 1m;
+                    invoiceAmount += count * unit;
+                }
+            }
+            // Fall back to sum of raw_amounts
+            if (invoiceAmount == 0m)
+            {
+                foreach (var ra in extracted.RawAmounts)
+                    if (decimal.TryParse(ra, NumberStyles.Any, CultureInfo.InvariantCulture, out var p))
+                        invoiceAmount += p;
+            }
+            if (invoiceAmount > 0m)
+                _logger.LogInformation("Using fallback invoice amount: {Amount}", invoiceAmount);
+        }
+
+        _logger.LogInformation("Created invoice ID: {Id}, amount: {Amount}", invoiceId, invoiceAmount);
 
         // Step 6: Send invoice if prompt says "send"
         if (extracted.Action == "send" || extracted.Action == "create_and_send"
@@ -244,6 +276,42 @@ public class InvoiceHandler : ITaskHandler
             line["unitPriceExcludingVatCurrency"] = price2.ValueKind == JsonValueKind.Number ? price2.GetDouble()
                 : double.TryParse(price2.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var pd2) ? pd2 : 0.0;
         return line;
+    }
+
+    private async Task EnsureBankAccount(TripletexApiClient api)
+    {
+        // Fresh Tripletex accounts have no bank account on ledger account 1920.
+        // Invoice creation fails with "Faktura kan ikke opprettes før selskapet har registrert et bankkontonummer".
+        // Fix: find account 1920, check if bankAccountNumber is set, and set a dummy one if not.
+        var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+        {
+            ["number"] = "1920",
+            ["count"] = "1",
+            ["fields"] = "id,version,bankAccountNumber,isBankAccount"
+        });
+
+        if (result.TryGetProperty("values", out var accounts) && accounts.GetArrayLength() > 0)
+        {
+            var account = accounts[0];
+            var hasBankNumber = account.TryGetProperty("bankAccountNumber", out var bn)
+                && bn.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(bn.GetString());
+
+            if (!hasBankNumber)
+            {
+                var accountId = account.GetProperty("id").GetInt64();
+                var version = account.GetProperty("version").GetInt32();
+                _logger.LogInformation("Account 1920 (ID {Id}) has no bank account number, setting one", accountId);
+
+                await api.PutAsync($"/ledger/account/{accountId}", new Dictionary<string, object>
+                {
+                    ["id"] = accountId,
+                    ["version"] = version,
+                    ["bankAccountNumber"] = "86011117947",
+                    ["isBankAccount"] = true
+                });
+            }
+        }
     }
 
     internal async Task<long> ResolveDefaultVatTypeId(TripletexApiClient api)

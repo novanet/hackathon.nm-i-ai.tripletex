@@ -24,7 +24,7 @@ public class LlmExtractor
             "create_invoice", "register_payment", "create_credit_note",
             "create_travel_expense", "delete_travel_expense",
             "create_project", "create_supplier", "create_voucher",
-            "delete_entity", "enable_module", "unknown"],
+            "delete_entity", "enable_module", "run_payroll", "unknown"],
           "entities": {
             "<entity_type>": {
               "<field>": "<value>"
@@ -56,6 +56,7 @@ public class LlmExtractor
         - When creating MULTIPLE entities of the same type (e.g. "create 3 departments"), use separate entity keys: "department1": {"name": "A"}, "department2": {"name": "B"}, etc. Each entity gets its own key with a numeric suffix.
         - For projects referencing a customer like "Fjordkraft AS (org.nr 944845712)", put the CUSTOMER NAME in relationships.customer ("Fjordkraft AS") and the org number in the project entity as "customerOrgNumber": "944845712"
         - For projects, extract the project manager as a nested object: "projectManager": {"firstName": "...", "lastName": "...", "email": "..."}
+        - For payroll/salary tasks (running payroll, creating salary slips, paying salary), use "run_payroll". Extract into entities: "employee": {"firstName", "lastName", "email"} and "payroll": {"baseSalary": <number>, "bonus": <number>}
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)

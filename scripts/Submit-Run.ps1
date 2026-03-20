@@ -54,6 +54,18 @@ if (Test-Path $cfLog) {
     }
 }
 
+# Try localtunnel log
+if (-not $tunnelUrl) {
+    $ltLog = Join-Path $PSScriptRoot "..\src\logs\localtunnel.log"
+    if (Test-Path $ltLog) {
+        $ltContent = Get-Content $ltLog -Raw -ErrorAction SilentlyContinue
+        if ($ltContent -match '(https://[a-z0-9-]+\.loca\.lt)') {
+            $tunnelUrl = $Matches[1]
+            Write-Host "Using localtunnel" -ForegroundColor Green
+        }
+    }
+}
+
 # Fallback to ngrok
 if (-not $tunnelUrl) {
     try {
@@ -69,8 +81,9 @@ if (-not $tunnelUrl) {
 
 if (-not $tunnelUrl) {
     Write-Host "ERROR: No tunnel found. Start one first:" -ForegroundColor Red
-    Write-Host "  .\scripts\Start-Cloudflared.ps1  (recommended)" -ForegroundColor Gray
+    Write-Host "  .\scripts\Start-Localtunnel.ps1  (localtunnel)" -ForegroundColor Gray
     Write-Host "  .\scripts\Start-Tunnel.ps1       (ngrok)" -ForegroundColor Gray
+    Write-Host "  .\scripts\Start-Cloudflared.ps1  (cloudflared)" -ForegroundColor Gray
     return
 }
 
@@ -145,14 +158,21 @@ $maxPolls = 60  # 10 minutes max
 for ($i = 0; $i -lt $maxPolls; $i++) {
     Start-Sleep -Seconds $pollInterval
     try {
-        $status = Invoke-RestMethod -Uri "$apiBase/tasks/$taskId/submissions/$submissionId" `
+        # Use list endpoint and find our submission (individual endpoint returns 404)
+        $allSubs = Invoke-RestMethod -Uri "$apiBase/tripletex/my/submissions" `
             -Method GET -Headers @{ "Cookie" = "access_token=$Token" } -ErrorAction Stop
 
-        $state = $status.status
+        $mySub = $allSubs | Where-Object { $_.id -eq $submissionId } | Select-Object -First 1
+        if (-not $mySub) {
+            Write-Host "  [$([datetime]::Now.ToString('HH:mm:ss'))] Submission not in list yet..." -ForegroundColor Gray
+            continue
+        }
+
+        $state = $mySub.status
         Write-Host "  [$([datetime]::Now.ToString('HH:mm:ss'))] Status: $state" -NoNewline
 
-        if ($status.PSObject.Properties["score"]) {
-            Write-Host " | Score: $($status.score)" -ForegroundColor Yellow
+        if ($mySub.PSObject.Properties["score"] -and $null -ne $mySub.score) {
+            Write-Host " | Score: $($mySub.score)" -ForegroundColor Yellow
         }
         else {
             Write-Host ""
@@ -161,7 +181,7 @@ for ($i = 0; $i -lt $maxPolls; $i++) {
         if ($state -eq "completed" -or $state -eq "failed" -or $state -eq "error") {
             Write-Host ""
             Write-Host "Final result:" -ForegroundColor Cyan
-            $status | ConvertTo-Json -Depth 5 | Write-Host
+            $mySub | ConvertTo-Json -Depth 5 | Write-Host
             break
         }
     }

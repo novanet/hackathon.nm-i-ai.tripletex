@@ -31,12 +31,20 @@ public class TaskRouter
             ["create_voucher"] = services.GetRequiredService<VoucherHandler>(),
             ["delete_entity"] = services.GetRequiredService<DeleteEntityHandler>(),
             ["enable_module"] = services.GetRequiredService<EnableModuleHandler>(),
+            ["run_payroll"] = services.GetRequiredService<PayrollHandler>(),
         };
 
         var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
             ?? services.GetRequiredService<IConfiguration>()["GitHubToken"]
             ?? "";
         _fallback = new FallbackAgentHandler(githubToken, services.GetRequiredService<ILogger<FallbackAgentHandler>>());
+    }
+
+    public string GetHandlerName(string taskType)
+    {
+        if (_handlers.TryGetValue(taskType, out var handler))
+            return handler.GetType().Name;
+        return "FallbackAgentHandler";
     }
 
     public async Task<bool> RouteAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt = "", List<Models.SolveFile>? files = null)
