@@ -319,6 +319,7 @@ public class InvoiceHandler : ITaskHandler
             ?? extracted.Relationships.GetValueOrDefault("customer");
 
         var orgNumber = GetStringField(cust, "organizationNumber")
+            ?? GetStringField(cust, "orgNumber")
             ?? GetStringField(invoice, "customerOrgNumber")
             ?? GetStringField(invoice, "organizationNumber");
 
