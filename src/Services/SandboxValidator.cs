@@ -493,31 +493,47 @@ public class SandboxValidator
         try
         {
             var txn = await api.GetAsync($"/salary/transaction/{result.EntityId}",
-                new Dictionary<string, string> { ["fields"] = "id,date,year,month,payslips" });
+                new Dictionary<string, string> { ["fields"] = "id,date,year,month,payslips(id)" });
             var val = txn.GetProperty("value");
 
             report.Checks.Add(new ValidationCheck("salary_transaction_found", "true", "true", true, 2));
 
-            // Check employee link and payslip from inline payslips array
+            // The payslips array in the transaction response is stubs (id+url only).
+            // Competition validator fetches individual payslips to check employee link and amounts.
+            // We must do the same: GET /salary/payslip/{id} per payslip stub.
             bool hasEmployee = false;
             int payslipCount = 0;
             decimal totalAmount = 0;
-            if (val.TryGetProperty("payslips", out var payslips) && payslips.ValueKind == JsonValueKind.Array)
+
+            if (val.TryGetProperty("payslips", out var payslipsArr) && payslipsArr.ValueKind == JsonValueKind.Array)
             {
-                payslipCount = payslips.GetArrayLength();
-                foreach (var ps in payslips.EnumerateArray())
+                payslipCount = payslipsArr.GetArrayLength();
+
+                foreach (var stubElem in payslipsArr.EnumerateArray())
                 {
-                    if (ps.TryGetProperty("employee", out var empRef) && empRef.ValueKind == JsonValueKind.Object
-                        && empRef.TryGetProperty("id", out var empId) && empId.GetInt64() > 0)
+                    if (!stubElem.TryGetProperty("id", out var psIdProp)) continue;
+                    var psId = psIdProp.GetInt64();
+                    try
                     {
-                        hasEmployee = true;
+                        var psResult = await api.GetAsync($"/salary/payslip/{psId}",
+                            new Dictionary<string, string> { ["fields"] = "id,employee,amount,grossAmount" });
+                        if (psResult.TryGetProperty("value", out var ps))
+                        {
+                            if (ps.TryGetProperty("employee", out var empRef) && empRef.ValueKind == JsonValueKind.Object
+                                && empRef.TryGetProperty("id", out var empId) && empId.GetInt64() > 0)
+                            {
+                                hasEmployee = true;
+                            }
+                            if (ps.TryGetProperty("grossAmount", out var grossAmountProp) && grossAmountProp.ValueKind == JsonValueKind.Number)
+                                totalAmount += grossAmountProp.GetDecimal();
+                            else if (ps.TryGetProperty("amount", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number)
+                                totalAmount += amountProp.GetDecimal();
+                        }
                     }
-                    // Sum up GROSS amount (grossAmount = before tax, amount = net after tax deduction)
-                    // Competition checks gross salary, not net
-                    if (ps.TryGetProperty("grossAmount", out var grossAmountProp) && grossAmountProp.ValueKind == JsonValueKind.Number)
-                        totalAmount += grossAmountProp.GetDecimal();
-                    else if (ps.TryGetProperty("amount", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number)
-                        totalAmount += amountProp.GetDecimal();
+                    catch (Exception exInner)
+                    {
+                        _logger.LogWarning("Payroll validation: GET /salary/payslip/{Id} failed: {Msg}", psId, exInner.Message);
+                    }
                 }
             }
 

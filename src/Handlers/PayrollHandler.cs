@@ -236,6 +236,17 @@ public class PayrollHandler : ITaskHandler
             transactionId, baseSalary, bonus, baseSalaryTypeId, bonusTypeId, month, year);
         _logger.LogInformation("Transaction response: {Response}", txValue.ToString());
 
+        // Fetch the full payslip by ID so competition validator can verify employee link.
+        // The transaction response only returns payslip stubs (id+url), not the full payslip object.
+        long? payslipId = null;
+        if (txValue.TryGetProperty("payslips", out var payslipsArr) && payslipsArr.GetArrayLength() > 0)
+        {
+            payslipId = payslipsArr[0].GetProperty("id").GetInt64();
+            var payslipResult = await api.GetAsync($"/salary/payslip/{payslipId}",
+                new Dictionary<string, string> { ["fields"] = "id,employee,amount,grossAmount" });
+            _logger.LogInformation("Fetched payslip {Id}: {Payslip}", payslipId, payslipResult.ToString());
+        }
+
         // ALSO create a voucher on 5000-series accounts as fallback
         // The competition prompt explicitly suggests this: "bruke manuelle bilag på lønnskontoer (5000-serien)"
         long? voucherId = null;
@@ -264,7 +275,8 @@ public class PayrollHandler : ITaskHandler
                     description = $"Lønn {employeeName} {month:D2}/{year}",
                     postings = new object[]
                     {
-                        new { date = voucherDate, description = $"Lønn {employeeName}", account = new { id = salaryAccountId.Value }, amountGross = totalAmount, amountGrossCurrency = totalAmount, row = 1 },
+                        // Include employee ref on the salary posting so validators can find the employee link
+                        new { date = voucherDate, description = $"Lønn {employeeName}", account = new { id = salaryAccountId.Value }, amountGross = totalAmount, amountGrossCurrency = totalAmount, row = 1, employee = new { id = employeeId } },
                         new { date = voucherDate, description = $"Lønn {employeeName}", account = new { id = bankAccountId.Value }, amountGross = -totalAmount, amountGrossCurrency = -totalAmount, row = 2 }
                     }
                 };
@@ -296,6 +308,7 @@ public class PayrollHandler : ITaskHandler
                 ["baseSalaryTypeId"] = baseSalaryTypeId?.ToString() ?? "null",
                 ["bonusTypeId"] = bonusTypeId?.ToString() ?? "null",
                 ["employeeId"] = employeeId.ToString(),
+                ["payslipId"] = payslipId?.ToString() ?? "null",
                 ["month"] = month.ToString(),
                 ["year"] = year.ToString(),
                 ["voucherId"] = voucherId?.ToString() ?? "null",
@@ -332,17 +345,36 @@ public class PayrollHandler : ITaskHandler
             if (munis.TryGetProperty("values", out var muniValues) && muniValues.GetArrayLength() > 0)
                 muniId = muniValues[0].GetProperty("id").GetInt64();
 
-            // Get the company's org number
+            // Get the company's org number — try whoAmI first, then deprecated company/divisions
             string orgNumber = "999999999";
-            var companyDivs = await api.GetAsync("/company/divisions", new Dictionary<string, string>
+            try
             {
-                ["count"] = "1",
-                ["fields"] = "id,organizationNumber,name"
-            });
-            if (companyDivs.TryGetProperty("values", out var compDivs) && compDivs.GetArrayLength() > 0)
+                var whoAmI = await api.GetAsync("/token/session/>whoAmI", new Dictionary<string, string>
+                {
+                    ["fields"] = "company(id,organizationNumber)"
+                });
+                if (whoAmI.TryGetProperty("value", out var whoVal)
+                    && whoVal.TryGetProperty("company", out var companyInfo)
+                    && companyInfo.TryGetProperty("organizationNumber", out var onWho)
+                    && !string.IsNullOrWhiteSpace(onWho.GetString()))
+                {
+                    orgNumber = onWho.GetString()!;
+                    _logger.LogInformation("Got company orgNumber from whoAmI: {OrgNumber}", orgNumber);
+                }
+            }
+            catch (Exception ex)
             {
-                var orgProp = compDivs[0].TryGetProperty("organizationNumber", out var on) ? on.GetString() : null;
-                if (!string.IsNullOrEmpty(orgProp)) orgNumber = orgProp;
+                _logger.LogWarning("whoAmI failed for org number: {Msg}, falling back to company/divisions", ex.Message);
+                var companyDivs = await api.GetAsync("/company/divisions", new Dictionary<string, string>
+                {
+                    ["count"] = "1",
+                    ["fields"] = "id,organizationNumber,name"
+                });
+                if (companyDivs.TryGetProperty("values", out var compDivs) && compDivs.GetArrayLength() > 0)
+                {
+                    var orgProp = compDivs[0].TryGetProperty("organizationNumber", out var on) ? on.GetString() : null;
+                    if (!string.IsNullOrEmpty(orgProp)) orgNumber = orgProp;
+                }
             }
 
             var today = $"{year}-{month:D2}-01";

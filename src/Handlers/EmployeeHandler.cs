@@ -54,21 +54,23 @@ public class EmployeeHandler : ITaskHandler
 
         body["userType"] = needsAdmin ? "EXTENDED" : "STANDARD";
 
-        // Handle department — NOT required by Tripletex API; only set when explicitly specified.
-        // Skipping the fallback "GET first dept" saves 1 API call in competition environments.
+        // Handle department — REQUIRED when department module is active (competition environments always have it).
+        // Always fetch the first available department as a fallback. If a specific department name is
+        // in Relationships, search for it; otherwise just take the first one.
         long? deptId = null;
-        if (extracted.Relationships.TryGetValue("department", out var deptName) && !string.IsNullOrEmpty(deptName))
+        extracted.Relationships.TryGetValue("department", out var deptName);
+        var deptQueryParams = new Dictionary<string, string>
         {
-            var deptResult = await api.GetAsync("/department", new Dictionary<string, string>
-            {
-                ["query"] = deptName,
-                ["count"] = "1",
-                ["fields"] = "id"
-            });
-            if (deptResult.TryGetProperty("values", out var depts) && depts.GetArrayLength() > 0)
-            {
-                deptId = depts[0].GetProperty("id").GetInt64();
-            }
+            ["count"] = "1",
+            ["fields"] = "id"
+        };
+        if (!string.IsNullOrEmpty(deptName))
+            deptQueryParams["query"] = deptName;
+
+        var deptResult = await api.GetAsync("/department", deptQueryParams);
+        if (deptResult.TryGetProperty("values", out var depts) && depts.GetArrayLength() > 0)
+        {
+            deptId = depts[0].GetProperty("id").GetInt64();
         }
 
         if (deptId != null)
@@ -90,35 +92,25 @@ public class EmployeeHandler : ITaskHandler
         if (!string.IsNullOrEmpty(startDate))
         {
             _logger.LogInformation("Creating employment for employee {Id} with startDate {StartDate}", employeeId, startDate);
-            try
+            // Always fetch division — competition environments require it
+            var divResult = await api.GetAsync("/division", new Dictionary<string, string>
             {
-                await api.PostAsync("/employee/employment", new
-                {
-                    employee = new { id = employeeId },
-                    startDate = startDate
-                });
-            }
-            catch (TripletexApiException ex) when (ex.Message.Contains("division", StringComparison.OrdinalIgnoreCase)
-                || ex.Message.Contains("virksomhet", StringComparison.OrdinalIgnoreCase))
-            {
-                // Some environments require a division on employment — look one up and retry
-                _logger.LogInformation("Employment requires division, looking one up...");
-                var divResult = await api.GetAsync("/division", new Dictionary<string, string>
-                {
-                    ["count"] = "1",
-                    ["fields"] = "id"
-                });
-                long? divId = null;
-                if (divResult.TryGetProperty("values", out var divs) && divs.GetArrayLength() > 0)
-                    divId = divs[0].GetProperty("id").GetInt64();
+                ["count"] = "1",
+                ["fields"] = "id"
+            });
+            long? divId = null;
+            if (divResult.TryGetProperty("values", out var divs) && divs.GetArrayLength() > 0)
+                divId = divs[0].GetProperty("id").GetInt64();
 
-                await api.PostAsync("/employee/employment", new
-                {
-                    employee = new { id = employeeId },
-                    startDate = startDate,
-                    division = divId.HasValue ? new { id = divId.Value } : null
-                });
-            }
+            var empBody = new Dictionary<string, object>
+            {
+                ["employee"] = new { id = employeeId },
+                ["startDate"] = startDate
+            };
+            if (divId.HasValue)
+                empBody["division"] = new { id = divId.Value };
+
+            await api.PostAsync("/employee/employment", empBody);
         }
 
         // Assign administrator role if needed
