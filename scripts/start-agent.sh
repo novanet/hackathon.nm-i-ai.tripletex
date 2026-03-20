@@ -18,8 +18,14 @@ fi
 PIDS=$(pgrep -f "TripletexAgent" 2>/dev/null || true)
 if [[ -n "$PIDS" ]]; then
     echo -e "\033[33mKilling TripletexAgent PIDs: $PIDS\033[0m"
-    echo "$PIDS" | xargs kill -9 2>/dev/null || true
-    sleep 2
+    echo "$PIDS" | xargs kill 2>/dev/null || true
+    sleep 1
+    # Force-kill any survivors
+    REMAINING=$(pgrep -f "TripletexAgent" 2>/dev/null || true)
+    if [[ -n "$REMAINING" ]]; then
+        echo "$REMAINING" | xargs kill -9 2>/dev/null || true
+    fi
+    sleep 1
 fi
 
 # Build first so startup is fast and errors surface early

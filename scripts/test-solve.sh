@@ -111,14 +111,17 @@ EOF
 URL="http://localhost:$PORT/solve"
 
 # --- Send request ---
-HTTP_CODE=$(curl -s -o /tmp/test-solve-response.txt -w "%{http_code}" \
+TMPFILE=$(mktemp /tmp/test-solve-XXXXXX.txt)
+trap "rm -f $TMPFILE" EXIT
+
+HTTP_CODE=$(curl -s -o "$TMPFILE" -w "%{http_code}" \
     -X POST "$URL" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $API_KEY" \
     -d "$BODY" \
     --max-time 120)
 
-RESPONSE=$(cat /tmp/test-solve-response.txt)
+RESPONSE=$(cat "$TMPFILE")
 
 if [[ "$HTTP_CODE" == "200" ]]; then
     echo -e "\033[32mOK: $RESPONSE\033[0m"

@@ -8,6 +8,8 @@
 
 set -euo pipefail
 
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required"; exit 1; }
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$SCRIPT_DIR/../src"
 
@@ -251,11 +253,11 @@ if [[ -n "$FINAL_STATE" && -n "$FINAL_RESPONSE" ]]; then
     RESULTS_FILE="$SRC_DIR/logs/results.jsonl"
     mkdir -p "$(dirname "$RESULTS_FILE")"
 
-    python3 -c "
+    echo "$FINAL_RESPONSE" | python3 -c "
 import json, sys
 from datetime import datetime, timezone
 
-sub = json.loads('''$FINAL_RESPONSE''')
+sub = json.load(sys.stdin)
 feedback = sub.get('feedback', {}) or {}
 checks_raw = feedback.get('checks', []) or []
 checks = []
@@ -270,7 +272,7 @@ for c in checks_raw:
 entry = {
     'submission_id': sub.get('id'),
     'timestamp': datetime.now(timezone.utc).isoformat(),
-    'status': '$FINAL_STATE',
+    'status': sub.get('status', ''),
     'score_raw': sub.get('score_raw'),
     'score_max': sub.get('score_max'),
     'normalized_score': sub.get('normalized_score'),
@@ -294,12 +296,12 @@ mkdir -p "$(dirname "$LEADERBOARD_FILE")"
 
 LEADERBOARD_RAW=$(curl -s "$LEADERBOARD_URL" --max-time 15 2>/dev/null || true)
 if [[ -n "$LEADERBOARD_RAW" && "$LEADERBOARD_RAW" != "null" ]]; then
-    python3 -c "
+    echo "$LEADERBOARD_RAW" | python3 -c "
 import json, sys
 from datetime import datetime, timezone
 
 try:
-    tasks = json.loads('''$LEADERBOARD_RAW''')
+    tasks = json.load(sys.stdin)
     total_score = sum(t.get('best_score', 0) for t in tasks)
     entry = {
         'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -310,16 +312,16 @@ try:
     }
     print(json.dumps(entry))
 except Exception as e:
-    print(json.dumps({'error': str(e), 'raw': '''$LEADERBOARD_RAW'''[:200]}), file=sys.stderr)
+    print(json.dumps({'error': str(e)}), file=sys.stderr)
 " >> "$LEADERBOARD_FILE" 2>/dev/null
 
-    TOTAL=$(python3 -c "
-import json
-tasks = json.loads('''$LEADERBOARD_RAW''')
+    TOTAL=$(echo "$LEADERBOARD_RAW" | python3 -c "
+import json, sys
+tasks = json.load(sys.stdin)
 total = sum(t.get('best_score', 0) for t in tasks)
 zeros = [t['tx_task_id'] for t in tasks if t.get('best_score', 0) == 0]
 print(f'Total: {total:.2f} across {len(tasks)} tasks')
-if zeros: print(f'  Zero-score tasks: {', '.join(zeros)}')
+if zeros: print(f\"  Zero-score tasks: {', '.join(zeros)}\")
 " 2>/dev/null || true)
 
     echo ""

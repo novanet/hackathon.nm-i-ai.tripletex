@@ -25,7 +25,12 @@ done
 if $KILL; then
     PIDS=$(pgrep -f "ngrok" 2>/dev/null || true)
     if [[ -n "$PIDS" ]]; then
-        echo "$PIDS" | xargs kill -9 2>/dev/null || true
+        echo "$PIDS" | xargs kill 2>/dev/null || true
+        sleep 1
+        REMAINING=$(pgrep -f "ngrok" 2>/dev/null || true)
+        if [[ -n "$REMAINING" ]]; then
+            echo "$REMAINING" | xargs kill -9 2>/dev/null || true
+        fi
         echo -e "\033[33mngrok stopped.\033[0m"
     else
         echo -e "\033[90mngrok is not running.\033[0m"
@@ -42,7 +47,12 @@ fi
 EXISTING=$(pgrep -f "ngrok" 2>/dev/null || true)
 if [[ -n "$EXISTING" ]]; then
     echo -e "\033[33mStopping existing ngrok process...\033[0m"
-    echo "$EXISTING" | xargs kill -9 2>/dev/null || true
+    echo "$EXISTING" | xargs kill 2>/dev/null || true
+    sleep 1
+    REMAINING=$(pgrep -f "ngrok" 2>/dev/null || true)
+    if [[ -n "$REMAINING" ]]; then
+        echo "$REMAINING" | xargs kill -9 2>/dev/null || true
+    fi
     sleep 1
 fi
 
