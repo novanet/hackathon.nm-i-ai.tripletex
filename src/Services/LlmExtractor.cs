@@ -56,6 +56,7 @@ public class LlmExtractor
         - When creating MULTIPLE entities of the same type (e.g. "create 3 departments"), use separate entity keys: "department1": {"name": "A"}, "department2": {"name": "B"}, etc. Each entity gets its own key with a numeric suffix.
         - For projects referencing a customer like "Fjordkraft AS (org.nr 944845712)", put the CUSTOMER NAME in relationships.customer ("Fjordkraft AS") and the org number in the project entity as "customerOrgNumber": "944845712"
         - For projects, extract the project manager as a nested object: "projectManager": {"firstName": "...", "lastName": "...", "email": "..."}
+        - When the prompt mentions logging/registering hours on a project and creating/generating a project invoice, use task_type "create_project". Extract: "timesheet": {"hours": 27, "hourlyRate": 1050, "activityName": "Rådgivning"} and "employee": {"firstName": "...", "lastName": "...", "email": "..."}. Also extract customer and project entities as usual.
         - For payroll/salary tasks (running payroll, creating salary slips, paying salary), use "run_payroll". Extract into entities: "employee": {"firstName", "lastName", "email"} and "payroll": {"baseSalary": <number>, "bonus": <number>}
         - For vouchers with custom accounting dimensions, extract the dimension in a separate "dimension" entity: {"name": "Region", "values": ["Vestlandet", "Sør-Norge"]}. In the voucher entity, include "dimensionValue": "Vestlandet" for the value to link to the posting, plus "account": "6300" and "amount": 35500. If the prompt specifies debit/credit accounts explicitly, use "debitAccount" and "creditAccount" in the voucher entity instead.
         - For supplier invoices (incoming invoices from suppliers), use task_type "create_voucher". In the voucher entity, include: "supplierName", "supplierOrgNumber", "invoiceNumber", "account" (expense account number), "amount" (gross amount incl. VAT), "date", and "vatRate" (e.g. "25") if specified.
@@ -230,7 +231,37 @@ public class LlmExtractor
         var result = new ExtractionResult { Action = "create" };
 
         // Detect task type by keywords (multi-language)
-        if (Regex.IsMatch(lower, @"\b(ansatt|employee|empleado|empregado|mitarbeiter|employé|tilsett)\b"))
+        // Payroll/salary must come before employee — payroll prompts mention employee names but aren't employee-creation tasks
+        if (Regex.IsMatch(lower, @"\b(gehaltsabrechnung|gehalt|lohnabrechnung|payroll|salary|lønn|lønnskjøring|lønnsslipp|nómina|salario|salário|folha de pagamento|paie|fiche de paie|run_payroll)\b"))
+        {
+            result.TaskType = "run_payroll";
+            var emp = new Dictionary<string, object>();
+            var pay = new Dictionary<string, object>();
+
+            // Extract email
+            var emailMatch = Regex.Match(prompt, @"[\w.-]+@[\w.-]+\.\w{2,}");
+            if (emailMatch.Success) emp["email"] = emailMatch.Value;
+
+            // Extract name — look for "Name (email)" or "für/for/de Name" patterns
+            var nameMatch = Regex.Match(prompt, @"(?:für|for|de|para|pour|av)\s+([A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+(?:\s+[A-Z\u00C0-\u017F][a-z\u00E0-\u017F]+)+)", RegexOptions.None);
+            if (nameMatch.Success)
+            {
+                var parts = nameMatch.Groups[1].Value.Trim().Split(' ', 2);
+                emp["firstName"] = parts[0];
+                emp["lastName"] = parts.Length > 1 ? parts[1] : parts[0];
+            }
+
+            // Extract amounts — first number = baseSalary, second = bonus
+            var amounts = Regex.Matches(prompt, @"(\d[\d\s]*)\s*NOK");
+            if (amounts.Count > 0 && decimal.TryParse(amounts[0].Groups[1].Value.Replace(" ", ""), out var base1))
+                pay["baseSalary"] = base1;
+            if (amounts.Count > 1 && decimal.TryParse(amounts[1].Groups[1].Value.Replace(" ", ""), out var bonus1))
+                pay["bonus"] = bonus1;
+
+            result.Entities["employee"] = emp;
+            result.Entities["payroll"] = pay;
+        }
+        else if (Regex.IsMatch(lower, @"\b(ansatt|employee|empleado|empregado|mitarbeiter|employé|tilsett)\b"))
         {
             result.TaskType = lower.Contains("oppdater") || lower.Contains("update") || lower.Contains("endre") ? "update_employee" : "create_employee";
 

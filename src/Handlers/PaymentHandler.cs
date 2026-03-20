@@ -66,6 +66,8 @@ public class PaymentHandler : ITaskHandler
             var invoices = await api.GetAsync("/invoice", new Dictionary<string, string>
             {
                 ["customerId"] = customerId.Value.ToString(),
+                ["invoiceDateFrom"] = "2020-01-01",
+                ["invoiceDateTo"] = DateTime.Today.ToString("yyyy-MM-dd"),
                 ["from"] = "0",
                 ["count"] = "20",
                 ["fields"] = "id,amount,amountOutstanding,amountCurrency"
@@ -105,7 +107,7 @@ public class PaymentHandler : ITaskHandler
         return await HandleFullChainPaymentAsync(api, extracted);
     }
 
-    /// <summary>Reversal: find existing paid invoice, reverse payment via credit note</summary>
+    /// <summary>Reversal: find existing paid invoice, reverse payment via negative payment or credit note</summary>
     private async Task<HandlerResult> HandleReversalAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var customerId = await FindCustomerId(api, extracted);
@@ -114,6 +116,8 @@ public class PaymentHandler : ITaskHandler
             var invoices = await api.GetAsync("/invoice", new Dictionary<string, string>
             {
                 ["customerId"] = customerId.Value.ToString(),
+                ["invoiceDateFrom"] = "2020-01-01",
+                ["invoiceDateTo"] = DateTime.Today.ToString("yyyy-MM-dd"),
                 ["from"] = "0",
                 ["count"] = "20",
                 ["fields"] = "id,amount,amountOutstanding,amountCurrency"
@@ -133,31 +137,7 @@ public class PaymentHandler : ITaskHandler
                             && amtProp.ValueKind == JsonValueKind.Number ? amtProp.GetDecimal() : 0m;
                         _logger.LogInformation("Found paid invoice {Id} (amount={Amount}), reversing payment", invoiceId, amount);
 
-                        // Try credit note first (most reliable reversal method)
-                        try
-                        {
-                            var creditDate = ResolvePaymentDate(extracted);
-                            await api.PutAsync($"/invoice/{invoiceId}/:createCreditNote",
-                                body: null,
-                                queryParams: new Dictionary<string, string>
-                                {
-                                    ["date"] = creditDate,
-                                    ["comment"] = "Payment reversal"
-                                });
-                            _logger.LogInformation("Created credit note for invoice {Id}", invoiceId);
-                            return new HandlerResult
-                            {
-                                EntityType = "invoice",
-                                EntityId = invoiceId,
-                                Metadata = { ["paymentReversed"] = "true", ["method"] = "creditNote" }
-                            };
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Credit note failed for invoice {Id}, trying negative payment", invoiceId);
-                        }
-
-                        // Fallback: negative payment
+                        // Try negative payment first — directly restores amountOutstanding
                         try
                         {
                             var paymentTypeId = await ResolvePaymentTypeId(api);
@@ -171,9 +151,34 @@ public class PaymentHandler : ITaskHandler
                                 Metadata = { ["paymentReversed"] = "true", ["method"] = "negativePayment" }
                             };
                         }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Negative payment failed for invoice {Id}, trying credit note", invoiceId);
+                        }
+
+                        // Fallback: credit note (nullifies the invoice, should restore amountOutstanding)
+                        try
+                        {
+                            var creditDate = ResolvePaymentDate(extracted);
+                            await api.PutAsync($"/invoice/{invoiceId}/:createCreditNote",
+                                body: null,
+                                queryParams: new Dictionary<string, string>
+                                {
+                                    ["date"] = creditDate,
+                                    ["comment"] = "Payment reversal",
+                                    ["sendToCustomer"] = "false"
+                                });
+                            _logger.LogInformation("Created credit note for invoice {Id}", invoiceId);
+                            return new HandlerResult
+                            {
+                                EntityType = "invoice",
+                                EntityId = invoiceId,
+                                Metadata = { ["paymentReversed"] = "true", ["method"] = "creditNote" }
+                            };
+                        }
                         catch (Exception ex2)
                         {
-                            _logger.LogWarning(ex2, "Negative payment also failed for invoice {Id}", invoiceId);
+                            _logger.LogWarning(ex2, "Credit note also failed for invoice {Id}", invoiceId);
                         }
                     }
                 }

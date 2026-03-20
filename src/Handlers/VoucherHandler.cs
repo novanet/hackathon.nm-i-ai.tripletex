@@ -159,7 +159,7 @@ public class VoucherHandler : ITaskHandler
 
             if (debitAccount != null && amount != 0)
             {
-                var (debitId, debitVatId) = await ResolveAccountId(api, debitAccount);
+                var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
                 if (debitId.HasValue)
                 {
                     var p = new Dictionary<string, object>
@@ -176,7 +176,7 @@ public class VoucherHandler : ITaskHandler
             }
             if (creditAccount != null && amount != 0)
             {
-                var (creditId, creditVatId) = await ResolveAccountId(api, creditAccount);
+                var (creditId, creditVatId, _) = await ResolveAccountId(api, creditAccount);
                 if (creditId.HasValue)
                 {
                     var p = new Dictionary<string, object>
@@ -201,7 +201,7 @@ public class VoucherHandler : ITaskHandler
 
             if (account != null && amount != 0)
             {
-                var (accountId, vatId) = await ResolveAccountId(api, account);
+                var (accountId, vatId, _) = await ResolveAccountId(api, account);
                 if (accountId.HasValue)
                 {
                     var debitPosting = new Dictionary<string, object>
@@ -216,7 +216,7 @@ public class VoucherHandler : ITaskHandler
                     postings.Add(debitPosting);
 
                     // Counter-account: 1920 (bank) as safe default
-                    var (counterId, _) = await ResolveAccountId(api, "1920");
+                    var (counterId, _, _) = await ResolveAccountId(api, "1920");
                     if (counterId.HasValue)
                     {
                         postings.Add(new Dictionary<string, object>
@@ -268,7 +268,7 @@ public class VoucherHandler : ITaskHandler
 
         if (accountStr != null && accountStr.Length <= 4)
         {
-            var (accId, vatId) = await ResolveAccountId(api, accountStr);
+            var (accId, vatId, _) = await ResolveAccountId(api, accountStr);
             if (accId.HasValue) posting["account"] = new { id = accId.Value };
             if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
         }
@@ -318,13 +318,13 @@ public class VoucherHandler : ITaskHandler
         return result;
     }
 
-    private async Task<(long? accountId, long? vatTypeId)> ResolveAccountId(TripletexApiClient api, string accountNumber)
+    private async Task<(long? accountId, long? vatTypeId, bool vatLocked)> ResolveAccountId(TripletexApiClient api, string accountNumber)
     {
         var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
         {
             ["number"] = accountNumber,
             ["count"] = "1",
-            ["fields"] = "id,number,vatType(id)"
+            ["fields"] = "id,number,vatType(id,number)"
         });
         if (result.TryGetProperty("values", out var vals))
         {
@@ -332,16 +332,30 @@ public class VoucherHandler : ITaskHandler
             {
                 var id = v.GetProperty("id").GetInt64();
                 long? vatId = null;
+                bool locked = false;
                 if (v.TryGetProperty("vatType", out var vt) && vt.ValueKind == JsonValueKind.Object
                     && vt.TryGetProperty("id", out var vtId) && vtId.ValueKind == JsonValueKind.Number)
                 {
-                    vatId = vtId.GetInt64();
-                    if (vatId == 0) vatId = null;
+                    var rawId = vtId.GetInt64();
+                    int vatNumber = 0;
+                    if (vt.TryGetProperty("number", out var vtNum) && vtNum.ValueKind == JsonValueKind.Number)
+                        vatNumber = vtNum.GetInt32();
+                    if (vatNumber == 0)
+                    {
+                        // VAT code 0 = no VAT — account is locked to no-VAT
+                        locked = true;
+                        vatId = null;
+                    }
+                    else if (rawId > 0)
+                    {
+                        vatId = rawId;
+                        locked = true;
+                    }
                 }
-                return (id, vatId);
+                return (id, vatId, locked);
             }
         }
-        return (null, null);
+        return (null, null, false);
     }
 
     private async Task<HandlerResult> HandleSupplierInvoice(TripletexApiClient api, ExtractionResult extracted, Dictionary<string, object> voucher)
@@ -378,34 +392,47 @@ public class VoucherHandler : ITaskHandler
             }
         }
 
-        // 3. Resolve expense account (ignore its default vatType — we need input VAT)
-        var (accountId, _) = await ResolveAccountId(api, account);
+        // 3. Resolve expense account (use its locked vatType if present)
+        var (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
 
         // 4. Resolve creditor account (2400 = leverandørgjeld)
-        var (creditorId, _unused) = await ResolveAccountId(api, "2400");
+        var (creditorId, _, _) = await ResolveAccountId(api, "2400");
 
-        // 5. Resolve correct INPUT VAT type (inbound, 25% = number 1)
-        // Account defaults may return outbound VAT which is wrong for supplier invoices
-        var vatRate = GetStringField(voucher, "vatRate") ?? GetStringField(voucher, "vatPercentage");
-        var vatNumber = "1"; // Default: inbound 25%
-        if (vatRate != null)
-        {
-            if (vatRate.Contains("15")) vatNumber = "11";
-            else if (vatRate.Contains("12")) vatNumber = "13";
-        }
+        // 5. Resolve VAT type — respect account lock
         long? inputVatId = null;
-        var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
+        if (acctVatLocked && lockedVatId.HasValue)
         {
-            ["number"] = vatNumber,
-            ["count"] = "1",
-            ["fields"] = "id"
-        });
-        if (vatResult.TryGetProperty("values", out var vatVals))
+            // Account locked to a specific non-zero VAT type — use it
+            inputVatId = lockedVatId;
+        }
+        else if (acctVatLocked && !lockedVatId.HasValue)
         {
-            foreach (var vv in vatVals.EnumerateArray())
+            // Account locked to VAT code 0 (no VAT) — don't set vatType
+            inputVatId = null;
+        }
+        else
+        {
+            // No lock — look up the correct input VAT type
+            var vatRate = GetStringField(voucher, "vatRate") ?? GetStringField(voucher, "vatPercentage");
+            var vatNumber = "1"; // Default: inbound 25%
+            if (vatRate != null)
             {
-                inputVatId = vv.GetProperty("id").GetInt64();
-                break;
+                if (vatRate.Contains("15")) vatNumber = "11";
+                else if (vatRate.Contains("12")) vatNumber = "13";
+            }
+            var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
+            {
+                ["number"] = vatNumber,
+                ["count"] = "1",
+                ["fields"] = "id"
+            });
+            if (vatResult.TryGetProperty("values", out var vatVals))
+            {
+                foreach (var vv in vatVals.EnumerateArray())
+                {
+                    inputVatId = vv.GetProperty("id").GetInt64();
+                    break;
+                }
             }
         }
 

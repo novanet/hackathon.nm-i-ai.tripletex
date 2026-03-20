@@ -192,32 +192,78 @@ public class PayrollHandler : ITaskHandler
         }
 
         // Build the full transaction with inline payslip containing specifications
-        var transactionBody = new
+        var transactionBody = new Dictionary<string, object>
         {
-            date = voucherDate,
-            year,
-            month,
-            payslips = new[]
+            ["date"] = voucherDate,
+            ["year"] = year,
+            ["month"] = month,
+            ["isHistorical"] = true,
+            ["payslips"] = new[]
             {
-                new
+                new Dictionary<string, object>
                 {
-                    employee = new { id = employeeId },
-                    date = voucherDate,
-                    year,
-                    month,
-                    specifications
+                    ["employee"] = new { id = employeeId },
+                    ["date"] = voucherDate,
+                    ["year"] = year,
+                    ["month"] = month,
+                    ["specifications"] = specifications
                 }
             }
         };
 
-        var txResult = await api.PostAsync("/salary/transaction?generateTaxDeduction=true", transactionBody);
+        var txResult = await api.PostAsync("/salary/transaction?generateTaxDeduction=false", transactionBody);
         var txValue = txResult.GetProperty("value");
         var transactionId = txValue.GetProperty("id").GetInt64();
 
-        // Log response details for debugging
-        var payslipCount = txValue.TryGetProperty("payslips", out var ps) ? ps.GetArrayLength() : -1;
-        _logger.LogInformation("Created salary transaction {Id} for employee {EmpId}: base={Base}, bonus={Bonus}, payslips={PayslipCount}",
-            transactionId, employeeId, baseSalary, bonus, payslipCount);
+        _logger.LogInformation("Created salary transaction {Id}: {Response}", transactionId, txValue.ToString());
+
+        // ─── Diagnostics: Try to close/finalize the transaction (undocumented action) ───
+        string[] actions = [":close", ":approve", ":book"];
+        foreach (var action in actions)
+        {
+            try
+            {
+                await api.PutAsync($"/salary/transaction/{transactionId}/{action}", new { });
+                _logger.LogInformation("DIAG: {Action} SUCCEEDED on transaction {Id}", action, transactionId);
+                break; // If one works, stop trying
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation("DIAG: {Action} failed: {Status}", action, ex.Message.Length > 80 ? ex.Message[..80] : ex.Message);
+            }
+        }
+
+        // ─── Diagnostics: Search payslips by employee to check if they're findable ───
+        try
+        {
+            var searchPayslips = await api.GetAsync("/salary/payslip", new Dictionary<string, string>
+            {
+                ["employeeId"] = employeeId.ToString(),
+                ["count"] = "10"
+            });
+            _logger.LogInformation("DIAG: payslip search by employee: {Response}", searchPayslips.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("DIAG: payslip search failed: {Msg}", ex.Message);
+        }
+
+        // ─── Diagnostics: Check if a new voucher was created (salary accounting entries) ───
+        try
+        {
+            var vouchers = await api.GetAsync("/ledger/voucher", new Dictionary<string, string>
+            {
+                ["dateFrom"] = voucherDate,
+                ["dateTo"] = $"{year}-{month:D2}-28",
+                ["count"] = "5",
+                ["fields"] = "id,number,date,description,voucherType"
+            });
+            _logger.LogInformation("DIAG: vouchers for period: {Response}", vouchers.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("DIAG: voucher query failed: {Msg}", ex.Message);
+        }
 
         return new HandlerResult { EntityType = "salaryTransaction", EntityId = transactionId };
     }

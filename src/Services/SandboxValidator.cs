@@ -296,12 +296,20 @@ public class SandboxValidator
 
         report.Checks.Add(new ValidationCheck("invoice_found", "true", "true", true, 2));
 
-        // Check payment status
+        // Check payment status — reversal expects amountOutstanding > 0, normal payment expects 0
         if (val.TryGetProperty("amountOutstanding", out var outstanding))
         {
             var outstandingVal = outstanding.GetDecimal();
-            report.Checks.Add(new ValidationCheck("payment_registered", "0",
-                outstandingVal.ToString(), outstandingVal == 0, 3));
+            if (extracted.Action == "reverse")
+            {
+                report.Checks.Add(new ValidationCheck("payment_reversed", "> 0",
+                    outstandingVal.ToString(), outstandingVal > 0, 3));
+            }
+            else
+            {
+                report.Checks.Add(new ValidationCheck("payment_registered", "0",
+                    outstandingVal.ToString(), outstandingVal == 0, 3));
+            }
         }
     }
 

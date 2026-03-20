@@ -191,6 +191,14 @@ public class ProjectHandler : ITaskHandler
         _logger.LogInformation("Created project ID: {Id}", projectId);
         handlerResult.EntityId = projectId;
 
+        // Handle timesheet entries (log hours + generate project invoice)
+        var timesheet = extracted.Entities.GetValueOrDefault("timesheet");
+        if (timesheet != null && timesheet.Count > 0)
+        {
+            await HandleTimesheetAndInvoice(api, extracted, projectId, body, timesheet);
+            return handlerResult;
+        }
+
         // If extraction includes an invoice entity, create an invoice for the project (e.g. partial payment)
         var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice");
         if (invoiceEntity != null && invoiceEntity.Count > 0)
@@ -198,6 +206,191 @@ public class ProjectHandler : ITaskHandler
             await CreateProjectInvoice(api, extracted, projectId, body);
         }
         return handlerResult;
+    }
+
+    private async Task HandleTimesheetAndInvoice(TripletexApiClient api, ExtractionResult extracted,
+        long projectId, Dictionary<string, object> projectBody, Dictionary<string, object> timesheet)
+    {
+        // 1. Enable SMART_TIME_TRACKING module (ignore if already active)
+        try
+        {
+            var modules = await api.GetAsync("/company/salesmodules",
+                new Dictionary<string, string> { ["name"] = "SMART_TIME_TRACKING", ["count"] = "1", ["fields"] = "id" });
+            if (!modules.TryGetProperty("values", out var mv) || mv.GetArrayLength() == 0)
+            {
+                await api.PostAsync("/company/salesmodules",
+                    new { name = "SMART_TIME_TRACKING", costStartDate = DateTime.Today.ToString("yyyy-MM-dd") });
+                _logger.LogInformation("Enabled SMART_TIME_TRACKING module");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SMART_TIME_TRACKING check/activation failed");
+        }
+
+        // 2. Extract timesheet data
+        decimal hours = GetDecimalField(timesheet, "hours");
+        decimal hourlyRate = GetDecimalField(timesheet, "hourlyRate");
+        var activityName = GetStringField(timesheet, "activityName") ?? "Rådgivning";
+
+        // 3. Resolve employee (from employee entity or project manager)
+        long? employeeId = null;
+        var empEntity = extracted.Entities.GetValueOrDefault("employee");
+        if (empEntity != null)
+        {
+            var fn = GetStringField(empEntity, "firstName");
+            var ln = GetStringField(empEntity, "lastName");
+            var em = GetStringField(empEntity, "email");
+            if (fn != null)
+                employeeId = await ResolveEmployeeByFields(api, fn, ln, em);
+
+            // Create employee if not found
+            if (!employeeId.HasValue && fn != null)
+            {
+                var empBody = new Dictionary<string, object> { ["firstName"] = fn };
+                if (ln != null) empBody["lastName"] = ln;
+                if (em != null) empBody["email"] = em;
+                empBody["userType"] = "EXTENDED";
+                empBody["dateOfBirth"] = "1990-01-01";
+                var deptResult = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
+                if (deptResult.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
+                    empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+                var empResult = await api.PostAsync("/employee", empBody);
+                employeeId = empResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created employee {First} {Last} (ID: {Id})", fn, ln, employeeId);
+            }
+        }
+        // Fallback: use project manager
+        if (!employeeId.HasValue && projectBody.TryGetValue("projectManager", out var pmObj))
+        {
+            var pmJson = JsonSerializer.Serialize(pmObj);
+            using var pmDoc = JsonDocument.Parse(pmJson);
+            if (pmDoc.RootElement.TryGetProperty("id", out var pmId))
+                employeeId = pmId.GetInt64();
+        }
+        if (!employeeId.HasValue)
+            employeeId = await ResolveFirstEmployeeId(api);
+
+        // 4. Create activity + link to project in one call via projectActivity
+        long activityId = 0;
+        try
+        {
+            var paBody = new Dictionary<string, object>
+            {
+                ["project"] = new { id = projectId },
+                ["activity"] = new Dictionary<string, object>
+                {
+                    ["name"] = activityName,
+                    ["activityType"] = "PROJECT_GENERAL_ACTIVITY"
+                }
+            };
+            if (hourlyRate > 0) paBody["budgetHourlyRateCurrency"] = hourlyRate;
+            var paResult = await api.PostAsync("/project/projectActivity", paBody);
+            var paValue = paResult.GetProperty("value");
+            if (paValue.TryGetProperty("activity", out var actProp) && actProp.TryGetProperty("id", out var actIdProp))
+                activityId = actIdProp.GetInt64();
+            _logger.LogInformation("Created projectActivity with activity '{Name}' (activityId: {Id})", activityName, activityId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create projectActivity inline, trying separate creation");
+            try
+            {
+                var actResult = await api.PostAsync("/activity",
+                    new { name = activityName, activityType = "PROJECT_GENERAL_ACTIVITY" });
+                activityId = actResult.GetProperty("value").GetProperty("id").GetInt64();
+                await api.PostAsync("/project/projectActivity", new { project = new { id = projectId }, activity = new { id = activityId } });
+            }
+            catch
+            {
+                var existing = await api.GetAsync("/activity",
+                    new Dictionary<string, string> { ["name"] = activityName, ["count"] = "1", ["fields"] = "id" });
+                if (existing.TryGetProperty("values", out var actVals) && actVals.GetArrayLength() > 0)
+                    activityId = actVals[0].GetProperty("id").GetInt64();
+            }
+        }
+
+        // 6. Create timesheet entry
+        if (hours > 0 && activityId > 0 && employeeId.HasValue)
+        {
+            try
+            {
+                await api.PostAsync("/timesheet/entry", new
+                {
+                    project = new { id = projectId },
+                    activity = new { id = activityId },
+                    employee = new { id = employeeId.Value },
+                    date = DateTime.Today.ToString("yyyy-MM-dd"),
+                    hours
+                });
+                _logger.LogInformation("Logged {Hours} hours for employee {EmpId} on project {ProjId}", hours, employeeId.Value, projectId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create timesheet entry");
+            }
+        }
+
+        // 7. Create invoice based on hours × hourly rate
+        decimal invoiceAmount = hours * hourlyRate;
+        if (invoiceAmount > 0)
+        {
+            long? customerId = null;
+            if (projectBody.TryGetValue("customer", out var custObj))
+            {
+                var json = JsonSerializer.Serialize(custObj);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("id", out var idProp))
+                    customerId = idProp.GetInt64();
+            }
+            if (customerId.HasValue)
+            {
+                var bankTask = EnsureBankAccount(api);
+                var vatTask = ResolveVatTypeId(api);
+                await Task.WhenAll(bankTask, vatTask);
+                var vatTypeId = vatTask.Result;
+
+                var invoiceDate = DateTime.Today.ToString("yyyy-MM-dd");
+                var orderResult = await api.PostAsync("/order", new
+                {
+                    customer = new { id = customerId.Value },
+                    orderDate = invoiceDate,
+                    deliveryDate = invoiceDate,
+                    orderLines = new[]
+                    {
+                        new Dictionary<string, object>
+                        {
+                            ["description"] = $"{activityName} - {hours}t × {hourlyRate} NOK/t",
+                            ["count"] = hours,
+                            ["unitPriceExcludingVatCurrency"] = hourlyRate,
+                            ["vatType"] = new { id = vatTypeId }
+                        }
+                    }
+                });
+                var orderId = orderResult.GetProperty("value").GetProperty("id").GetInt64();
+
+                var invoiceResult = await api.PostAsync("/invoice", new
+                {
+                    invoiceDate,
+                    invoiceDueDate = DateTime.Today.AddDays(30).ToString("yyyy-MM-dd"),
+                    orders = new[] { new { id = orderId } }
+                });
+                var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created project invoice ID: {Id}, amount: {Amount} NOK excl. VAT", invoiceId, invoiceAmount);
+            }
+        }
+    }
+
+    private static decimal GetDecimalField(Dictionary<string, object> dict, string key)
+    {
+        if (dict.TryGetValue(key, out var val) && val is not null)
+        {
+            if (val is JsonElement je && je.ValueKind == JsonValueKind.Number)
+                return je.GetDecimal();
+            if (decimal.TryParse(val.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                return parsed;
+        }
+        return 0m;
     }
 
     private async Task CreateProjectInvoice(TripletexApiClient api, ExtractionResult extracted, long projectId, Dictionary<string, object> projectBody)
