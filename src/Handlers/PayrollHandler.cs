@@ -78,10 +78,18 @@ public class PayrollHandler : ITaskHandler
             {
                 ["firstName"] = firstName ?? "Unknown",
                 ["lastName"] = lastName ?? "Unknown",
-                ["userType"] = "STANDARD",
                 ["dateOfBirth"] = "1990-01-01"
             };
-            if (!string.IsNullOrEmpty(email)) empBody["email"] = email;
+            // Use NO_ACCESS unless email is available (STANDARD/EXTENDED require email)
+            if (!string.IsNullOrEmpty(email))
+            {
+                empBody["email"] = email;
+                empBody["userType"] = "STANDARD";
+            }
+            else
+            {
+                empBody["userType"] = "NO_ACCESS";
+            }
             if (deptId != null) empBody["department"] = new { id = deptId.Value };
 
             var createResult = await api.PostAsync("/employee", empBody);
