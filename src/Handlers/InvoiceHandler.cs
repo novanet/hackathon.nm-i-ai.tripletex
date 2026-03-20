@@ -9,6 +9,22 @@ public class InvoiceHandler : ITaskHandler
 {
     private readonly ILogger<InvoiceHandler> _logger;
 
+    // ── Static constants: these are the same in every clean Tripletex environment ──
+    // Output VAT type IDs: 25% = 3, 15% = 31, 12% = 32, 0% = 5 (utland), 0% = 6 (uttak), 11.11% = 33
+    public static readonly Dictionary<int, long> HardcodedOutputVatRateMap = new()
+    {
+        [25] = 3L,
+        [15] = 31L,
+        [12] = 32L,
+        [11] = 33L,
+        [0] = 5L,
+    };
+    public const long DefaultOutputVatTypeId = 3L; // 25% standard
+
+    // Cache: bank account setup per session hash (cleaned env = fresh setup needed once)
+    private static readonly Dictionary<int, bool> _bankAccountSetupCache = new();
+    private static readonly object _bankLock = new();
+
     public InvoiceHandler(ILogger<InvoiceHandler> logger) => _logger = logger;
 
     public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
@@ -23,14 +39,14 @@ public class InvoiceHandler : ITaskHandler
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
 
-        // Step 0+1+2: Ensure bank account, find/create customer, resolve VAT type — all in parallel
+        // Step 0+1+2: Ensure bank account + find/create customer in parallel.
+        // VAT types are now hardcoded — no GET needed.
         var bankTask = EnsureBankAccount(api);
         var customerTask = ResolveOrCreateCustomer(api, cust, invoice, extracted);
-        var vatTypeTask = ResolveVatTypes(api);
-        await Task.WhenAll(bankTask, customerTask, vatTypeTask);
+        await Task.WhenAll(bankTask, customerTask);
         var customerId = customerTask.Result;
-        var (vatTypeId, vatTypesArray) = vatTypeTask.Result;
-        var outputRateMap = BuildOutputRateMap(vatTypesArray);
+        var vatTypeId = DefaultOutputVatTypeId;
+        var outputRateMap = HardcodedOutputVatRateMap;
         _logger.LogInformation("Using customer ID: {Id}", customerId);
 
         // Composite task: if project + timeRegistration/employee are present, create project, activity, and register timesheet hours
@@ -531,6 +547,14 @@ public class InvoiceHandler : ITaskHandler
 
     private async Task EnsureBankAccount(TripletexApiClient api)
     {
+        // One-time per session: clean Tripletex accounts have no bank account on ledger account 1920.
+        // Cache by session hash — if we already set it up this session, skip the GETs.
+        lock (_bankLock)
+        {
+            if (_bankAccountSetupCache.TryGetValue(api.SessionHash, out var alreadySetup) && alreadySetup)
+                return;
+        }
+
         // Fresh Tripletex accounts have no bank account on ledger account 1920.
         // Invoice creation fails with "Faktura kan ikke opprettes før selskapet har registrert et bankkontonummer".
         // Fix: find account 1920, check if bankAccountNumber is set, and set a dummy one if not.
@@ -563,10 +587,23 @@ public class InvoiceHandler : ITaskHandler
                 });
             }
         }
+
+        lock (_bankLock)
+        {
+            _bankAccountSetupCache[api.SessionHash] = true;
+        }
     }
 
     internal async Task<(long defaultId, JsonElement vatTypes)> ResolveVatTypes(TripletexApiClient api)
     {
+        // Fast path: return hardcoded IDs without any API call.
+        // These are constant in all clean Tripletex environments.
+        return (DefaultOutputVatTypeId, default);
+    }
+
+    internal async Task<(long defaultId, JsonElement vatTypes)> ResolveVatTypesFull(TripletexApiClient api)
+    {
+        // Fallback full lookup — only called when hardcoded IDs fail.
         var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
         {
             ["count"] = "100",

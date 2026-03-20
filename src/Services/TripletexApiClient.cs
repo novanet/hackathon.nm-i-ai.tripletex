@@ -26,11 +26,14 @@ public class TripletexApiClient
     public int CallCount => _callCount;
     public int ErrorCount => _errorCount;
     public IReadOnlyList<ApiCallEntry> CallLog => _callLog;
+    private readonly int _sessionHash;
+    public int SessionHash => _sessionHash;
 
     public TripletexApiClient(string baseUrl, string sessionToken, ILogger<TripletexApiClient> logger)
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _logger = logger;
+        _sessionHash = sessionToken.GetHashCode();
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
         var authBytes = Encoding.ASCII.GetBytes($"0:{sessionToken}");
         _http.DefaultRequestHeaders.Authorization =

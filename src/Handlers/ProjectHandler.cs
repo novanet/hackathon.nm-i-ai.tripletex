@@ -272,41 +272,65 @@ public class ProjectHandler : ITaskHandler
         if (!employeeId.HasValue)
             employeeId = await ResolveFirstEmployeeId(api);
 
-        // 4. Create activity + link to project in one call via projectActivity
+        // 4. Resolve or create activity, then link to project via projectActivity
         long activityId = 0;
-        try
+
+        // Always search for existing activity first to avoid wasted error calls
+        var existingActSearch = await api.GetAsync("/activity",
+            new Dictionary<string, string> { ["name"] = activityName, ["count"] = "1", ["fields"] = "id" });
+        long existingActId = 0;
+        if (existingActSearch.TryGetProperty("values", out var existingActVals) && existingActVals.GetArrayLength() > 0)
+            existingActId = existingActVals[0].GetProperty("id").GetInt64();
+
+        if (existingActId > 0)
         {
-            var paBody = new Dictionary<string, object>
-            {
-                ["project"] = new { id = projectId },
-                ["activity"] = new Dictionary<string, object>
-                {
-                    ["name"] = activityName,
-                    ["activityType"] = "PROJECT_GENERAL_ACTIVITY"
-                }
-            };
-            if (hourlyRate > 0) paBody["budgetHourlyRateCurrency"] = hourlyRate;
-            var paResult = await api.PostAsync("/project/projectActivity", paBody);
-            var paValue = paResult.GetProperty("value");
-            if (paValue.TryGetProperty("activity", out var actProp) && actProp.TryGetProperty("id", out var actIdProp))
-                activityId = actIdProp.GetInt64();
-            _logger.LogInformation("Created projectActivity with activity '{Name}' (activityId: {Id})", activityName, activityId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to create projectActivity inline, trying separate creation");
+            // Activity exists — link it to the project
+            _logger.LogInformation("Activity '{Name}' already exists (id={Id}), linking to project", activityName, existingActId);
             try
             {
-                var actResult = await api.PostAsync("/activity",
-                    new { name = activityName, activityType = "PROJECT_GENERAL_ACTIVITY" });
-                activityId = actResult.GetProperty("value").GetProperty("id").GetInt64();
-                await api.PostAsync("/project/projectActivity", new { project = new { id = projectId }, activity = new { id = activityId } });
+                var paLinkBody = new Dictionary<string, object>
+                {
+                    ["project"] = new { id = projectId },
+                    ["activity"] = new { id = existingActId }
+                };
+                if (hourlyRate > 0) paLinkBody["budgetHourlyRateCurrency"] = hourlyRate;
+                await api.PostAsync("/project/projectActivity", paLinkBody);
+                _logger.LogInformation("Linked existing activity {Id} to project {ProjId}", existingActId, projectId);
             }
-            catch
+            catch (Exception ex)
             {
-                var existing = await api.GetAsync("/activity",
+                _logger.LogWarning(ex, "Failed to link existing activity {Id} to project {ProjId} (may already be linked)", existingActId, projectId);
+            }
+            activityId = existingActId;
+        }
+        else
+        {
+            // Activity doesn't exist — create it inline with the project link
+            try
+            {
+                var paBody = new Dictionary<string, object>
+                {
+                    ["project"] = new { id = projectId },
+                    ["activity"] = new Dictionary<string, object>
+                    {
+                        ["name"] = activityName,
+                        ["activityType"] = "PROJECT_GENERAL_ACTIVITY"
+                    }
+                };
+                if (hourlyRate > 0) paBody["budgetHourlyRateCurrency"] = hourlyRate;
+                var paResult = await api.PostAsync("/project/projectActivity", paBody);
+                var paValue = paResult.GetProperty("value");
+                if (paValue.TryGetProperty("activity", out var actProp) && actProp.TryGetProperty("id", out var actIdProp))
+                    activityId = actIdProp.GetInt64();
+                _logger.LogInformation("Created projectActivity with activity '{Name}' (activityId: {Id})", activityName, activityId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create projectActivity inline");
+                // Should be very rare since we searched first, but handle gracefully
+                var retrySearch = await api.GetAsync("/activity",
                     new Dictionary<string, string> { ["name"] = activityName, ["count"] = "1", ["fields"] = "id" });
-                if (existing.TryGetProperty("values", out var actVals) && actVals.GetArrayLength() > 0)
+                if (retrySearch.TryGetProperty("values", out var actVals) && actVals.GetArrayLength() > 0)
                     activityId = actVals[0].GetProperty("id").GetInt64();
             }
         }
@@ -346,15 +370,13 @@ public class ProjectHandler : ITaskHandler
             }
             if (customerId.HasValue)
             {
-                var bankTask = EnsureBankAccount(api);
-                var vatTask = ResolveVatTypeId(api);
-                await Task.WhenAll(bankTask, vatTask);
-                var vatTypeId = vatTask.Result;
+                await EnsureBankAccount(api);
 
                 var invoiceDate = DateTime.Today.ToString("yyyy-MM-dd");
                 var orderResult = await api.PostAsync("/order", new
                 {
                     customer = new { id = customerId.Value },
+                    project = new { id = projectId },
                     orderDate = invoiceDate,
                     deliveryDate = invoiceDate,
                     orderLines = new[]
@@ -363,8 +385,7 @@ public class ProjectHandler : ITaskHandler
                         {
                             ["description"] = $"{activityName} - {hours}t × {hourlyRate} NOK/t",
                             ["count"] = hours,
-                            ["unitPriceExcludingVatCurrency"] = hourlyRate,
-                            ["vatType"] = new { id = vatTypeId }
+                            ["unitPriceExcludingVatCurrency"] = hourlyRate
                         }
                     }
                 });

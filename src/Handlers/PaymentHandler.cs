@@ -10,6 +10,10 @@ public class PaymentHandler : ITaskHandler
     private readonly InvoiceHandler _invoiceHandler;
     private readonly ILogger<PaymentHandler> _logger;
 
+    // Cache payment type IDs per session hash (constant per clean environment)
+    private static readonly Dictionary<int, long> _paymentTypeCache = new();
+    private static readonly object _paymentTypeLock = new();
+
     public PaymentHandler(InvoiceHandler invoiceHandler, ILogger<PaymentHandler> logger)
     {
         _invoiceHandler = invoiceHandler;
@@ -44,12 +48,13 @@ public class PaymentHandler : ITaskHandler
     /// <summary>Full chain: Customer → Order → Invoice → Payment (original path)</summary>
     private async Task<HandlerResult> HandleFullChainPaymentAsync(TripletexApiClient api, ExtractionResult extracted)
     {
+        // Fetch payment type concurrently while creating the invoice chain
         var paymentTypeTask = ResolvePaymentTypeId(api);
-        var (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
+        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
         var paymentTypeId = await paymentTypeTask;
 
-        // Always use amountOutstanding from GET — it's the VAT-inclusive balance
-        var paidAmount = await GetAmountOutstanding(api, invoiceId);
+        // Use amount from invoice POST response if available; otherwise do the extra GET
+        var paidAmount = invoiceAmount > 0 ? invoiceAmount : await GetAmountOutstanding(api, invoiceId);
 
         var paymentDate = ResolvePaymentDate(extracted);
         await RegisterPayment(api, invoiceId, paymentTypeId, paidAmount, paymentDate);
@@ -200,11 +205,11 @@ public class PaymentHandler : ITaskHandler
     private async Task<HandlerResult> HandleFullChainThenReverseAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var paymentTypeTask = ResolvePaymentTypeId(api);
-        var (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
+        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted);
         var paymentTypeId = await paymentTypeTask;
 
-        // Pay the invoice fully
-        var amount = await GetAmountOutstanding(api, invoiceId);
+        // Use amount from invoice POST response if available
+        var amount = invoiceAmount > 0 ? invoiceAmount : await GetAmountOutstanding(api, invoiceId);
         var paymentDate = ResolvePaymentDate(extracted);
         await RegisterPayment(api, invoiceId, paymentTypeId, amount, paymentDate);
         _logger.LogInformation("Paid invoice {Id} amount={Amount} — now reversing", invoiceId, amount);
@@ -369,12 +374,20 @@ public class PaymentHandler : ITaskHandler
 
     private async Task<long> ResolvePaymentTypeId(TripletexApiClient api)
     {
+        // Check cache first — same payment types per Tripletex session
+        lock (_paymentTypeLock)
+        {
+            if (_paymentTypeCache.TryGetValue(api.SessionHash, out var cached))
+                return cached;
+        }
+
         var result = await api.GetAsync("/invoice/paymentType", new Dictionary<string, string>
         {
             ["count"] = "100",
             ["fields"] = "id,description"
         });
 
+        long typeId = 1;
         if (result.TryGetProperty("values", out var types))
         {
             // Prefer bank transfer
@@ -384,15 +397,28 @@ public class PaymentHandler : ITaskHandler
                 {
                     var d = desc.GetString()?.ToLowerInvariant() ?? "";
                     if (d.Contains("bank") || d.Contains("overf"))
-                        return t.GetProperty("id").GetInt64();
+                    {
+                        typeId = t.GetProperty("id").GetInt64();
+                        break;
+                    }
                 }
             }
             // Fallback: first one
-            foreach (var t in types.EnumerateArray())
-                return t.GetProperty("id").GetInt64();
+            if (typeId == 1)
+            {
+                foreach (var t in types.EnumerateArray())
+                {
+                    typeId = t.GetProperty("id").GetInt64();
+                    break;
+                }
+            }
         }
 
-        return 1;
+        lock (_paymentTypeLock)
+        {
+            _paymentTypeCache[api.SessionHash] = typeId;
+        }
+        return typeId;
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)

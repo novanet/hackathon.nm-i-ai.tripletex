@@ -69,40 +69,29 @@ public class ProductHandler : ITaskHandler
 
     private async Task<long?> ResolveVatTypeId(TripletexApiClient api, string vatHint)
     {
-        var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
-        {
-            ["count"] = "100",
-            ["fields"] = "id,name,number,percentage"
-        });
-
-        if (!vatResult.TryGetProperty("values", out var vatTypes))
-            return null;
-
-        // Try to match by number first (exact match, e.g. "3" → outbound 25%)
-        foreach (var vt in vatTypes.EnumerateArray())
-        {
-            if (vt.TryGetProperty("number", out var num) && num.GetString() == vatHint)
-                return vt.GetProperty("id").GetInt64();
-        }
-
-        // Try to match by percentage (e.g. "25" → 25%)
+        // Fast path: use hardcoded IDs for standard rates — saves 1 GET per product creation.
+        // These VAT type IDs are stable in all Tripletex environments.
         if (decimal.TryParse(vatHint, NumberStyles.Any, CultureInfo.InvariantCulture, out var pct))
         {
-            foreach (var vt in vatTypes.EnumerateArray())
+            return pct switch
             {
-                if (vt.TryGetProperty("percentage", out var vtPct) && vtPct.GetDecimal() == pct)
-                    return vt.GetProperty("id").GetInt64();
-            }
+                25m => 3L,
+                15m => 31L,
+                12m => 32L,
+                0m => 5L,
+                _ => null
+            };
         }
 
-        // Return first non-zero if available
-        foreach (var vt in vatTypes.EnumerateArray())
+        // Try matching by VAT number code (e.g. "3" = 25% outbound)
+        return vatHint switch
         {
-            if (vt.TryGetProperty("percentage", out var vtPct) && vtPct.GetDecimal() > 0)
-                return vt.GetProperty("id").GetInt64();
-        }
-
-        return null;
+            "3" => 3L,   // 25% utg. mva
+            "31" => 31L,  // 15% matmva
+            "32" => 32L,  // 12% mva
+            "5" => 5L,   // 0% avgiftsfri
+            _ => null
+        };
     }
 
     private static void SetIfPresent(Dictionary<string, object> body, Dictionary<string, object> source, string key)

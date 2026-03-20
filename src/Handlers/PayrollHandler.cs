@@ -126,36 +126,54 @@ public class PayrollHandler : ITaskHandler
 
         if (salaryTypesResult.TryGetProperty("values", out var salaryTypes))
         {
+            // Pass 1: Exact number match (priority) — #2000 = Fastlønn, #1350 = Bonus
             foreach (var st in salaryTypes.EnumerateArray())
             {
                 var number = st.TryGetProperty("number", out var numProp) ? numProp.GetString() : "";
-                var name = st.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : "";
-
-                // Salary type number "1000" or name containing "Fastlønn"/"Fast lønn" = base salary
-                if (number == "1000" || (name != null && (name.Contains("Fastlønn", StringComparison.OrdinalIgnoreCase)
-                    || name.Contains("Fast lønn", StringComparison.OrdinalIgnoreCase)
-                    || name.Contains("Månedslønn", StringComparison.OrdinalIgnoreCase))))
-                {
+                if (number == "2000" && baseSalaryTypeId == null)
                     baseSalaryTypeId = st.GetProperty("id").GetInt64();
-                }
-
-                // Salary type number "1350" or name containing "Bonus" = bonus
-                if (number == "1350" || (name != null && name.Contains("Bonus", StringComparison.OrdinalIgnoreCase)))
-                {
+                if (number == "1350" && bonusTypeId == null)
                     bonusTypeId = st.GetProperty("id").GetInt64();
+            }
+
+            // Pass 2: Name-based fallback if exact number not found
+            if (baseSalaryTypeId == null)
+            {
+                foreach (var st in salaryTypes.EnumerateArray())
+                {
+                    var name = st.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : "";
+                    if (name != null && (name.Contains("Fastlønn", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("Fast lønn", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("Månedslønn", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        baseSalaryTypeId = st.GetProperty("id").GetInt64();
+                        break;
+                    }
                 }
             }
 
-            // Fallback: if no bonus type found, try broader search in 1300-range
             if (bonusTypeId == null && bonus > 0)
             {
                 foreach (var st in salaryTypes.EnumerateArray())
                 {
-                    var number = st.TryGetProperty("number", out var numProp) ? numProp.GetString() : "";
-                    if (number != null && number.StartsWith("13"))
+                    var name = st.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : "";
+                    if (name != null && name.Contains("Bonus", StringComparison.OrdinalIgnoreCase))
                     {
                         bonusTypeId = st.GetProperty("id").GetInt64();
                         break;
+                    }
+                }
+                // Last resort: any type in 1300-range
+                if (bonusTypeId == null)
+                {
+                    foreach (var st in salaryTypes.EnumerateArray())
+                    {
+                        var number = st.TryGetProperty("number", out var numProp) ? numProp.GetString() : "";
+                        if (number != null && number.StartsWith("13"))
+                        {
+                            bonusTypeId = st.GetProperty("id").GetInt64();
+                            break;
+                        }
                     }
                 }
             }
@@ -218,6 +236,54 @@ public class PayrollHandler : ITaskHandler
             transactionId, baseSalary, bonus, baseSalaryTypeId, bonusTypeId, month, year);
         _logger.LogInformation("Transaction response: {Response}", txValue.ToString());
 
+        // ALSO create a voucher on 5000-series accounts as fallback
+        // The competition prompt explicitly suggests this: "bruke manuelle bilag på lønnskontoer (5000-serien)"
+        long? voucherId = null;
+        try
+        {
+            var totalAmount = baseSalary + bonus;
+            var employeeName = $"{firstName} {lastName}".Trim();
+
+            // Resolve salary expense account (5000) and bank account (1920)
+            var acct5000 = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+            { ["number"] = "5000", ["count"] = "1", ["fields"] = "id" });
+            var acct1920 = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+            { ["number"] = "1920", ["count"] = "1", ["fields"] = "id" });
+
+            long? salaryAccountId = null, bankAccountId = null;
+            if (acct5000.TryGetProperty("values", out var a5) && a5.GetArrayLength() > 0)
+                salaryAccountId = a5[0].GetProperty("id").GetInt64();
+            if (acct1920.TryGetProperty("values", out var a19) && a19.GetArrayLength() > 0)
+                bankAccountId = a19[0].GetProperty("id").GetInt64();
+
+            if (salaryAccountId != null && bankAccountId != null)
+            {
+                var voucherBody = new
+                {
+                    date = voucherDate,
+                    description = $"Lønn {employeeName} {month:D2}/{year}",
+                    postings = new object[]
+                    {
+                        new { date = voucherDate, description = $"Lønn {employeeName}", account = new { id = salaryAccountId.Value }, amountGross = totalAmount, amountGrossCurrency = totalAmount, row = 1 },
+                        new { date = voucherDate, description = $"Lønn {employeeName}", account = new { id = bankAccountId.Value }, amountGross = -totalAmount, amountGrossCurrency = -totalAmount, row = 2 }
+                    }
+                };
+
+                var voucherResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+                voucherId = voucherResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created payroll voucher {VoucherId} on 5000-series for {Amount} ({Employee})",
+                    voucherId, totalAmount, employeeName);
+            }
+            else
+            {
+                _logger.LogWarning("Could not resolve accounts 5000/1920 for payroll voucher");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create payroll voucher fallback — salary transaction still created");
+        }
+
         return new HandlerResult
         {
             EntityType = "salaryTransaction",
@@ -232,6 +298,7 @@ public class PayrollHandler : ITaskHandler
                 ["employeeId"] = employeeId.ToString(),
                 ["month"] = month.ToString(),
                 ["year"] = year.ToString(),
+                ["voucherId"] = voucherId?.ToString() ?? "null",
                 ["transactionResponse"] = txValue.ToString()
             }
         };

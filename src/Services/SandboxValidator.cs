@@ -512,9 +512,12 @@ public class SandboxValidator
                     {
                         hasEmployee = true;
                     }
-                    // Sum up gross amount across payslips
-                    if (ps.TryGetProperty("amount", out var amountProp))
-                        totalAmount += amountProp.ValueKind == JsonValueKind.Number ? amountProp.GetDecimal() : 0;
+                    // Sum up GROSS amount (grossAmount = before tax, amount = net after tax deduction)
+                    // Competition checks gross salary, not net
+                    if (ps.TryGetProperty("grossAmount", out var grossAmountProp) && grossAmountProp.ValueKind == JsonValueKind.Number)
+                        totalAmount += grossAmountProp.GetDecimal();
+                    else if (ps.TryGetProperty("amount", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number)
+                        totalAmount += amountProp.GetDecimal();
                 }
             }
 

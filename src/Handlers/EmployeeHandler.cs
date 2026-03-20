@@ -54,7 +54,8 @@ public class EmployeeHandler : ITaskHandler
 
         body["userType"] = needsAdmin ? "EXTENDED" : "STANDARD";
 
-        // Handle department — required by Tripletex API
+        // Handle department — NOT required by Tripletex API; only set when explicitly specified.
+        // Skipping the fallback "GET first dept" saves 1 API call in competition environments.
         long? deptId = null;
         if (extracted.Relationships.TryGetValue("department", out var deptName) && !string.IsNullOrEmpty(deptName))
         {
@@ -67,20 +68,6 @@ public class EmployeeHandler : ITaskHandler
             if (deptResult.TryGetProperty("values", out var depts) && depts.GetArrayLength() > 0)
             {
                 deptId = depts[0].GetProperty("id").GetInt64();
-            }
-        }
-
-        // Fallback: department.id is required, use first available
-        if (deptId == null)
-        {
-            var allDepts = await api.GetAsync("/department", new Dictionary<string, string>
-            {
-                ["count"] = "1",
-                ["fields"] = "id"
-            });
-            if (allDepts.TryGetProperty("values", out var defaultDepts) && defaultDepts.GetArrayLength() > 0)
-            {
-                deptId = defaultDepts[0].GetProperty("id").GetInt64();
             }
         }
 

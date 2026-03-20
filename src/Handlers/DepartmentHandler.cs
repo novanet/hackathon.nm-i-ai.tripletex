@@ -68,30 +68,6 @@ public class DepartmentHandler : ITaskHandler
         }
 
         var deptNumber = 1;
-        var existingNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var existingNumbers = new HashSet<int>();
-
-        // Always query existing departments to avoid number collisions (each 4xx hurts efficiency score)
-        try
-        {
-            var existing = await api.GetAsync("/department", new Dictionary<string, string>
-            {
-                ["from"] = "0",
-                ["count"] = "1000",
-                ["fields"] = "departmentNumber,name"
-            });
-            if (existing.TryGetProperty("values", out var vals))
-            {
-                foreach (var d in vals.EnumerateArray())
-                {
-                    if (d.TryGetProperty("departmentNumber", out var dn) && dn.TryGetInt32(out var n))
-                        existingNumbers.Add(n);
-                    if (d.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String)
-                        existingNames.Add(nm.GetString()!);
-                }
-            }
-        }
-        catch { /* fallback */ }
 
         if (dept.TryGetValue("departmentNumber", out var dnVal) && dnVal is not null)
         {
@@ -99,43 +75,44 @@ public class DepartmentHandler : ITaskHandler
             int.TryParse(dnStr, out deptNumber);
         }
 
-        // Find first available number at or above deptNumber
-        while (existingNumbers.Contains(deptNumber))
-            deptNumber++;
+        // Optimistic approach: try POST directly without pre-fetching existing departments.
+        // In clean competition environments there are no existing departments, so collisions are very rare.
+        // If it fails with a number collision, increment and retry (saves 1 GET in the common case).
+        var usedNumbers = new HashSet<int>();
 
         foreach (var name in names)
         {
-            // Skip if department with this name already exists
-            if (existingNames.Contains(name))
-            {
-                _logger.LogInformation("Department '{Name}' already exists, skipping", name);
-                continue;
-            }
-
             var body = new Dictionary<string, object> { ["name"] = name };
             if (managerRef is not null)
                 body["departmentManager"] = managerRef;
 
-            // Try creating with auto-assigned number, retry on collision (pre-query handles known numbers)
-            for (var attempt = 0; attempt < 3; attempt++)
+            // Find next unoccupied number
+            while (usedNumbers.Contains(deptNumber))
+                deptNumber++;
+
+            for (var attempt = 0; attempt < 5; attempt++)
             {
-                body["departmentNumber"] = deptNumber++;
+                body["departmentNumber"] = deptNumber;
                 try
                 {
-                    _logger.LogInformation("Creating department: {Name} (number {Num})", name, (int)body["departmentNumber"]);
+                    _logger.LogInformation("Creating department: {Name} (number {Num})", name, deptNumber);
                     var result = await api.PostAsync("/department", body);
                     var deptId = result.GetProperty("value").GetProperty("id").GetInt64();
                     _logger.LogInformation("Created department ID: {Id}", deptId);
+                    usedNumbers.Add(deptNumber);
+                    deptNumber++;
                     if (handlerResult.EntityId == null)
                         handlerResult.EntityId = deptId;
                     else
                         handlerResult.AdditionalEntityIds.Add(deptId);
                     break;
                 }
-                catch (TripletexApiException ex) when (ex.Message.Contains("Nummeret er i bruk"))
+                catch (TripletexApiException ex) when (ex.Message.Contains("Nummeret er i bruk") || ex.Message.Contains("nummer") || ex.Message.Contains("duplicate"))
                 {
-                    _logger.LogWarning("Department number {Num} in use, trying next", (int)body["departmentNumber"]);
-                    if (attempt == 2) throw;
+                    _logger.LogWarning("Department number {Num} in use, trying next", deptNumber);
+                    deptNumber++;
+                    body["departmentNumber"] = deptNumber;
+                    if (attempt == 4) throw;
                 }
             }
         }
