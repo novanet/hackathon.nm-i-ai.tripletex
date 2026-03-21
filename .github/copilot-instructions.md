@@ -188,6 +188,62 @@ If no matching directory is found (e.g. timestamp drift > 2s), skip file attachm
 
 `SandboxValidator.cs` is our local mirror of the competition validator. It runs after every local `Test-Solve.ps1` call and logs scores to `logs/validations.jsonl`. **The sole purpose is to predict competition scores accurately so we know when a fix is real before spending a submission.**
 
+## Logging & Diagnostics
+
+### Log Files — What Each Contains
+
+| File                     | Written by                      | Contains                                                                                                                |
+| ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `logs/submissions.jsonl` | C# agent (competition requests) | One JSONL entry per `/solve` call: prompt, extraction, api_calls, handler result, run_id, task_index                    |
+| `logs/sandbox.jsonl`     | C# agent (local sandbox tests)  | Same schema as submissions.jsonl, used for local `Test-Solve.ps1` runs                                                  |
+| `logs/results.jsonl`     | `Submit-Run.ps1`                | Per-submission results: competition score, checks passed/failed, full task details with prompt + extraction + api_calls |
+| `logs/leaderboard.jsonl` | `Submit-Run.ps1`                | Per-submission leaderboard snapshot: total best score, score deltas, attempted tasks with correlation                   |
+| `logs/validations.jsonl` | C# agent (sandbox validator)    | Per-task local validation: check field/expected/actual/passed/points                                                    |
+
+### run_id — How Tasks Are Grouped
+
+Every `/solve` call logs a `run_id` = first 8 hex chars of `SHA256(session_token)`. All 30 tasks in a competition run share the same session_token, so they share the same `run_id`. Each task also gets a sequential `task_index` (1, 2, 3...) within the run. Use `run_id` to:
+
+- Group all tasks belonging to a single competition submission
+- Correlate `submissions.jsonl` entries with `results.jsonl` and `leaderboard.jsonl`
+- Filter `Analyze-Run.ps1` output
+
+### Analyzing a Run
+
+```powershell
+# Analyze the latest run (auto-detects run_id from last entry)
+.\scripts\Analyze-Run.ps1
+
+# Analyze a specific run_id
+.\scripts\Analyze-Run.ps1 -RunId "a1b2c3d4"
+
+# Analyze by competition submission_id
+.\scripts\Analyze-Run.ps1 -SubmissionId "sub_abc123"
+
+# Show full details (prompts, LLM extraction, API calls)
+.\scripts\Analyze-Run.ps1 -ShowPrompt -ShowExtraction -ShowApiCalls
+
+# Analyze sandbox runs
+.\scripts\Analyze-Run.ps1 -Sandbox -Last 5
+```
+
+The script answers all diagnostic questions:
+
+1. **Which prompt was run?** → `-ShowPrompt` flag, or look at `prompt` field in entries
+2. **What ExtractionResult did the LLM produce?** → `-ShowExtraction` flag, or `extraction` field
+3. **Which Tripletex API requests/responses?** → `-ShowApiCalls` flag shows method, path, status, request body, response snippet. Error responses include up to 2000 chars.
+4. **How many tasks passed or failed?** → Summary header shows succeeded/failed counts
+5. **What checks passed or failed?** → Competition checks section with ✓/✗ marks
+
+### Answering "Why did task X fail?"
+
+1. Run `.\scripts\Analyze-Run.ps1 -ShowApiCalls -ShowExtraction`
+2. Find the task by type or index
+3. Check: Was extraction correct? (task_type, entities, relationships)
+4. Check: Did any API call return 4xx? (red-highlighted in output)
+5. Check: Was the response error message clear? (shown under failed calls)
+6. Cross-reference with competition checks in the Competition Result section
+
 ### Process — After Every Competition Submission
 
 1. **Compare scores**: For each task type in the submission replay, compare `local_score / local_max` vs `competition_score / competition_max`.
@@ -221,6 +277,7 @@ Start-Tunnel.ps1 — Start ngrok HTTPS tunnel
 Start-Cloudflared.ps1 — Start cloudflare quick tunnel (supports -Kill)
 Test-Solve.ps1 — Send test prompt to agent, tail logs
 Submit-Run.ps1 — Full submission flow: auto-start, submit, poll, replay
+Analyze-Run.ps1 — Analyze a run: prompts, extraction, API calls, checks (see Logging & Diagnostics)
 src/
 Program.cs — Minimal API setup, /solve endpoint, ping fast-path
 Models/

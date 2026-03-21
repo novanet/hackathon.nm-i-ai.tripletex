@@ -270,23 +270,38 @@ if ($finalState -and $mySub) {
             }
         }
 
-        # Read task summaries from new submissions.jsonl entries
+        # Read FULL task entries from new submissions.jsonl entries (not just summaries)
         $taskSummaries = @()
+        $derivedRunId = $null
         if (Test-Path $submissionsFile) {
-            $currentLines = Get-Content $submissionsFile
+            $currentLines = Get-Content $submissionsFile -Encoding UTF8
             $newTaskLines = $currentLines | Select-Object -Skip $preLineCount
             foreach ($tl in $newTaskLines) {
                 try {
                     $te = $tl | ConvertFrom-Json
                     if ($te.prompt -eq "ping") { continue }
+
+                    # Capture run_id from first non-ping entry
+                    if (-not $derivedRunId -and $te.run_id) {
+                        $derivedRunId = $te.run_id
+                    }
+
                     $taskSummaries += @{
-                        task_type   = $te.task_type
-                        handler     = $te.handler
-                        success     = $te.success
-                        error       = $te.error
-                        call_count  = $te.call_count
-                        error_count = $te.error_count
-                        elapsed_ms  = $te.elapsed_ms
+                        task_type        = $te.task_type
+                        task_index       = $te.task_index
+                        run_id           = $te.run_id
+                        handler          = $te.handler
+                        prompt           = $te.prompt
+                        extraction       = $te.extraction
+                        success          = $te.success
+                        error            = $te.error
+                        entity_id        = $te.entity_id
+                        extra_ids        = $te.extra_ids
+                        handler_metadata = $te.handler_metadata
+                        api_calls        = $te.api_calls
+                        call_count       = $te.call_count
+                        error_count      = $te.error_count
+                        elapsed_ms       = $te.elapsed_ms
                     }
                 }
                 catch { }
@@ -295,6 +310,7 @@ if ($finalState -and $mySub) {
 
         $resultEntry = @{
             submission_id    = $submissionId
+            run_id           = $derivedRunId
             timestamp        = (Get-Date).ToUniversalTime().ToString("o")
             status           = $finalState
             score_raw        = $mySub.score_raw
@@ -310,12 +326,13 @@ if ($finalState -and $mySub) {
             tasks            = $taskSummaries
         }
 
-        $json = $resultEntry | ConvertTo-Json -Depth 5 -Compress
+        $json = $resultEntry | ConvertTo-Json -Depth 10 -Compress
         [System.IO.Directory]::CreateDirectory((Split-Path $resultsFile)) | Out-Null
         Add-Content -Path $resultsFile -Value $json -Encoding UTF8
 
         Write-Host ""
         Write-Host "Results saved to results.jsonl" -ForegroundColor Green
+        Write-Host "  Run ID: $derivedRunId" -ForegroundColor Gray
         Write-Host "  Score: $($mySub.score_raw)/$($mySub.score_max) | Checks: $passedCount/$($passedCount + $failedCount) passed | Tasks: $($taskSummaries.Count)" -ForegroundColor Cyan
     }
     catch {
@@ -364,6 +381,7 @@ try {
     $leaderboardEntry = @{
         timestamp        = (Get-Date).ToUniversalTime().ToString("o")
         submission_id    = $submissionId
+        run_id           = $derivedRunId
         total_best_score = [Math]::Round($totalScore, 4)
         task_count       = $taskCount
         attempted_tasks  = $attemptedTasks
@@ -371,7 +389,7 @@ try {
         tasks            = $leaderboardData
     }
 
-    $lbJson = $leaderboardEntry | ConvertTo-Json -Depth 5 -Compress
+    $lbJson = $leaderboardEntry | ConvertTo-Json -Depth 10 -Compress
     Add-Content -Path $leaderboardFile -Value $lbJson -Encoding UTF8
 
     Write-Host ""
@@ -442,9 +460,21 @@ try {
             $correlated += @{
                 tx_task_id  = $at.tx_task_id
                 task_type   = $sub.task_type
+                run_id      = $sub.run_id
+                task_index  = $sub.task_index
                 handler     = $sub.handler
+                prompt      = $sub.prompt
+                extraction  = $sub.extraction
                 success     = $sub.success
                 error       = $sub.error
+                entity_id   = $sub.entity_id
+                api_calls   = $sub.api_callser
+                prompt      = $sub.prompt
+                extraction  = $sub.extraction
+                success     = $sub.success
+                error       = $sub.error
+                entity_id   = $sub.entity_id
+                api_calls   = $sub.api_calls
                 call_count  = $sub.call_count
                 error_count = $sub.error_count
                 prev_score  = $at.prev_score

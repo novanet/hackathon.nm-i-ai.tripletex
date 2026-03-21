@@ -188,6 +188,12 @@ public class TripletexApiClient
 
         if (!response.IsSuccessStatusCode)
         {
+            // Capture longer response snippet for errors (validation messages are critical)
+            entry.ResponseSnippet = responseBody?.Length > 2000 ? responseBody[..2000] : responseBody;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
             Interlocked.Increment(ref _errorCount);
             string errorDetail = responseBody;
             try

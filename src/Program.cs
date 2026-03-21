@@ -1,9 +1,22 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Serilog;
 using TripletexAgent.Handlers;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
+
+// --- Run ID tracking: groups all /solve calls sharing the same session_token ---
+var runIdTaskCounters = new ConcurrentDictionary<string, int>();
+
+static string ComputeRunId(string? sessionToken)
+{
+    if (string.IsNullOrEmpty(sessionToken)) return "unknown";
+    var hash = SHA256.HashData(Encoding.UTF8.GetBytes(sessionToken));
+    return Convert.ToHexStringLower(hash)[..8];
+}
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -64,6 +77,10 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
     TripletexApiClient? api = null;
     string? handlerName = null;
     HandlerResult? handlerResult = null;
+
+    // Compute run_id from session_token — all tasks in the same competition run share this
+    var runId = ComputeRunId(request.TripletexCredentials?.SessionToken);
+    var taskIndex = runIdTaskCounters.AddOrUpdate(runId, 1, (_, prev) => prev + 1);
 
     try
     {
@@ -250,7 +267,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         }
 
         // Structured submission log (submissions.jsonl)
-        LogSubmission(request, extracted, api, handlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext, handlerResult);
+        LogSubmission(request, extracted, api, handlerName, sw.ElapsedMilliseconds, success: true, error: null, httpContext, handlerResult, runId, taskIndex);
 
         return Results.Json(new { status = "completed" });
     }
@@ -258,7 +275,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
     {
         sw.Stop();
         logger.LogError(ex, "Error processing /solve request");
-        LogSubmission(request, extracted, api, handlerName ?? router.GetHandlerName(extracted?.TaskType ?? "unknown"), sw.ElapsedMilliseconds, success: false, error: ex.Message, httpContext, handlerResult);
+        LogSubmission(request, extracted, api, handlerName ?? router.GetHandlerName(extracted?.TaskType ?? "unknown"), sw.ElapsedMilliseconds, success: false, error: ex.Message, httpContext, handlerResult, runId, taskIndex);
         return Results.Json(new { status = "completed" });
     }
 });
@@ -328,7 +345,7 @@ static void LogRecon(SolveRequest request, ExtractionResult extracted, string ha
 
 static void LogSubmission(SolveRequest request, ExtractionResult? extracted, TripletexApiClient? api,
     string? handlerName, long elapsedMs, bool success, string? error, HttpContext? httpContext = null,
-    HandlerResult? handlerResult = null)
+    HandlerResult? handlerResult = null, string? runId = null, int? taskIndex = null)
 {
     try
     {
@@ -339,6 +356,8 @@ static void LogSubmission(SolveRequest request, ExtractionResult? extracted, Tri
         var entry = new
         {
             timestamp = DateTime.UtcNow.ToString("o"),
+            run_id = runId,
+            task_index = taskIndex,
             environment = env,
             prompt = request.Prompt,
             files = request.Files?.Select(f => new { f.Filename, f.MimeType }).ToList(),
@@ -346,10 +365,20 @@ static void LogSubmission(SolveRequest request, ExtractionResult? extracted, Tri
             action = extracted?.Action,
             language = extracted?.Language,
             handler = handlerName,
-            entities = extracted?.Entities,
-            extraction = extracted,
+            extraction = new
+            {
+                task_type = extracted?.TaskType,
+                action = extracted?.Action,
+                language = extracted?.Language,
+                entities = extracted?.Entities,
+                relationships = extracted?.Relationships,
+                raw_amounts = extracted?.RawAmounts,
+                dates = extracted?.Dates,
+                files_needed = extracted?.FilesNeeded
+            },
             handler_metadata = (handlerResult?.Metadata?.Count > 0) ? handlerResult.Metadata : null,
             entity_id = handlerResult?.EntityId,
+            extra_ids = (handlerResult?.ExtraIds?.Count > 0) ? handlerResult.ExtraIds : null,
             success,
             error,
             elapsed_ms = elapsedMs,
