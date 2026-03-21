@@ -240,22 +240,11 @@ public class PaymentHandler : ITaskHandler
                 }
                 catch (TripletexApiException ex) when (ex.StatusCode == 422 && ex.Message.Contains("mva-kode", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Hardcoded VAT IDs invalid — resolve dynamically
-                    _logger.LogWarning("Hardcoded VAT rejected, resolving dynamically");
-                    var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
-                    { ["count"] = "100", ["fields"] = "id,number,percentage" });
-                    if (vatResult.TryGetProperty("values", out var vtVals))
-                    {
-                        foreach (var vt in vtVals.EnumerateArray())
-                        {
-                            var pct = vt.TryGetProperty("percentage", out var pp) && pp.ValueKind == JsonValueKind.Number ? pp.GetDecimal() : -1;
-                            if (pct == 25)
-                            {
-                                vatTypeId = vt.GetProperty("id").GetInt64();
-                                break;
-                            }
-                        }
-                    }
+                    // Hardcoded VAT IDs invalid — use InvoiceHandler's full dynamic VAT resolver
+                    _logger.LogWarning("Hardcoded VAT rejected, resolving via InvoiceHandler");
+                    var (dynVatId, _) = await _invoiceHandler.ResolveVatTypesFull(api);
+                    vatTypeId = dynVatId;
+                    _logger.LogInformation("Resolved dynamic output VAT type ID: {Id}", vatTypeId);
                     ((Dictionary<string, object>)((object[])orderBody["orderLines"])[0])["vatType"] = new { id = vatTypeId };
                     orderResult = await api.PostAsync("/order", orderBody);
                 }

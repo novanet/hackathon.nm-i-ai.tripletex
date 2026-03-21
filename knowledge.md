@@ -24,6 +24,11 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Timesheet entry requires `activity`, `date`, `employee`** — minimum fields. Also supports `project`, `hours`, `comment`. Only one entry per employee/date/activity/project combo. 38 hours on a single date works (no 24h cap on `hours` field). _(2026-03-20)_
 - **Activity creation requires `activityType`** — use `PROJECT_GENERAL_ACTIVITY` for project-related billable activities. Link to project via `POST /project/projectActivity`. _(2026-03-20)_
 
+- **LLM entity naming variants** — entity keys like `payment` may be named `payment1`, `invoice` may be `invoice1`, `voucher` may be `voucher1`. Always check both bare name and numbered variant (`payment ?? payment1`). Detection logic must check all variants. _(2026-03-21)_
+- **Account 1500 (Kundefordringer/Receivables) is a system control account** — manual `/ledger/voucher` postings against it are rejected with 422 "systemgenererte og kan ikke opprettes eller endres på utsiden av Tripletex." Same likely applies to 2400 (Leverandørgjeld) and other balance sheet control accounts. Make voucher creation non-fatal for reminder-fee tasks — the reminder fee invoice creates the implicit receivables entry automatically. _(2026-03-21)_
+- **Dynamic VAT type lookup for orders: use `typeOfVat=OUTGOING` and prefer number `"3"`** — when hardcoded `DefaultOutputVatTypeId=3L` fails with 422 "Ugyldig mva-kode", do `GET /ledger/vatType?typeOfVat=OUTGOING&count=100&fields=id,number,percentage` and pick the entry with `number=="3"`. This is InvoiceHandler's `ResolveVatTypesFull` method — reuse it via `_invoiceHandler.ResolveVatTypesFull(api)` (it's `internal`). _(2026-03-21)_
+- **Reminder fees (Task Entry #12) routing** — LLM extracts `task_type=unknown` (or `register_payment`) with entities `{voucher1, invoice1, payment1}` and relationship `{customer: "unknown"}`. TaskRouter now detects this pattern (voucher1 + payment1 + unknown customer) and routes to `register_payment` → `PaymentHandler.HandleReminderFeesAsync`. _(2026-03-21)_
+
 ## LLM Extraction Pitfalls
 
 - **firstName/lastName sometimes not extracted** — happened with German, Spanish, Portuguese, and Nynorsk prompts. The LLM returned only `email` without name fields. Root cause: extraction prompt needs explicit required-field emphasis. _(2026-03-20)_
