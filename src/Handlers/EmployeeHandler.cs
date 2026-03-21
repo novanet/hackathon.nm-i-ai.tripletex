@@ -146,30 +146,45 @@ public class EmployeeHandler : ITaskHandler
 
         // Inline employment in employee POST body to save API calls (no separate GET /division + POST /employee/employment)
         // Competition environments don't require division; sandbox does. Fallback handles sandbox gracefully.
+        // Pre-fetch division for inline employment — sandbox requires it, GET is free
+        long? divisionId = null;
         if (!string.IsNullOrEmpty(startDate))
         {
-            body["employments"] = new[]
-            {
-                new Dictionary<string, object> { ["startDate"] = startDate }
-            };
+            divisionId = await ResolveDivisionIdAsync(api);
+            var inlineEmployment = new Dictionary<string, object> { ["startDate"] = startDate };
+            if (divisionId != null)
+                inlineEmployment["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value };
+            body["employments"] = new[] { inlineEmployment };
         }
 
         _logger.LogInformation("Creating employee: {FirstName} {LastName} (inlineEmployment={HasEmployment})",
             body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"), !string.IsNullOrEmpty(startDate));
 
-        var apiResult = await CreateEmployeeWithRetryAsync(api, body);
-        var reusedExistingEmployee = !apiResult.TryGetProperty("value", out var valueWrapper);
-        var employeeValue = reusedExistingEmployee ? apiResult : valueWrapper;
-        var employeeId = employeeValue.GetProperty("id").GetInt64();
-
-        if (reusedExistingEmployee)
+        // Pre-check email to avoid 422 errors from duplicate email — GET is free
+        var existingByEmail = await TryFindExistingEmployeeByEmailAsync(api, body);
+        long employeeId;
+        if (existingByEmail != null)
+        {
+            employeeId = existingByEmail.Value.GetProperty("id").GetInt64();
+            _logger.LogInformation("Employee with matching email+name already exists (ID {Id}), reusing", employeeId);
             await EnsureEmployeeMatchesBodyAsync(api, employeeId, body);
+        }
+        else
+        {
+            var apiResult = await CreateEmployeeWithRetryAsync(api, body);
+            var reusedExistingEmployee = !apiResult.TryGetProperty("value", out var valueWrapper);
+            var employeeValue = reusedExistingEmployee ? apiResult : valueWrapper;
+            employeeId = employeeValue.GetProperty("id").GetInt64();
+
+            if (reusedExistingEmployee)
+                await EnsureEmployeeMatchesBodyAsync(api, employeeId, body);
+        }
 
         _logger.LogInformation("Created employee ID: {Id}", employeeId);
 
         var result = new HandlerResult { EntityType = "employee", EntityId = employeeId };
 
-        await TryCreateEmploymentDetailsAsync(api, emp, employeeId, startDate);
+        await TryCreateEmploymentDetailsAsync(api, emp, employeeId, startDate, divisionId);
 
         // Assign administrator role if needed
         if (needsAdmin)
@@ -349,7 +364,7 @@ public class EmployeeHandler : ITaskHandler
         return null;
     }
 
-    private async Task TryCreateEmploymentDetailsAsync(TripletexApiClient api, Dictionary<string, object> emp, long employeeId, string? startDate)
+    private async Task TryCreateEmploymentDetailsAsync(TripletexApiClient api, Dictionary<string, object> emp, long employeeId, string? startDate, long? divisionId = null)
     {
         if (string.IsNullOrWhiteSpace(startDate))
             return;
@@ -370,7 +385,7 @@ public class EmployeeHandler : ITaskHandler
         if (!hasEmploymentDetailData)
             return;
 
-        var divisionId = await ResolveDivisionIdAsync(api);
+        divisionId ??= await ResolveDivisionIdAsync(api);
         var employmentId = await EnsureEmploymentAsync(api, employeeId, startDate, divisionId);
         if (employmentId == null)
             return;
@@ -382,9 +397,10 @@ public class EmployeeHandler : ITaskHandler
         };
 
         var occupationCode = GetString(emp, "occupationCode") ?? GetString(emp, "jobCode");
+        var occupationName = GetString(emp, "occupationName");
         if (!string.IsNullOrWhiteSpace(occupationCode))
         {
-            var occupationCodeId = await ResolveOccupationCodeIdAsync(api, occupationCode);
+            var occupationCodeId = await ResolveOccupationCodeIdAsync(api, occupationCode, occupationName);
             if (occupationCodeId != null)
                 detailsBody["occupationCode"] = new Dictionary<string, object> { ["id"] = occupationCodeId.Value };
         }
@@ -446,16 +462,26 @@ public class EmployeeHandler : ITaskHandler
                 && division.ValueKind == JsonValueKind.Object
                 && division.TryGetProperty("id", out _);
 
-            if (!hasDivision && divisionId != null && employment.TryGetProperty("version", out var versionProp))
+            var existingStartDate = employment.TryGetProperty("startDate", out var sdProp) ? sdProp.GetString() : null;
+            var needsDivisionUpdate = !hasDivision && divisionId != null;
+            var needsStartDateUpdate = existingStartDate != null
+                && string.Compare(startDate, existingStartDate, StringComparison.Ordinal) < 0;
+
+            if ((needsDivisionUpdate || needsStartDateUpdate) && employment.TryGetProperty("version", out var versionProp))
             {
-                await api.PutAsync($"/employee/employment/{employmentId}", new Dictionary<string, object>
+                var updateBody = new Dictionary<string, object>
                 {
                     ["id"] = employmentId,
                     ["version"] = versionProp.GetInt64(),
                     ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
-                    ["startDate"] = startDate,
-                    ["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value },
-                });
+                    ["startDate"] = needsStartDateUpdate ? startDate : existingStartDate!,
+                };
+                if (divisionId != null)
+                    updateBody["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value };
+                else if (hasDivision)
+                    updateBody["division"] = division;
+
+                await api.PutAsync($"/employee/employment/{employmentId}", updateBody);
             }
 
             return employmentId;
@@ -482,17 +508,89 @@ public class EmployeeHandler : ITaskHandler
         }
     }
 
-    private async Task<long?> ResolveOccupationCodeIdAsync(TripletexApiClient api, string occupationCode)
+    // Common STYRK-08 (4-digit) → Norwegian occupation name mapping for nameNO search fallback
+    private static readonly Dictionary<string, string> Styrk08ToName = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["1120"] = "direktør",
+        ["1211"] = "økonomisjef",
+        ["1221"] = "salgssjef",
+        ["1330"] = "IT-sjef",
+        ["2120"] = "matematiker",
+        ["2141"] = "industriingeniør",
+        ["2151"] = "elektroingeniør",
+        ["2166"] = "grafisk designer",
+        ["2211"] = "lege",
+        ["2223"] = "sykepleier",
+        ["2310"] = "universitetslektor",
+        ["2330"] = "lektor",
+        ["2411"] = "revisor",
+        ["2431"] = "markedsfører",
+        ["2511"] = "systemutvikler",
+        ["2512"] = "programvareutvikler",
+        ["2519"] = "utvikler",
+        ["2521"] = "databaseadministrator",
+        ["2522"] = "systemadministrator",
+        ["3111"] = "tekniker",
+        ["3313"] = "regnskapsfører",
+        ["3323"] = "regnskapsfører",
+        ["3331"] = "speditør",
+        ["3411"] = "jurist",
+        ["4110"] = "kontormedarbeider",
+        ["4120"] = "sekretær",
+        ["4131"] = "regnskapsmedarbeider",
+        ["5223"] = "butikkmedarbeider",
+        ["7115"] = "tømrer",
+        ["7126"] = "rørlegger",
+        ["7231"] = "bilmekaniker",
+        ["7411"] = "elektriker",
+        ["8332"] = "sjåfør",
+        ["9112"] = "renholdsarbeider",
+    };
+
+    private async Task<long?> ResolveOccupationCodeIdAsync(TripletexApiClient api, string occupationCode, string? occupationName = null)
     {
         try
         {
-            long? exactMatch = await SearchOccupationCodesPageAsync(api, occupationCode, includeCodeFilter: true);
-            if (exactMatch != null)
-                return exactMatch;
+            // 1. Try exact/containing code filter match (single GET)
+            long? match = await SearchOccupationCodesPageAsync(api, occupationCode, includeCodeFilter: true);
+            if (match != null)
+                return match;
 
-            exactMatch = await SearchOccupationCodesPageAsync(api, occupationCode, includeCodeFilter: false);
-            if (exactMatch != null)
-                return exactMatch;
+            // 2. Fallback: search by Norwegian occupation name (handles STYRK-08 → STYRK-98 mapping)
+            // Derive name from: LLM extraction > static dictionary
+            var searchName = occupationName;
+            if (string.IsNullOrWhiteSpace(searchName) && Styrk08ToName.TryGetValue(occupationCode, out var dictName))
+                searchName = dictName;
+
+            if (!string.IsNullOrWhiteSpace(searchName))
+            {
+                _logger.LogInformation("Code {Code} not found, trying nameNO search with '{Name}'", occupationCode, searchName);
+                var nameResult = await api.GetAsync("/employee/employment/occupationCode", new Dictionary<string, string>
+                {
+                    ["nameNO"] = searchName,
+                    ["count"] = "10",
+                    ["fields"] = "id,code,nameNO"
+                });
+                if (nameResult.TryGetProperty("values", out var nameValues) && nameValues.GetArrayLength() > 0)
+                {
+                    // Prefer exact name match, then first result
+                    foreach (var v in nameValues.EnumerateArray())
+                    {
+                        var name = v.TryGetProperty("nameNO", out var nameProp) ? nameProp.GetString() : null;
+                        if (name != null && name.Contains(searchName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogInformation("Found name match: {Code} {Name}", v.GetProperty("code").GetString(), name);
+                            return v.GetProperty("id").GetInt64();
+                        }
+                    }
+                    // No containing match — take first result
+                    var first = nameValues[0];
+                    _logger.LogInformation("Using first nameNO match: {Code} {Name}",
+                        first.GetProperty("code").GetString(),
+                        first.TryGetProperty("nameNO", out var fn) ? fn.GetString() : "?");
+                    return first.GetProperty("id").GetInt64();
+                }
+            }
         }
         catch (TripletexApiException ex)
         {
@@ -506,6 +604,7 @@ public class EmployeeHandler : ITaskHandler
     {
         const int pageSize = 1000;
         var from = 0;
+        long? prefixMatch = null;
 
         while (true)
         {
@@ -521,19 +620,22 @@ public class EmployeeHandler : ITaskHandler
 
             var result = await api.GetAsync("/employee/employment/occupationCode", query);
             if (!result.TryGetProperty("values", out var values) || values.GetArrayLength() == 0)
-                return null;
+                return prefixMatch; // Return prefix match if found during scan
 
             foreach (var value in values.EnumerateArray())
             {
                 var code = value.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
                 if (string.Equals(code, occupationCode, StringComparison.OrdinalIgnoreCase))
                     return value.GetProperty("id").GetInt64();
+                // Prefix match: 4-digit STYRK-08 code matches start of 7-digit code
+                if (prefixMatch == null && code != null && code.StartsWith(occupationCode, StringComparison.OrdinalIgnoreCase))
+                    prefixMatch = value.GetProperty("id").GetInt64();
             }
 
             var fullResultSize = result.TryGetProperty("fullResultSize", out var sizeProp) ? sizeProp.GetInt32() : values.GetArrayLength();
             from += values.GetArrayLength();
             if (from >= fullResultSize)
-                return null;
+                return prefixMatch; // Return prefix match if exact match not found
         }
     }
 
