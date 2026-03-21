@@ -757,11 +757,11 @@ public class VoucherHandler : ITaskHandler
                     ["account"] = new { id = accountId!.Value },
                     ["amountGross"] = amount,
                     ["amountGrossCurrency"] = amount,
-                    ["supplier"] = new { id = supplierId },
                     ["date"] = date,
                     ["description"] = description,
                     ["row"] = 1
                 };
+                if (supplierId.HasValue) postingData["supplier"] = new { id = supplierId.Value };
                 if (inputVatId.HasValue) postingData["vatType"] = new { id = inputVatId.Value };
                 if (invoiceNumber != null) postingData["invoiceNumber"] = invoiceNumber;
 
