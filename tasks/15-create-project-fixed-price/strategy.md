@@ -37,17 +37,19 @@ Create a project with a fixed price, then create a milestone invoice for a perce
 | `has_project_manager` | — | ✅ |
 | `invoice_created` | — | ⚠️ Sometimes fails |
 
-## Why We're Behind
+## Why We Were Behind
 
-1. **PM resolution bug** (Fix 11 — `GetScalarString`) may have been causing PM assignment to fail
-2. **Milestone invoice creation** was gated on LLM extracting an `invoice` entity — sometimes skipped when LLM didn't extract it
-3. **Milestone amount calculation**: `Math.Round(fixedPrice * pct / 100, 2)` — must extract percentage from prompt via regex, never trust LLM math
+1. **Routing bug (FIXED 2026-03-21)**: LLM extracted `set_fixed_price` → routed to `FixedPriceProjectHandler` which only updates existing projects. In competition (clean env), no project exists → handler returned empty → task failed. **Fix**: Rerouted `set_fixed_price` and `update_project` to `ProjectHandler` which handles full creation chain.
+2. **PM resolution bug** (Fix 11 — `GetScalarString`) was causing PM assignment to fail — fixed earlier.
+3. **Milestone invoice creation** was gated on LLM extracting an `invoice` entity — fixed to always create if `isFixedPrice=true` AND prompt contains `\d+\s*%`.
 
 ### Key Knowledge
 
-- Fix applied: always call `CreateProjectInvoice` if `isFixedPrice=true` AND prompt contains `\d+\s*%`
-- Percentage extraction: deterministic regex, not LLM
+- `set_fixed_price` and `update_project` now route to `ProjectHandler` (not `FixedPriceProjectHandler`)
+- `ProjectHandler` creates: customer → PM employee → grant entitlements → project (isFixedPrice=true) → order → milestone invoice
+- Milestone amount: deterministic regex extracts percentage from prompt, calculates `fixedPrice × pct / 100`
 - Previous runs showed 12-call runs (invoice created) → 8/8 pass vs 10-call runs (invoice skipped) → 6/8 fail
+- Tested with Norwegian (50%) and French (33%) prompts — both pass with 0 errors
 
 ## How to Fix
 
