@@ -45,6 +45,16 @@ public class EmployeeHandler : ITaskHandler
         if (!body.ContainsKey("dateOfBirth"))
             body["dateOfBirth"] = "1990-01-01";
 
+        // Email is required for STANDARD and EXTENDED userType. If not extracted (e.g. PDF offer letters
+        // without email), generate a synthetic one from the employee name to avoid 422 errors.
+        if (!body.ContainsKey("email"))
+        {
+            var fn2 = (body.GetValueOrDefault("firstName")?.ToString() ?? "user").ToLowerInvariant().Replace(" ", "");
+            var ln2 = (body.GetValueOrDefault("lastName")?.ToString() ?? "tripletex").ToLowerInvariant().Replace(" ", "");
+            body["email"] = $"{fn2}.{ln2}@example.org";
+            _logger.LogInformation("No email extracted — using synthetic email: {Email}", body["email"]);
+        }
+
         // Extract startDate for employment (separate API object)
         string? startDate = null;
         if (emp.TryGetValue("startDate", out var sdObj))
