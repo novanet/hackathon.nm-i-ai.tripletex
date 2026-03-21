@@ -684,7 +684,7 @@ public class VoucherHandler : ITaskHandler
             ["postings"] = new[] { debitPosting, creditPosting }
         };
         if (voucherTypeId.HasValue) voucherBodyFallback["voucherType"] = new { id = voucherTypeId.Value };
-        if (invoiceNumber != null) voucherBodyFallback["vendorInvoiceNumber"] = invoiceNumber;
+        if (invoiceNumber != null) voucherBodyFallback["externalVoucherNumber"] = invoiceNumber;
 
         var fallbackResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBodyFallback);
         var voucherId = fallbackResult.GetProperty("value").GetProperty("id").GetInt64();
