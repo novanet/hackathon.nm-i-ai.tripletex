@@ -496,9 +496,13 @@ $leaderboard = Read-Jsonl $leaderboardFile
 if ($leaderboard.Count -gt 0) {
     $latest = $leaderboard[-1]
     $ourTotal = [Math]::Round($latest.total_best_score, 2)
-    $dateRaw = $latest.timestamp.ToString()
-    # Parse ISO-8601 date regardless of locale
-    $date = try { ([datetime]::Parse($dateRaw, [System.Globalization.CultureInfo]::InvariantCulture)).ToString("yyyy-MM-dd") } catch { (Get-Date -Format "yyyy-MM-dd") }
+    # Parse date from ISO-8601 timestamp string or DateTime object
+    $date = try {
+        $ts = $latest.timestamp
+        if ($ts -is [datetime]) { $ts.ToString("yyyy-MM-dd") }
+        else { ([datetime]::Parse($ts.ToString(), [System.Globalization.CultureInfo]::InvariantCulture)).ToString("yyyy-MM-dd") }
+    }
+    catch { (Get-Date -Format "yyyy-MM-dd") }
 
     # Build score lookup: tx_task_id → best_score
     $bestScores = @{}
