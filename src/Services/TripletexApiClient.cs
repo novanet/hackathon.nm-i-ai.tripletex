@@ -52,6 +52,46 @@ public class TripletexApiClient
         return await SendAsync(HttpMethod.Post, url, body);
     }
 
+    public async Task<JsonElement> PostMultipartFileAsync(string path, byte[] fileBytes, string fileName, string contentType = "application/pdf")
+    {
+        Interlocked.Increment(ref _callCount);
+        var url = BuildUrl(path);
+        _logger.LogInformation("API POST {Path} (multipart: {FileName}, {Bytes} bytes)", path, fileName, fileBytes.Length);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        var boundary = Guid.NewGuid().ToString("N");
+        var multipart = new MultipartFormDataContent(boundary);
+        var fileContent = new ByteArrayContent(fileBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        multipart.Add(fileContent, "file", fileName);
+        request.Content = multipart;
+
+        var response = await _http.SendAsync(request);
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        var entry = new ApiCallEntry
+        {
+            Method = "POST",
+            Path = path,
+            Status = (int)response.StatusCode,
+            RequestBody = $"[multipart: {fileName}]",
+            ResponseSnippet = responseBody?.Length > 500 ? responseBody[..500] : responseBody
+        };
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Interlocked.Increment(ref _errorCount);
+            entry.Error = responseBody;
+            _callLog.Add(entry);
+            _logger.LogWarning("API POST {Path} → {Status}: {Error}", path, (int)response.StatusCode, responseBody);
+            throw new TripletexApiException((int)response.StatusCode, responseBody, responseBody);
+        }
+
+        _callLog.Add(entry);
+        if (string.IsNullOrWhiteSpace(responseBody)) return default;
+        return JsonDocument.Parse(responseBody).RootElement;
+    }
+
     public async Task<JsonElement> PutAsync(string path, object? body = null, Dictionary<string, string>? queryParams = null)
     {
         var url = BuildUrl(path, queryParams);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
@@ -8,6 +9,14 @@ namespace TripletexAgent.Handlers;
 public class VoucherHandler : ITaskHandler
 {
     private readonly ILogger<VoucherHandler> _logger;
+
+    // Minimal valid PDF used for importDocument to get an empty (postingless) voucher
+    private static readonly byte[] MinimalPdf = Encoding.ASCII.GetBytes(
+        "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n" +
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n" +
+        "xref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n" +
+        "trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n190\n%%EOF\n");
 
     public VoucherHandler(ILogger<VoucherHandler> logger) => _logger = logger;
 
@@ -373,40 +382,17 @@ public class VoucherHandler : ITaskHandler
         var supplierId = supplierResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created supplier '{Name}' ID: {Id}", supplierName, supplierId);
 
-        // 2. Look up Leverandørfaktura voucher type
-        var voucherTypes = await api.GetAsync("/ledger/voucherType",
-            new Dictionary<string, string> { ["name"] = "Leverandørfaktura", ["count"] = "10", ["fields"] = "id,name" });
-        long? voucherTypeId = null;
-        if (voucherTypes.TryGetProperty("values", out var vtVals))
-        {
-            foreach (var vt in vtVals.EnumerateArray())
-            {
-                voucherTypeId = vt.GetProperty("id").GetInt64();
-                break;
-            }
-        }
-
-        // 3. Resolve expense account (use its locked vatType if present)
+        // 2. Resolve expense account (with vatLocked check)
         var (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
 
-        // 4. Resolve creditor account (2400 = leverandørgjeld)
-        var (creditorId, _, _) = await ResolveAccountId(api, "2400");
-
-        // 5. Resolve VAT type — respect account lock
+        // 3. Resolve VAT type — respect account lock
         long? inputVatId = null;
         if (acctVatLocked && lockedVatId.HasValue)
         {
-            // Account locked to a specific non-zero VAT type — use it
             inputVatId = lockedVatId;
         }
-        else if (acctVatLocked && !lockedVatId.HasValue)
+        else if (!acctVatLocked)
         {
-            // Account locked to VAT code 0 (no VAT) — don't set vatType
-            inputVatId = null;
-        }
-        else
-        {
-            // No lock — look up the correct input VAT type
             var vatRate = GetStringField(voucher, "vatRate") ?? GetStringField(voucher, "vatPercentage");
             var vatNumber = "1"; // Default: inbound 25%
             if (vatRate != null)
@@ -421,19 +407,70 @@ public class VoucherHandler : ITaskHandler
                 ["fields"] = "id"
             });
             if (vatResult.TryGetProperty("values", out var vatVals))
-            {
                 foreach (var vv in vatVals.EnumerateArray())
                 {
                     inputVatId = vv.GetProperty("id").GetInt64();
                     break;
                 }
-            }
         }
 
-        // 6. Build postings
-        var postings = new List<Dictionary<string, object>>();
+        // 4. Try SupplierInvoice path: importDocument → PUT /supplierInvoice/voucher/{id}/postings
+        try
+        {
+            var importResult = await api.PostMultipartFileAsync("/ledger/voucher/importDocument", MinimalPdf, "invoice.pdf");
+            var emptyVoucherId = importResult.GetProperty("values")[0].GetProperty("id").GetInt64();
+            _logger.LogInformation("Imported empty voucher ID: {Id}", emptyVoucherId);
 
-        // Debit posting: expense account with INPUT VAT
+            // Build OrderLinePosting in nested {"posting": {...}} format
+            var postingData = new Dictionary<string, object>
+            {
+                ["account"] = new { id = accountId!.Value },
+                ["amountGross"] = amount,
+                ["amountGrossCurrency"] = amount,
+                ["supplier"] = new { id = supplierId },
+                ["date"] = date,
+                ["description"] = description,
+                ["row"] = 1
+            };
+            if (inputVatId.HasValue) postingData["vatType"] = new { id = inputVatId.Value };
+            if (invoiceNumber != null) postingData["invoiceNumber"] = invoiceNumber;
+
+            var orderLinePostings = new[] { new Dictionary<string, object> { ["posting"] = postingData } };
+            var putResult = await api.PutAsync(
+                $"/supplierInvoice/voucher/{emptyVoucherId}/postings?sendToLedger=false&voucherDate={date}",
+                orderLinePostings);
+
+            // Extract SupplierInvoice ID from response
+            long siId = emptyVoucherId;
+            if (putResult.ValueKind != JsonValueKind.Undefined && putResult.ValueKind != JsonValueKind.Null)
+            {
+                if (putResult.TryGetProperty("value", out var siVal) && siVal.TryGetProperty("id", out var siIdEl))
+                    siId = siIdEl.GetInt64();
+                else if (putResult.TryGetProperty("values", out var siVals) && siVals.GetArrayLength() > 0
+                    && siVals[0].TryGetProperty("id", out var firstId))
+                    siId = firstId.GetInt64();
+            }
+            _logger.LogInformation("Created SupplierInvoice via PUT postings, SI ID: {Id}", siId);
+            return new HandlerResult { EntityType = "supplierInvoice", EntityId = siId };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("SupplierInvoice PUT postings path failed ({Msg}), falling back to classic voucher", ex.Message);
+        }
+
+        // 5. Fallback: classic Leverandørfaktura voucher
+        var voucherTypes = await api.GetAsync("/ledger/voucherType",
+            new Dictionary<string, string> { ["name"] = "Leverandørfaktura", ["count"] = "10", ["fields"] = "id,name" });
+        long? voucherTypeId = null;
+        if (voucherTypes.TryGetProperty("values", out var vtVals))
+            foreach (var vt in vtVals.EnumerateArray())
+            {
+                voucherTypeId = vt.GetProperty("id").GetInt64();
+                break;
+            }
+
+        var (creditorId, _, _) = await ResolveAccountId(api, "2400");
+
         var debitPosting = new Dictionary<string, object>
         {
             ["date"] = date,
@@ -446,9 +483,7 @@ public class VoucherHandler : ITaskHandler
         };
         if (inputVatId.HasValue) debitPosting["vatType"] = new { id = inputVatId.Value };
         if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
-        postings.Add(debitPosting);
 
-        // Credit posting: creditor account
         var creditPosting = new Dictionary<string, object>
         {
             ["date"] = date,
@@ -460,23 +495,21 @@ public class VoucherHandler : ITaskHandler
             ["row"] = 2
         };
         if (invoiceNumber != null) creditPosting["invoiceNumber"] = invoiceNumber;
-        postings.Add(creditPosting);
 
-        _logger.LogInformation("Creating supplier invoice voucher: {Description} amount={Amount} supplier={Supplier} inputVatId={VatId}", description, amount, supplierName, inputVatId);
+        _logger.LogInformation("Creating supplier invoice voucher (fallback): {Description} amount={Amount}", description, amount);
 
-        // 7. Create voucher
-        var body = new Dictionary<string, object>
+        var voucherBodyFallback = new Dictionary<string, object>
         {
             ["date"] = date,
             ["description"] = description,
-            ["postings"] = postings
+            ["postings"] = new[] { debitPosting, creditPosting }
         };
-        if (voucherTypeId.HasValue) body["voucherType"] = new { id = voucherTypeId.Value };
-        if (invoiceNumber != null) body["vendorInvoiceNumber"] = invoiceNumber;
+        if (voucherTypeId.HasValue) voucherBodyFallback["voucherType"] = new { id = voucherTypeId.Value };
+        if (invoiceNumber != null) voucherBodyFallback["vendorInvoiceNumber"] = invoiceNumber;
 
-        var result = await api.PostAsync("/ledger/voucher?sendToLedger=true", body);
-        var voucherId = result.GetProperty("value").GetProperty("id").GetInt64();
-        _logger.LogInformation("Created supplier invoice voucher ID: {Id}", voucherId);
+        var fallbackResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBodyFallback);
+        var voucherId = fallbackResult.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created supplier invoice voucher (fallback) ID: {Id}", voucherId);
         return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
     }
 
