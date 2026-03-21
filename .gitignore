@@ -24,7 +24,6 @@ publish/
 
 # Logs
 logs/sandbox.jsonl
-src/logs/files/
 *.log
 
 # OS

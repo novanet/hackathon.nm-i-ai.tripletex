@@ -150,7 +150,27 @@ public class FallbackAgentHandler : ITaskHandler
 
     public async Task HandleWithPromptAsync(TripletexApiClient api, ExtractionResult extracted, string originalPrompt, List<SolveFile>? files = null)
     {
-        _logger.LogInformation("Fallback agent handling task type: {TaskType}", extracted.TaskType);
+        _logger.LogWarning("=== FALLBACK DISCOVERY === TaskType={TaskType} | Prompt={Prompt} | Entities={Entities}",
+            extracted.TaskType,
+            originalPrompt?.Length > 500 ? originalPrompt[..500] : originalPrompt,
+            string.Join(", ", extracted.Entities?.Keys ?? Enumerable.Empty<string>()));
+
+        // Write to dedicated discovery log for easy post-submission analysis
+        try
+        {
+            var discoveryEntry = new
+            {
+                timestamp = DateTime.UtcNow.ToString("o"),
+                task_type = extracted.TaskType,
+                prompt = originalPrompt,
+                entities = extracted.Entities?.Keys.ToList(),
+                files = files?.Select(f => new { f.Filename, f.MimeType }).ToList()
+            };
+            var json = JsonSerializer.Serialize(discoveryEntry, new JsonSerializerOptions { WriteIndented = false });
+            Directory.CreateDirectory("logs");
+            File.AppendAllText("logs/discovery.jsonl", json + Environment.NewLine);
+        }
+        catch { /* never fail due to logging */ }
 
         var textContent = string.IsNullOrEmpty(originalPrompt)
             ? $"Execute this task:\n\n{JsonSerializer.Serialize(extracted)}"
