@@ -468,12 +468,6 @@ try {
                 success     = $sub.success
                 error       = $sub.error
                 entity_id   = $sub.entity_id
-                api_calls   = $sub.api_callser
-                prompt      = $sub.prompt
-                extraction  = $sub.extraction
-                success     = $sub.success
-                error       = $sub.error
-                entity_id   = $sub.entity_id
                 api_calls   = $sub.api_calls
                 call_count  = $sub.call_count
                 error_count = $sub.error_count

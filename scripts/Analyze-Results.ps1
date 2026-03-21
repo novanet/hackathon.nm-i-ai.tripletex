@@ -3,8 +3,9 @@
     Analyze competition results and explain failed checks using Tripletex help articles.
 .DESCRIPTION
     Fetches the latest (or specified) submission result from the competition API,
-    identifies failed checks, cross-references with submissions.jsonl for error context,
-    and searches Tripletex help articles (Zendesk) for guidance on how to fix failures.
+    identifies failed checks, cross-references with local results.jsonl / submissions.jsonl
+    for exact task context when available, and searches Tripletex help articles (Zendesk)
+    for guidance on how to fix failures.
 .PARAMETER Token
     The access_token cookie value. Falls back to $env:AINM_TOKEN or user-secrets.
 .PARAMETER SubmissionId
@@ -20,6 +21,88 @@ param(
 
 $ErrorActionPreference = "Stop"
 $apiBase = "https://api.ainm.no"
+
+function Read-JsonLines {
+    param([string]$Path)
+
+    $items = @()
+    if (-not (Test-Path $Path)) { return $items }
+
+    foreach ($line in (Get-Content $Path -Encoding UTF8)) {
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                $items += ($line | ConvertFrom-Json)
+            }
+        }
+        catch { }
+    }
+
+    return $items
+}
+
+function Get-CheckName {
+    param([string]$CheckText)
+
+    if ([string]::IsNullOrWhiteSpace($CheckText)) { return $null }
+    return (($CheckText -replace ':\s*(passed|failed|not found|missing|false|0).*$','').Trim())
+}
+
+function Get-KnownChecks {
+    param([string]$TaskType)
+
+    $knownChecks = @{
+        "create_employee"       = @("employee_found", "firstName", "lastName", "email", "admin_role")
+        "create_customer"       = @("customer_found", "name", "email", "organizationNumber", "addr.addressLine1", "addr.postalCode", "addr.city", "phoneNumber")
+        "create_supplier"       = @("supplier_found", "name", "email", "organizationNumber", "phoneNumber")
+        "create_product"        = @("product_found", "name", "number", "price")
+        "create_department"     = @("department_found", "name", "departmentNumber")
+        "create_project"        = @("project_found", "name", "has_customer", "has_project_manager")
+        "create_invoice"        = @("invoice_found", "has_customer", "has_amount", "correct_amount")
+        "register_payment"      = @("invoice_found", "payment_registered")
+        "run_payroll"           = @("salary_transaction_found", "has_employee_link", "payslip_generated", "correct_amount")
+        "create_travel_expense" = @("travel_expense_found", "has_title", "has_employee", "has_costs")
+        "create_credit_note"    = @("credit_note_created")
+        "create_voucher"        = @("voucher_found", "has_description", "has_postings")
+    }
+
+    if ($knownChecks.ContainsKey($TaskType)) {
+        return $knownChecks[$TaskType]
+    }
+
+    return @()
+}
+
+function Resolve-CheckTaskType {
+    param(
+        [string]$CheckText,
+        [hashtable]$CheckToTaskType,
+        [object[]]$ExactTasks
+    )
+
+    $checkName = Get-CheckName $CheckText
+    if (-not $checkName) { return "unknown" }
+
+    if ($checkName -match '^Check\s+(\d+)$' -and $ExactTasks.Count -eq 1) {
+        $taskType = "$($ExactTasks[0].task_type)"
+        $knownForTask = Get-KnownChecks $taskType
+        $index = [int]$Matches[1] - 1
+        if ($index -ge 0 -and $index -lt $knownForTask.Count) {
+            $checkName = $knownForTask[$index]
+        }
+    }
+
+    foreach ($key in $CheckToTaskType.Keys) {
+        if ($checkName -match [regex]::Escape($key)) {
+            return $CheckToTaskType[$key]
+        }
+    }
+
+    if ($ExactTasks.Count -eq 1) {
+        return "$($ExactTasks[0].task_type)"
+    }
+
+    return "unknown"
+}
 
 # --- Resolve auth token ---
 if (-not $Token) { $Token = $env:AINM_TOKEN }
@@ -126,21 +209,43 @@ foreach ($f in $failed) {
 }
 Write-Host ""
 
-# --- Cross-reference with submissions.jsonl ---
+# --- Load local correlation data ---
+$logsDir = Join-Path $PSScriptRoot "..\src\logs"
+$resultsFile = Join-Path $logsDir "results.jsonl"
 $submissionsFile = Join-Path $PSScriptRoot "..\src\logs\submissions.jsonl"
-$competitionEntries = @()
-if (Test-Path $submissionsFile) {
-    $allLines = Get-Content $submissionsFile
-    foreach ($line in $allLines) {
-        try {
-            $entry = $line | ConvertFrom-Json
-            if ($entry.environment -eq "competition" -and $entry.prompt -ne "ping") {
-                $competitionEntries += $entry
-            }
-        }
-        catch { }
+$allResults = Read-JsonLines $resultsFile
+$matchedResult = $allResults | Where-Object { $_.submission_id -eq $sub.id } | Select-Object -Last 1
+$competitionEntries = Read-JsonLines $submissionsFile | Where-Object {
+    $_.environment -eq "competition" -and $_.prompt -ne "ping"
+}
+$exactTasks = @()
+$runScopedEntries = @()
+$correlationMode = "heuristic"
+
+if ($matchedResult -and $matchedResult.tasks) {
+    $exactTasks = @($matchedResult.tasks)
+    $correlationMode = "results.jsonl"
+}
+
+if ($matchedResult -and $matchedResult.run_id) {
+    $runScopedEntries = @($competitionEntries | Where-Object { $_.run_id -eq $matchedResult.run_id })
+    if ($runScopedEntries.Count -gt 0) {
+        $correlationMode = "results.jsonl + submissions.jsonl"
     }
 }
+
+Write-Host "Local correlation: $correlationMode" -ForegroundColor Gray
+if ($matchedResult) {
+    Write-Host "  Local result found for submission: $($matchedResult.submission_id)" -ForegroundColor Gray
+    if ($matchedResult.run_id) {
+        Write-Host "  run_id: $($matchedResult.run_id)" -ForegroundColor Gray
+    }
+    Write-Host "  Logged tasks: $(@($exactTasks).Count)" -ForegroundColor Gray
+}
+else {
+    Write-Host "  No exact results.jsonl match for submission; falling back to task-type heuristics." -ForegroundColor Yellow
+}
+Write-Host ""
 
 # --- Map check names to task types ---
 # Check names typically follow the pattern: task_description_check (e.g., "employee_found", "has_customer")
@@ -225,19 +330,7 @@ Write-Host ""
 # Group failed checks by inferred task type
 $failedByTask = @{}
 foreach ($f in $failed) {
-    # Extract check name (before ": failed")
-    $checkName = ($f -replace ':\s*(failed|not found|missing|false|0).*$', '').Trim()
-    
-    # Try to match to a task type
-    $taskType = $null
-    foreach ($key in $checkToTaskType.Keys) {
-        if ($checkName -match $key) {
-            $taskType = $checkToTaskType[$key]
-            break
-        }
-    }
-    
-    if (-not $taskType) { $taskType = "unknown" }
+    $taskType = Resolve-CheckTaskType -CheckText $f -CheckToTaskType $checkToTaskType -ExactTasks $exactTasks
     
     if (-not $failedByTask.ContainsKey($taskType)) {
         $failedByTask[$taskType] = @()
@@ -253,17 +346,50 @@ foreach ($taskType in $failedByTask.Keys | Sort-Object) {
         Write-Host "  [FAIL] $c" -ForegroundColor Red
     }
     
-    # Find matching competition entries
-    $matchingEntries = $competitionEntries | Where-Object { $_.task_type -eq $taskType }
-    if ($matchingEntries) {
-        foreach ($entry in $matchingEntries) {
-            $promptPreview = if ($entry.prompt.Length -gt 100) { $entry.prompt.Substring(0, 100) + "..." } else { $entry.prompt }
-            Write-Host "  Prompt: $promptPreview" -ForegroundColor Gray
-            Write-Host "  Handler: $($entry.handler) | Calls: $($entry.call_count) | Errors: $($entry.error_count)" -ForegroundColor Gray
-            if ($entry.error) {
-                Write-Host "  API Error: $($entry.error)" -ForegroundColor Magenta
+    $matchingTasks = @($exactTasks | Where-Object { $_.task_type -eq $taskType })
+    $matchingEntries = @()
+    if ($runScopedEntries.Count -gt 0) {
+        $matchingEntries = @($runScopedEntries | Where-Object { $_.task_type -eq $taskType })
+    }
+    elseif ($competitionEntries.Count -gt 0) {
+        $matchingEntries = @($competitionEntries | Where-Object { $_.task_type -eq $taskType } | Select-Object -Last 3)
+    }
+
+    if ($matchingTasks.Count -gt 0) {
+        Write-Host "  Exact task context:" -ForegroundColor Cyan
+        foreach ($task in $matchingTasks) {
+            $taskLabel = if ($null -ne $task.task_index) { "$($task.task_index)" } else { "?" }
+            $promptText = "$($task.prompt)"
+            $promptPreview = if ($promptText.Length -gt 100) { $promptText.Substring(0, 100) + "..." } else { $promptText }
+            Write-Host "    Task $taskLabel | Handler: $($task.handler) | Calls: $($task.call_count) | Errors: $($task.error_count)" -ForegroundColor Gray
+            Write-Host "    Prompt: $promptPreview" -ForegroundColor Gray
+            if ($task.error) {
+                Write-Host "    Error: $($task.error)" -ForegroundColor Magenta
+            }
+
+            $failingCalls = @($task.api_calls | Where-Object { $_.Status -ge 400 })
+            foreach ($call in ($failingCalls | Select-Object -First 2)) {
+                Write-Host "    Failing call: $($call.Method) $($call.Path) -> $($call.Status)" -ForegroundColor DarkRed
+                if ($call.Error) {
+                    Write-Host "      $($call.Error)" -ForegroundColor DarkRed
+                }
             }
         }
+    }
+    elseif ($matchingEntries.Count -gt 0) {
+        Write-Host "  Heuristic log context:" -ForegroundColor DarkYellow
+        foreach ($entry in $matchingEntries) {
+            $promptText = "$($entry.prompt)"
+            $promptPreview = if ($promptText.Length -gt 100) { $promptText.Substring(0, 100) + "..." } else { $promptText }
+            Write-Host "    Handler: $($entry.handler) | Calls: $($entry.call_count) | Errors: $($entry.error_count)" -ForegroundColor Gray
+            Write-Host "    Prompt: $promptPreview" -ForegroundColor Gray
+            if ($entry.error) {
+                Write-Host "    Error: $($entry.error)" -ForegroundColor Magenta
+            }
+        }
+    }
+    else {
+        Write-Host "  No local task log context matched this task type." -ForegroundColor Yellow
     }
     
     # Search Zendesk for help articles
@@ -295,6 +421,7 @@ Write-Host "  Score:    $($sub.score_raw) / $($sub.score_max)"
 Write-Host "  Passed:   $($passed.Count) checks" -ForegroundColor Green
 Write-Host "  Failed:   $($failed.Count) checks" -ForegroundColor Red
 Write-Host "  Tasks:    $($failedByTask.Keys.Count) task types with failures"
+Write-Host "  Correlation: $correlationMode" -ForegroundColor Gray
 
 # --- Recommendations ---
 $taskTypes = $failedByTask.Keys | Sort-Object
