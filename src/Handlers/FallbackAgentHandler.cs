@@ -124,6 +124,7 @@ public class FallbackAgentHandler : ITaskHandler
         - Copy field values VERBATIM from the prompt
         - Minimize API calls — every call counts for efficiency scoring
         - Every 4xx error permanently reduces the score — validate before sending
+        - POST /project REQUIRES projectManager — always GET /employee?count=1&fields=id first and include projectManager: {id: N}
 
         COMMON PATTERNS:
         - Create customer: POST /customer {name, email, isCustomer: true, ...}
@@ -141,6 +142,9 @@ public class FallbackAgentHandler : ITaskHandler
         - Voucher search: ALWAYS use the search_vouchers tool — NEVER call api_get on /ledger/voucher directly (dateFrom/dateTo are mandatory and from= is a pagination int, not a date)
         - Timesheet entry: (1) Check/enable SMART_TIME_TRACKING via GET/POST /company/salesmodules, (2) GET /employee?firstName=X&lastName=Y to resolve employee, (3) GET /activity?name=X or POST /activity to create, (4) POST /timesheet/entry {project:{id}, activity:{id}, employee:{id}, date, hours}
         - Create contact person for customer: (1) GET /customer?name=X to get customerId, (2) POST /contact {firstName, lastName, email, customer:{id}}
+        - Create project: (1) GET /employee?count=1&fields=id to get projectManager. (2) POST /project {name, projectManager: {id: N}, startDate: "YYYY-MM-DD", isInternal: true}. projectManager AND startDate are REQUIRED. Do NOT include a "status" field — it does not exist on project.
+        - Create activity: POST /activity {name, activityType: "PROJECT_GENERAL_ACTIVITY", isProjectActivity: true}. activityType is REQUIRED.
+        - Ledger account analysis (cost growth): (1) GET /ledger/account?count=500&fields=id,number,name to list accounts, (2) use search_vouchers for Jan period and Feb period, (3) group voucher lines by account number and compute sum per period, (4) compare to find accounts with largest increase. Expense accounts are typically in range 4000-7999.
         """;
 
     private readonly TripletexKnowledgeService _knowledge;
@@ -333,6 +337,47 @@ public class FallbackAgentHandler : ITaskHandler
     {
         var path = args.GetProperty("path").GetString()!;
         object body = args.TryGetProperty("body", out var b) ? (object)b : new Dictionary<string, object>();
+
+        // Option A: auto-fixup required/invalid fields before writing
+        var cleanPath = path.TrimStart('/').Split('?')[0].ToLowerInvariant();
+        if (cleanPath == "project" && body is JsonElement projectEl)
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(projectEl.GetRawText())!
+                .ToDictionary(k => k.Key, v => (object)v.Value);
+
+            // Strip invalid "status" field (causes 422 "Feltet eksisterer ikke i objektet")
+            dict.Remove("status");
+
+            // Inject projectManager if missing (required field)
+            if (!dict.ContainsKey("projectManager"))
+            {
+                var emp = await api.GetAsync("/employee?count=1&fields=id");
+                if (emp.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+                {
+                    var pmId = vals[0].GetProperty("id").GetInt64();
+                    dict["projectManager"] = new Dictionary<string, object> { ["id"] = pmId };
+                    _logger.LogInformation("Fallback agent auto-injected projectManager id={PmId} for POST /project", pmId);
+                }
+            }
+
+            // Inject startDate if missing (required field)
+            if (!dict.ContainsKey("startDate"))
+            {
+                dict["startDate"] = JsonDocument.Parse($"\"{DateTime.UtcNow:yyyy-MM-dd}\"").RootElement;
+                _logger.LogInformation("Fallback agent auto-injected startDate for POST /project");
+            }
+
+            body = dict;
+        }
+        else if (cleanPath == "activity" && body is JsonElement activityEl && !activityEl.TryGetProperty("activityType", out _))
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(activityEl.GetRawText())!
+                .ToDictionary(k => k.Key, v => (object)v.Value);
+            dict["activityType"] = JsonDocument.Parse("\"PROJECT_GENERAL_ACTIVITY\"").RootElement;
+            body = dict;
+            _logger.LogInformation("Fallback agent auto-injected activityType=PROJECT_GENERAL_ACTIVITY for POST /activity");
+        }
+
         _logger.LogInformation("Fallback agent POST {Path}", path);
         var result = await api.PostAsync(path, body);
         return TruncateResult(result);

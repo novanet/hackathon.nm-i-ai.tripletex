@@ -670,7 +670,7 @@ public class SandboxValidator
         if (!result.EntityId.HasValue) return;
 
         var voucher = await api.GetAsync($"/ledger/voucher/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "*" });
+            new Dictionary<string, string> { ["fields"] = "id,description,date,postings(id,amountGross,amountCurrency,amount,account(id,number,name))" });
         var val = voucher.GetProperty("value");
 
         // Check 1: voucher_found (2pts)
