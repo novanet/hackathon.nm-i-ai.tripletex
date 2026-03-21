@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 21:05:47 |
+| Timestamp | 03/21/2026 23:26:53 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 4783 ms |
+| Elapsed | 4636 ms |
 | API Calls | 7 |
 | Errors | 0 |
 
@@ -29,7 +29,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"nn","entities":{"voucher":{"supplierName":"Komplett","supplierOrgNumber":"947591762","invoiceNumber":"KVITTERING - 04.05.2026","account":"6800","amount":6540.0,"date":"2026-05-04","vatRate":"25"},"department":{"name":"Kvalitetskontroll"}},"relationships":{},"raw_amounts":["6250.00","290.00","6540.00","1635.00"],"dates":["2026-05-04"],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"pt","entities":{"voucher":{"supplierName":"Elkjøp","supplierOrgNumber":"909344514","invoiceNumber":"KVITTERING - 05.01.2026","account":"6800","amount":"11490.00","date":"2026-01-05","vatRate":"25"},"department":{"name":"HR"}},"relationships":{},"raw_amounts":["11490.00","1350.00"],"dates":["2026-01-05"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

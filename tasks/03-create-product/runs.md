@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:45:42 |
+| Timestamp | 03/21/2026 23:26:20 |
 | Task Type | `create_product` |
 | Handler | `ProductHandler` |
 | Success | True |
-| Elapsed | 3849 ms |
+| Elapsed | 2295 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_product","entities":{"product":{"name":"Leite fresco","productNumber":"7872","unitPrice":46250,"vatRate":15}},"relationships":{},"action":"create","raw_amounts":["46250"],"dates":[],"files_needed":false,"language":"pt"}
+{"task_type":"create_product","action":"create","language":"fr","entities":{"product":{"name":"Stockage cloud","productNumber":"8912","price":26850,"vatRate":25}},"relationships":{},"raw_amounts":["26850"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
@@ -62,5 +62,4 @@
 | name | `Manutenção` | `Manutenção` | ✅ | 2 |
 | number | `9200` | `9200` | ✅ | 1 |
 | priceExcludingVatCurrency | `5500` | `5500,0000000000` | ✅ | 1 |
-
 

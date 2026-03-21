@@ -6,13 +6,14 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:15:23 |
+| Timestamp | 03/21/2026 23:21:21 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
-| Success | True |
-| Elapsed | 5209 ms |
-| API Calls | 8 |
-| Errors | 0 |
+| Success | False |
+| Elapsed | 4679 ms |
+| API Calls | 7 |
+| Errors | 3 |
+| Error | `email: Ugyldig format.` |
 
 ### API Calls
 
@@ -20,17 +21,16 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=catarina.oliveira%40example.org&count=10&fie...` | ✅  |  |
+| 3 | `GET` | `/employee?email=ricardo.s%C3%A1nchez%40example.org&count=10&...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
-| 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/employee/employment?employeeId=18690036&count=1&fields=id%2...` | ✅  |  |
-| 7 | `GET` | `/employee/employment/2847427?fields=id%2CemploymentDetails%2...` | ✅  |  |
-| 8 | `POST` | `/employee/employment/details` | ✅  |  |
+| 5 | `POST` | `/employee` | ✅  |  |
+| 6 | `GET` | `/employee?email=ricardo.s%C3%A1nchez%40example.org&count=10&...` | ✅  |  |
+| 7 | `POST` | `/employee` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"pt","entities":{"employee":{"firstName":"Catarina","lastName":"Oliveira","dateOfBirth":"1990-02-26","startDate":"2026-06-26","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":610000,"workingHoursPerDay":7.5,"occupationName":"HR-rådgiver"},"department":{"name":"Økonomi"}},"relationships":{},"raw_amounts":["610000"],"dates":["2026-06-26","1990-02-26"],"files_needed":false}
+{"task_type":"create_employee","action":"create","language":"es","entities":{"employee":{"firstName":"Ricardo","lastName":"Sánchez","dateOfBirth":"1990-11-04","startDate":"2026-09-29","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":750000,"workingHoursPerDay":7.5},"department":{"name":"Utvikling"}},"relationships":{},"raw_amounts":["750000"],"dates":["2026-09-29","1990-11-04"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

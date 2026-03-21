@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:16:39 |
+| Timestamp | 03/21/2026 23:24:42 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 64956 ms |
+| Elapsed | 5160 ms |
 | API Calls | 8 |
 | Errors | 0 |
 
@@ -20,17 +20,17 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
 | 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `PUT` | `/ledger/account/477440350` | ✅  |  |
-| 4 | `GET` | `/product?number=6475&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/product?number=3355&count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/product?number=3067&count=1&fields=id` | ✅  |  |
+| 3 | `PUT` | `/ledger/account/477939768` | ✅  |  |
+| 4 | `GET` | `/product?number=6309&count=1&fields=id` | ✅  |  |
+| 5 | `GET` | `/product?number=9721&count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/product?number=9844&count=1&fields=id` | ✅  |  |
 | 7 | `POST` | `/order` | ✅  |  |
 | 8 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"de","entities":{"customer":{"name":"Grünfeld GmbH","orgNumber":"913178823"},"invoice":{"orderLines":[{"description":"Netzwerkdienst","productNumber":"6475","unitPrice":6400,"vatRate":25},{"description":"Softwarelizenz","productNumber":"3355","unitPrice":2450,"vatRate":15},{"description":"Webdesign","productNumber":"3067","unitPrice":12300,"vatRate":0}]}},"relationships":{"customer":"Grünfeld GmbH"},"raw_amounts":["6400","2450","12300"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"en","entities":{"customer":{"name":"Windmill Ltd","orgNumber":"926849395"},"invoice":{"orderLines":[{"description":"Software License","productNumber":"6309","unitPrice":5600,"vatRate":25},{"description":"Consulting Hours","productNumber":"9721","unitPrice":8350,"vatRate":15},{"description":"Data Advisory","productNumber":"9844","unitPrice":6500,"vatRate":0}]}},"relationships":{"customer":"Windmill Ltd"},"raw_amounts":["5600.00","8350.00","6500.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

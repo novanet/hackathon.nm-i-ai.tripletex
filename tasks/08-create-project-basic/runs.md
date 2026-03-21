@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:14:54 |
+| Timestamp | 03/21/2026 23:27:07 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 3540 ms |
+| Elapsed | 3328 ms |
 | API Calls | 4 |
 | Errors | 0 |
 
@@ -18,15 +18,15 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=849572458&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/employee?count=1&fields=id&firstName=Nathan&lastName=Dubois` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=869753017&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=In%C3%A8s&lastName=Dub...` | ✅  |  |
 | 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
 | 4 | `POST` | `/project` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"fr","entities":{"project":{"name":"Migration Lumière","customerName":"Lumière SARL","customerOrgNumber":"849572458","projectManager":{"firstName":"Nathan","lastName":"Dubois","email":"nathan.dubois@example.org"}}},"relationships":{"customer":"Lumière SARL"},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"fr","entities":{"project":{"name":"Implémentation Colline","customerName":"Colline SARL","customerOrgNumber":"869753017","projectManager":{"firstName":"Inès","lastName":"Dubois","email":"ines.dubois@example.org"}}},"relationships":{"customer":"Colline SARL"},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

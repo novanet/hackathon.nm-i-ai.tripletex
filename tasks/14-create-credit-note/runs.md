@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:03:51 |
+| Timestamp | 03/21/2026 23:22:51 |
 | Task Type | `create_credit_note` |
 | Handler | `CreditNoteHandler` |
 | Success | True |
-| Elapsed | 4094 ms |
+| Elapsed | 3859 ms |
 | API Calls | 5 |
 | Errors | 0 |
 
@@ -22,12 +22,12 @@
 | 2 | `POST` | `/customer` | ✅  |  |
 | 3 | `POST` | `/order` | ✅  |  |
 | 4 | `POST` | `/invoice` | ✅  |  |
-| 5 | `PUT` | `/invoice/2147649162/:createCreditNote?date=2026-03-22&sendTo...` | ✅  |  |
+| 5 | `PUT` | `/invoice/2147650929/:createCreditNote?date=2026-03-22&sendTo...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_credit_note","action":"reverse","language":"nn","entities":{"creditNote":{"customerName":"Nordlys AS","customerOrgNumber":"829535181","description":"Nettverksteneste","amount":15550.0,"vatIncluded":false}},"relationships":{"customer":"Nordlys AS"},"raw_amounts":["15550.00"],"dates":[],"files_needed":false}
+{"task_type":"create_credit_note","action":"reverse","language":"nn","entities":{"creditNote":{"customerName":"Vestfjord AS","customerOrgNumber":"860678403","description":"Skylagring","amount":45350}},"relationships":{"customer":"Vestfjord AS"},"raw_amounts":["45350"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

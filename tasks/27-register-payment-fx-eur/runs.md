@@ -6,30 +6,29 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 22:56:48 |
+| Timestamp | 03/21/2026 23:25:07 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 6750 ms |
-| API Calls | 7 |
+| Elapsed | 4209 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 2 | `GET` | `/currency?code=EUR&count=1&fields=id%2Ccode` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 4 | `POST` | `/customer` | ✅  |  |
-| 5 | `POST` | `/order` | ✅  |  |
-| 6 | `POST` | `/invoice` | ✅  |  |
-| 7 | `PUT` | `/invoice/2147648308/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
+| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 2 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 3 | `POST` | `/customer` | ✅  |  |
+| 4 | `POST` | `/order` | ✅  |  |
+| 5 | `POST` | `/invoice` | ✅  |  |
+| 6 | `PUT` | `/invoice/2147651118/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"update","language":"nn","entities":{"invoice":{"amount":11219,"currency":"EUR","exchangeRateAtInvoice":10.02,"exchangeRateAtPayment":10.29},"customer":{"name":"Bølgekraft AS","orgNumber":"825006206"},"exchangeRateDifference":{"amount":3030.57,"account":"8070"}},"relationships":{"customer":"Bølgekraft AS"},"raw_amounts":["11219","10.02","10.29","3030.57"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"fr","entities":{"payment":{"amount":135000.0,"currency":"NOK","exchangeRate":10.71,"exchangeRateDifferenceAccount":"8070"},"customer":{"name":"Océan SARL","orgNumber":"863081793"}},"relationships":{},"raw_amounts":["12689","11.28","10.71"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

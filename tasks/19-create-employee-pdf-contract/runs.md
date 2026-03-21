@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:14:39 |
+| Timestamp | 03/21/2026 23:23:26 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 5065 ms |
-| API Calls | 8 |
+| Elapsed | 5994 ms |
+| API Calls | 10 |
 | Errors | 0 |
 
 ### API Calls
@@ -20,17 +20,19 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=brita.vik%40example.org&count=10&fields=id%2...` | ✅  |  |
+| 3 | `GET` | `/employee?email=miguel.costa%40example.org&count=10&fields=i...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
 | 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/employee/employment?employeeId=18689823&count=1&fields=id%2...` | ✅  |  |
-| 7 | `GET` | `/employee/employment/2847332?fields=id%2CemploymentDetails%2...` | ✅  |  |
-| 8 | `POST` | `/employee/employment/details` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18692006&count=1&fields=id%2...` | ✅  |  |
+| 7 | `GET` | `/employee/employment/occupationCode?from=0&count=1000&fields...` | ✅  |  |
+| 8 | `GET` | `/employee/employment/occupationCode?nameNO=Innkj%C3%B8per&co...` | ✅  |  |
+| 9 | `GET` | `/employee/employment/2848363?fields=id%2CemploymentDetails%2...` | ✅  |  |
+| 10 | `POST` | `/employee/employment/details` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"nn","entities":{"employee":{"firstName":"Brita","lastName":"Vik","dateOfBirth":"1985-01-15","startDate":"2026-09-12","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":820000,"workingHoursPerDay":7.5,"department":"Økonomi"},"department":{"name":"Økonomi"}},"relationships":{},"raw_amounts":["820000"],"dates":["2026-09-12","1985-01-15"],"files_needed":true}
+{"task_type":"create_employee","action":"create","language":"pt","entities":{"employee":{"firstName":"Miguel","lastName":"Costa","dateOfBirth":"1981-11-06","nationalIdentityNumber":"06118185755","email":"miguel.costa@example.org","bankAccountNumber":"63096583860","startDate":"2026-11-24","occupationCode":"3313","occupationName":"Innkjøper","employmentType":"Fast stilling","salaryType":"Fastlonn (manedlig)","employmentPercentage":100.0,"annualSalary":790000},"department":{"name":"Innkjøp"}},"relationships":{},"raw_amounts":["790000"],"dates":["2026-11-24","1981-11-06"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

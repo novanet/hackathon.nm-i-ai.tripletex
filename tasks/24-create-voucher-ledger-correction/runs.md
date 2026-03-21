@@ -6,31 +6,30 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 09:45:47 |
+| Timestamp | 03/21/2026 23:21:38 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 14880 ms |
-| API Calls | 8 |
-| Errors | 1 |
+| Elapsed | 5013 ms |
+| API Calls | 7 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6300&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 4 | `POST` | `/ledger/voucher/importDocument` | ✅  |  |
-| 5 | `PUT` | `/supplierInvoice/voucher/608897830/postings?sendToLedger=fal...` | ✅  |  |
-| 6 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 7 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 8 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
+| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","entities":{"voucher":{"supplierName":"Luna SL","supplierOrgNumber":"882423107","invoiceNumber":"INV-2026-1307","account":"6300","amount":52937,"date":"2026-05-13","vatRate":"25"},"supplier":{"name":"Luna SL","orgNumber":"882423107","address":"Torggata 80, 0182 Oslo","bankAccountNumber":"53631470366"}},"relationships":{},"action":"create","raw_amounts":["42350","10587","52937"],"dates":["2026-05-13","2026-06-12"],"files_needed":true,"language":"es"}
+{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Biltema","supplierOrgNumber":"905717480","invoiceNumber":"KVITTERING - 30.05.2026","account":"6800","amount":"1320.00","date":"2026-05-30","vatRate":"25"},"department":{"name":"Logistikk"}},"relationships":{},"raw_amounts":["700.00","1320.00","330.00"],"dates":["2026-05-30"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

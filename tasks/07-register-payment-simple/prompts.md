@@ -76,7 +76,7 @@ O pagamento de Rio Azul Lda (org. nº 819320152) referente à fatura "Relatório
 The payment from Blueshore Ltd (org no. 987904135) for the invoice "System Development" (13100 NOK excl. VAT) was returned by the bank. Reverse the payment so the invoice shows the outstanding amount again.
 ```
 
-## Prompt 13 (sandbox | es)
+## Prompt 13 (competition | es)
 
 ```text
 El cliente Olivares SL (org. nº 874863807) tiene una factura pendiente de 12700 NOK sin IVA por "Servicio de red". Registre el pago completo de esta factura.
@@ -111,5 +111,4 @@ Betalinga frå Strandvik AS (org.nr 859256333) for fakturaen 'Nettverksteneste' 
 ```text
 Registrer betaling for faktura til Kari Hansen AS, beløp 12500 kr, forfallsdato 2026-03-21
 ```
-
 

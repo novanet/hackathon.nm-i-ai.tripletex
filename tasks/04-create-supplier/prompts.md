@@ -64,22 +64,22 @@ Registre el proveedor Sierra SL con número de organización 854784978. Correo e
 Registrer leverandøren Tindra AS med organisasjonsnummer 888286195. E-post: faktura@tindra.no.
 ```
 
-## Prompt 11 (sandbox | en)
+## Prompt 11 (competition | es)
+
+```text
+Registre el proveedor Río Verde SL con número de organización 839568630. Correo electrónico: faktura@roverdesl.no.
+```
+
+## Prompt 12 (competition | en)
 
 ```text
 Register the supplier Oakwood Ltd with organization number 887507295. Email: faktura@oakwoodltd.no.
 ```
 
-## Prompt 12 (sandbox | es)
-
-```text
-Registre el proveedor Costa Brava SL con número de organización 936616224. Correo electrónico: faktura@costabravasl.no.
-```
-
 ## Prompt 13 (sandbox | es)
 
 ```text
-Registre el proveedor Río Verde SL con número de organización 839568630. Correo electrónico: faktura@roverdesl.no.
+Registre el proveedor Costa Brava SL con número de organización 936616224. Correo electrónico: faktura@costabravasl.no.
 ```
 
 ## Prompt 14 (sandbox | es)

@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:52:35 |
+| Timestamp | 03/21/2026 23:24:20 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 13100 ms |
+| Elapsed | 3483 ms |
 | API Calls | 4 |
 | Errors | 0 |
 
@@ -18,15 +18,15 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=987904135&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/invoice?customerId=108317036&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=874863807&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/invoice?customerId=108458165&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
 | 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 4 | `PUT` | `/invoice/2147567108/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
+| 4 | `PUT` | `/invoice/2147651043/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"reverse","language":"en","entities":{"payment":{"amount":13100},"invoice":{"description":"System Development","amount":13100},"customer":{"name":"Blueshore Ltd","orgNumber":"987904135"}},"relationships":{"customer":"Blueshore Ltd","invoice":"System Development"},"raw_amounts":["13100"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"es","entities":{"customer":{"name":"Olivares SL","orgNumber":"874863807"},"invoice":{"description":"Servicio de red","amount":12700,"vatIncluded":false}},"relationships":{"customer":"Olivares SL"},"raw_amounts":["12700"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
@@ -67,5 +67,4 @@
 | payment_reversed | `> 0` | `40750,00` | ✅ | 2 |
 | has_customer | `true` | `true` | ✅ | 1 |
 | has_amount | `> 0` | `40750,0` | ✅ | 1 |
-
 

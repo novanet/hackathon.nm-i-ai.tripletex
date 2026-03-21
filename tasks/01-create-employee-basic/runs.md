@@ -6,25 +6,29 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:36:04 |
+| Timestamp | 03/21/2026 23:23:57 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
-| Success | True |
-| Elapsed | 12346 ms |
-| API Calls | 2 |
-| Errors | 0 |
+| Success | False |
+| Elapsed | 8796 ms |
+| API Calls | 5 |
+| Errors | 2 |
+| Error | `lastName: Kan ikke være null.; firstName: Kan ikke være null.` |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/department?count=1&fields=id` | ✅  |  |
-| 2 | `POST` | `/employee` | ✅  |  |
+| 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
+| 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 3 | `GET` | `/employee?email=charles.taylor%40example.org&count=10&fields...` | ✅  |  |
+| 4 | `POST` | `/employee` | ✅  |  |
+| 5 | `POST` | `/employee` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","entities":{"employee":{"firstName":"Jules","lastName":"Richard","email":"jules.richard@example.org","dateOfBirth":"1986-08-02","startDate":"2026-07-28"}},"relationships":{},"action":"create","raw_amounts":[],"dates":[],"files_needed":false,"language":null}
+{"task_type":"create_employee","action":"create","language":null,"entities":{"employee":{"email":"charles.taylor@example.org","dateOfBirth":"1994-10-21","startDate":"2026-06-03"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
