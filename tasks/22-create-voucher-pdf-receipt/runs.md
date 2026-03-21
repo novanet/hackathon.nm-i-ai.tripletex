@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:35:25 |
+| Timestamp | 03/21/2026 21:05:47 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 5798 ms |
+| Elapsed | 4783 ms |
 | API Calls | 7 |
 | Errors | 0 |
 
@@ -20,7 +20,7 @@
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
 | 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=7140&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
 | 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
@@ -29,7 +29,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"pt","entities":{"voucher":{"supplierName":"Starbucks","supplierOrgNumber":"894014253","invoiceNumber":"KVITTERING - 04.01.2026","account":"7140","amount":6600.0,"date":"2026-01-04","vatRate":"25"},"department":{"name":"Utvikling"}},"relationships":{},"raw_amounts":["6600.00","7270.00","1817.50"],"dates":["2026-01-04"],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"nn","entities":{"voucher":{"supplierName":"Komplett","supplierOrgNumber":"947591762","invoiceNumber":"KVITTERING - 04.05.2026","account":"6800","amount":6540.0,"date":"2026-05-04","vatRate":"25"},"department":{"name":"Kvalitetskontroll"}},"relationships":{},"raw_amounts":["6250.00","290.00","6540.00","1635.00"],"dates":["2026-05-04"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

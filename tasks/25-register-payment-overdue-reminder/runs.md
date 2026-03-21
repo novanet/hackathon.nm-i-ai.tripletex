@@ -6,29 +6,32 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:44:31 |
-| Task Type | `unknown` |
-| Handler | `FallbackAgentHandler` |
+| Timestamp | 03/21/2026 20:59:08 |
+| Task Type | `overdue_invoice_reminder` |
+| Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 20121 ms |
-| API Calls | 6 |
-| Errors | 5 |
+| Elapsed | 5940 ms |
+| API Calls | 9 |
+| Errors | 1 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/invoice?status=OVERDUE&count=1&fields=id,customer` | ✅  |  |
-| 2 | `GET` | `/invoice?count=100&fields=id,customer,status,dueDate` | ✅  |  |
-| 3 | `GET` | `/ledger/voucher?dateFrom=2023-01-01&dateTo=2023-12-31&from=0...` | ✅  |  |
-| 4 | `GET` | `/invoice?status=OVERDUE&from=0&count=100` | ✅  |  |
-| 5 | `GET` | `/invoice?fields=id,customer,dueDate,status&count=100` | ✅  |  |
-| 6 | `GET` | `/invoice?status=OVERDUE&invoiceDateFrom=2023-01-01&invoiceDa...` | ✅  |  |
+| 1 | `GET` | `/invoice?invoiceDateFrom=2020-01-01&invoiceDateTo=2026-03-21...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=1500&count=1&fields=id` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=3400&count=1&fields=id` | ✅  |  |
+| 4 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 5 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 6 | `POST` | `/order` | ✅  |  |
+| 7 | `POST` | `/invoice` | ✅  |  |
+| 8 | `PUT` | `/invoice/2147637548/:send?sendType=EMAIL` | ✅  |  |
+| 9 | `PUT` | `/invoice/2147637538/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"unknown","entities":{},"relationships":{},"action":"unknown","raw_amounts":["35","5000"],"dates":[],"files_needed":false,"language":"es"}
+{"task_type":"overdue_invoice_reminder","action":"create","language":"nn","entities":{"reminderFee":{"amount":35,"debitAccount":"1500","creditAccount":"3400","partialPaymentAmount":5000}},"relationships":{},"raw_amounts":["35","5000"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
@@ -71,5 +74,4 @@
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
 | handler_executed | `true` | `true` | ✅ | 1 |
-
 

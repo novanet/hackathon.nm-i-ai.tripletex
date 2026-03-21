@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/20/2026 22:45:48 |
+| Timestamp | 03/21/2026 21:09:43 |
 | Task Type | `create_supplier` |
 | Handler | `SupplierHandler` |
 | Success | True |
-| Elapsed | 4758 ms |
+| Elapsed | 4254 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -19,6 +19,12 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
+
+### LLM Extraction
+
+```json
+{"task_type":"create_supplier","action":"create","language":"en","entities":{"supplier":{"name":"Brightstone Ltd","orgNumber":"849923331","email":"faktura@brightstoneltd.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+```
 
 ## Latest Sandbox Run
 
@@ -53,5 +59,4 @@
 | supplier_found | `true` | `true` | ✅ | 2 |
 | name | `Océan SARL` | `Océan SARL` | ✅ | 2 |
 | email | `faktura@ocansarl.no` | `faktura@ocansarl.no` | ✅ | 1 |
-
 
