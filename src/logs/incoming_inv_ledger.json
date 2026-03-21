@@ -1,0 +1,1 @@
+{"status":422,"code":18000,"message":"Validering feilet.","link":"https://tripletex.no/v2-docs/","developerMessage":null,"validationMessages":[{"field":"orderLines.externalId","message":"Kan ikke være null.","path":"orderLines[0].externalId","rootId":null}],"requestId":"12994385-f27e-4a3d-95a1-effc89a1b6c1"}

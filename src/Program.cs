@@ -343,6 +343,7 @@ static void LogSubmission(SolveRequest request, ExtractionResult? extracted, Tri
             language = extracted?.Language,
             handler = handlerName,
             entities = extracted?.Entities,
+            extraction = extracted,
             handler_metadata = (handlerResult?.Metadata?.Count > 0) ? handlerResult.Metadata : null,
             entity_id = handlerResult?.EntityId,
             success,

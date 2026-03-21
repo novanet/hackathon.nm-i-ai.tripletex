@@ -127,40 +127,37 @@ public class EmployeeHandler : ITaskHandler
             body["department"] = new Dictionary<string, object> { ["id"] = deptId.Value };
         }
 
-        _logger.LogInformation("Creating employee: {FirstName} {LastName}",
-            body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"));
+        // Inline employment in employee POST body to save API calls (no separate GET /division + POST /employee/employment)
+        // Competition environments don't require division; sandbox does. Fallback handles sandbox gracefully.
+        if (!string.IsNullOrEmpty(startDate))
+        {
+            body["employments"] = new[]
+            {
+                new Dictionary<string, object> { ["startDate"] = startDate }
+            };
+        }
 
-        var apiResult = await api.PostAsync("/employee", body);
+        _logger.LogInformation("Creating employee: {FirstName} {LastName} (inlineEmployment={HasEmployment})",
+            body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"), !string.IsNullOrEmpty(startDate));
+
+        JsonElement apiResult;
+        try
+        {
+            apiResult = await api.PostAsync("/employee", body);
+        }
+        catch (TripletexApiException ex) when (ex.StatusCode == 422
+            && body.ContainsKey("employments"))
+        {
+            // Inline employment rejected (sandbox requires division, or other environment constraint) — retry without employment
+            _logger.LogInformation("Inline employment failed (422), retrying without employment");
+            body.Remove("employments");
+            apiResult = await api.PostAsync("/employee", body);
+        }
         var employeeId = apiResult.GetProperty("value").GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created employee ID: {Id}", employeeId);
 
         var result = new HandlerResult { EntityType = "employee", EntityId = employeeId };
-
-        // Create employment record if startDate is specified
-        if (!string.IsNullOrEmpty(startDate))
-        {
-            _logger.LogInformation("Creating employment for employee {Id} with startDate {StartDate}", employeeId, startDate);
-            // Always fetch division — competition environments require it
-            var divResult = await api.GetAsync("/division", new Dictionary<string, string>
-            {
-                ["count"] = "1",
-                ["fields"] = "id"
-            });
-            long? divId = null;
-            if (divResult.TryGetProperty("values", out var divs) && divs.GetArrayLength() > 0)
-                divId = divs[0].GetProperty("id").GetInt64();
-
-            var empBody = new Dictionary<string, object>
-            {
-                ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
-                ["startDate"] = startDate
-            };
-            if (divId.HasValue)
-                empBody["division"] = new Dictionary<string, object> { ["id"] = divId.Value };
-
-            await api.PostAsync("/employee/employment", empBody);
-        }
 
         // Assign administrator role if needed
         if (needsAdmin)

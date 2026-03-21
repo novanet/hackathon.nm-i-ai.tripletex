@@ -2,8 +2,8 @@
 Push-Location "$PSScriptRoot\..\src"
 $secrets = dotnet user-secrets list 2>$null
 Pop-Location
-$token = ($secrets | Where-Object { $_ -match "^Tripletex:SessionToken" }) -replace "^[^=]+=\s*",""
-$baseUrl = ($secrets | Where-Object { $_ -match "^Tripletex:BaseUrl" }) -replace "^[^=]+=\s*",""
+$token = ($secrets | Where-Object { $_ -match "^Tripletex:SessionToken" }) -replace "^[^=]+=\s*", ""
+$baseUrl = ($secrets | Where-Object { $_ -match "^Tripletex:BaseUrl" }) -replace "^[^=]+=\s*", ""
 $cred = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("0:$token"))
 $headers = @{ Authorization = "Basic $cred"; Accept = "application/json" }
 

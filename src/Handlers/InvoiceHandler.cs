@@ -100,7 +100,23 @@ public class InvoiceHandler : ITaskHandler
             ["orderLines"] = lines
         };
 
-        var orderResult = await api.PostAsync("/order", orderBody);
+        JsonElement orderResult;
+        try
+        {
+            orderResult = await api.PostAsync("/order", orderBody);
+        }
+        catch (TripletexApiException ex) when (ex.StatusCode == 422 && ex.Message.Contains("mva-kode", StringComparison.OrdinalIgnoreCase))
+        {
+            // Hardcoded VAT IDs invalid in this environment — resolve dynamically and retry
+            _logger.LogWarning("Hardcoded VAT type IDs rejected, falling back to dynamic lookup");
+            var (dynDefault, dynTypes) = await ResolveVatTypesFull(api);
+            vatTypeId = dynDefault;
+            outputRateMap = BuildOutputRateMap(dynTypes);
+            lines = BuildOrderLines(extracted, vatTypeId, outputRateMap);
+            await CreateProductsForLines(api, lines, extracted, vatTypeId, outputRateMap);
+            orderBody["orderLines"] = lines;
+            orderResult = await api.PostAsync("/order", orderBody);
+        }
         var orderId = orderResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created order ID: {Id}", orderId);
 
@@ -339,29 +355,39 @@ public class InvoiceHandler : ITaskHandler
             ?? GetStringField(invoice, "customerOrgNumber")
             ?? GetStringField(invoice, "organizationNumber");
 
-        // Single search: prefer org number, fallback to name
-        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,name" };
-        if (!string.IsNullOrEmpty(orgNumber))
-            searchParams["organizationNumber"] = orgNumber;
-        else if (!string.IsNullOrEmpty(custName))
-            searchParams["name"] = custName;
-
-        if (searchParams.Count > 2) // has a search criterion beyond count/fields
-        {
-            var result = await api.GetAsync("/customer", searchParams);
-            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
-                return vals[0].GetProperty("id").GetInt64();
-        }
-
-        // Not found — create
+        // POST-first: in competition clean envs, customer never exists — skip the GET
         var custBody = new Dictionary<string, object> { ["isCustomer"] = true };
         if (!string.IsNullOrEmpty(custName)) custBody["name"] = custName;
         else custBody["name"] = "Kunde";
         if (!string.IsNullOrEmpty(orgNumber)) custBody["organizationNumber"] = orgNumber;
         SetIfPresent(custBody, cust, "email");
 
-        var custResult = await api.PostAsync("/customer", custBody);
-        return custResult.GetProperty("value").GetProperty("id").GetInt64();
+        try
+        {
+            var custResult = await api.PostAsync("/customer", custBody);
+            return custResult.GetProperty("value").GetProperty("id").GetInt64();
+        }
+        catch (TripletexApiException ex) when (ex.StatusCode == 422)
+        {
+            // Duplicate or validation error in reused sandbox — fall back to search
+            _logger.LogInformation("POST /customer failed ({Msg}), falling back to GET search", ex.Message);
+        }
+
+        // Fallback: search by org number or name
+        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,name" };
+        if (!string.IsNullOrEmpty(orgNumber))
+            searchParams["organizationNumber"] = orgNumber;
+        else if (!string.IsNullOrEmpty(custName))
+            searchParams["name"] = custName;
+
+        if (searchParams.Count > 2)
+        {
+            var result = await api.GetAsync("/customer", searchParams);
+            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+                return vals[0].GetProperty("id").GetInt64();
+        }
+
+        throw new InvalidOperationException($"Could not create or find customer '{custName}'");
     }
 
     private async Task SendInvoice(TripletexApiClient api, long invoiceId)

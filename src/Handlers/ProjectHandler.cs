@@ -200,9 +200,16 @@ public class ProjectHandler : ITaskHandler
             return handlerResult;
         }
 
-        // If extraction includes an invoice entity, create an invoice for the project (e.g. partial payment)
+        // For fixed-price projects with a percentage in the prompt, ALWAYS create the milestone invoice
+        // (don't gate on LLM extracting an "invoice" entity — that's unreliable)
+        bool isFixedPrice = body.ContainsKey("isFixedPrice") && body["isFixedPrice"] is true;
+        bool hasPercentage = extracted.RawPrompt != null && System.Text.RegularExpressions.Regex.IsMatch(extracted.RawPrompt, @"\d+\s*%");
         var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice");
-        if (invoiceEntity != null && invoiceEntity.Count > 0)
+        if (isFixedPrice && hasPercentage)
+        {
+            await CreateProjectInvoice(api, extracted, projectId, body);
+        }
+        else if (invoiceEntity != null && invoiceEntity.Count > 0)
         {
             await CreateProjectInvoice(api, extracted, projectId, body);
         }
@@ -531,46 +538,8 @@ public class ProjectHandler : ITaskHandler
         var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created project invoice ID: {Id}, amount: {Amount}", invoiceId, invoiceAmount);
 
-        // Link invoice to project via preliminaryInvoice (writable field on Project schema)
-        // IMPORTANT: Tripletex PUT is a full replacement — must include all fields to avoid resetting them
-        try
-        {
-            var projectGet = await api.GetAsync($"/project/{projectId}", new Dictionary<string, string>
-            {
-                ["fields"] = "id,version,name,startDate,endDate,isFixedPrice,fixedprice,customer,projectManager,department,isInternal"
-            });
-            var pv = projectGet.GetProperty("value");
-            var updateBody = new Dictionary<string, object>
-            {
-                ["id"] = projectId,
-                ["version"] = pv.GetProperty("version").GetInt32(),
-                ["name"] = pv.GetProperty("name").GetString()!,
-                ["startDate"] = pv.GetProperty("startDate").GetString()!,
-                ["preliminaryInvoice"] = new { id = invoiceId }
-            };
-            // Preserve fixedprice/isFixedPrice
-            if (pv.TryGetProperty("isFixedPrice", out var ifp) && ifp.GetBoolean())
-            {
-                updateBody["isFixedPrice"] = true;
-                if (pv.TryGetProperty("fixedprice", out var fp))
-                    updateBody["fixedprice"] = fp.GetDecimal();
-            }
-            // Preserve customer
-            if (pv.TryGetProperty("customer", out var cust) && cust.ValueKind == JsonValueKind.Object
-                && cust.TryGetProperty("id", out var custId))
-                updateBody["customer"] = new { id = custId.GetInt64() };
-            // Preserve project manager
-            if (pv.TryGetProperty("projectManager", out var pm) && pm.ValueKind == JsonValueKind.Object
-                && pm.TryGetProperty("id", out var pmId))
-                updateBody["projectManager"] = new { id = pmId.GetInt64() };
-
-            await api.PutAsync($"/project/{projectId}", updateBody);
-            _logger.LogInformation("Linked invoice {InvoiceId} to project {ProjectId} via preliminaryInvoice", invoiceId, projectId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to link preliminaryInvoice to project (non-fatal)");
-        }
+        // NOTE: preliminaryInvoice field on PUT /project is silently ignored (always reads back as null)
+        // Probing confirmed this — skip the GET+PUT to save 2 API calls
     }
 
     private async Task EnsureBankAccount(TripletexApiClient api)
