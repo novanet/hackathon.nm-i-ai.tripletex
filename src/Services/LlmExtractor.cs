@@ -27,7 +27,7 @@ public class LlmExtractor
             "create_project", "create_supplier", "create_voucher",
             "delete_entity", "enable_module", "run_payroll",
             "bank_reconciliation", "create_timesheet", "create_contact",
-            "set_fixed_price", "unknown"],
+            "set_fixed_price", "cost_analysis", "annual_accounts", "unknown"],
           "entities": {
             "<entity_type>": {
               "<field>": "<value>"
@@ -49,7 +49,7 @@ public class LlmExtractor
         - Parse monetary amounts as numbers (strip currency symbols)
         - Convert all dates to YYYY-MM-DD format
         - If the task type is ambiguous, use "unknown"
-        - For tasks that require ANALYZING or QUERYING existing data before acting (e.g., "analyze the ledger", "find the top expense accounts", "identify the biggest increase", "analyser hovudboka", "finn dei tre kontoane", "identifizieren Sie die drei Konten", "analice el libro mayor", "analysez le grand livre", "analise o razão geral"), ALWAYS use task_type "unknown". Do NOT fabricate placeholder entity names like "Kostnadskonto 1" — the actual data must be queried from the API at runtime.
+        - For tasks that require ANALYZING or QUERYING the general ledger to find accounts with cost increases, then creating projects for those accounts, ALWAYS use task_type "cost_analysis". Keywords: "analyze the ledger", "find the top expense accounts", "identify the biggest increase", "analyser hovudboka", "finn dei tre kontoane", "kostnadskontoane", "største auke", "identifizieren Sie die drei Konten", "analice el libro mayor", "analysez le grand livre", "analise o razão geral", "Totalkostnadene auka", "cost increase", "expense accounts". Do NOT fabricate placeholder entity names like "Kostnadskonto 1" — the actual data must be queried from the API at runtime. Set entities to empty ({}).
         - For employee tasks, you MUST extract "firstName" and "lastName" from the full name. The name appears after words like 'named', 'navn', 'name', 'nombre', 'llamado/llamada', 'namens', 'nommé', 'Nome'. Split the full name: first word = firstName, rest = lastName. Also extract ALL mentioned fields: email, dateOfBirth (YYYY-MM-DD), startDate (YYYY-MM-DD), phoneNumberMobile, nationalIdentityNumber, bankAccountNumber
         - If the prompt grants special access or elevated role to an employee, set "roles": ["admin"]
         - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates. Prices are ALWAYS treated as EXCLUDING VAT by default — do NOT set "vatIncluded" at all unless the prompt EXPLICITLY says prices include VAT (e.g. "inkl. mva", "inkludert mva", "including VAT", "incl. VAT", "con IVA incluido", "IVA inclusa", "inkl. MwSt", "TTC"). Only then set "vatIncluded": true.
@@ -69,6 +69,11 @@ public class LlmExtractor
         - For timesheet / hour logging tasks (registrere timer, log hours, timeregnstest, registrar horas, enregistrer heures, Stunden erfassen) that do NOT involve creating an invoice, use task_type "create_timesheet". Extract into a "timesheet" entity: "hours" (number), "activityName" (name of the activity), "date" (YYYY-MM-DD). Also extract "employee": {"firstName", "lastName", "email"} and "project": {"name"} if mentioned.
         - For creating a contact person for an existing customer (kontaktperson, contact person, persona de contacto, personne de contact, Ansprechpartner), use task_type "create_contact". Extract into a "contact" entity: "firstName", "lastName", "email", "phoneNumberMobile". Also extract "customer": {"name"} in relationships.
         - For tasks that set a fixed price on an existing project (sett fastpris, set fixed price, fijar precio fijo, prix fixe, Festpreis, definir preco fixo), use task_type "set_fixed_price". Extract into a "project" entity: "name" (project name), "fixedPrice" (amount as number). Also extract "customer" entity if mentioned.
+        - For simplified annual accounts / year-end closing tasks (forenklet årsoppgjør, simplified annual accounts, cierre contable anual, clôture annuelle, Jahresabschluss, fechamento contábil) that involve depreciation (avskrivninger, depreciation), prepaid reversals (forskuddsbetalte kostnader, prepaid), and/or tax calculations, use task_type "annual_accounts". Extract as follows:
+          - Create an "annualAccounts" entity with: "date" (YYYY-MM-DD, typically Dec 31 of the year), "depreciationExpenseAccount" (e.g. "6010"), "accumulatedDepreciationAccount" (e.g. "1209"), "prepaidAccount" (e.g. "1700"), "prepaidAmount" (number), "taxExpenseAccount" (e.g. "8700"), "taxPayableAccount" (e.g. "2920"), "taxRate" (e.g. 0.22).
+          - For each fixed asset to depreciate, create a separate entity "asset1", "asset2", "asset3" etc. with: "name" (asset name), "bookValue" (current book value as number), "usefulLife" (remaining useful life in years as number), "assetAccount" (the asset's balance sheet account number, e.g. "1210").
+          - IMPORTANT: Each asset gets its OWN entity key (asset1, asset2, asset3) — do NOT nest them under annualAccounts.
+          - Example: asset1: {"name": "IT-utstyr", "bookValue": 382900, "usefulLife": 5, "assetAccount": "1210"}
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)
@@ -416,6 +421,10 @@ public class LlmExtractor
             var emailMatch2 = Regex.Match(prompt, @"[\w.-]+@[\w.-]+\.\w{2,}");
             if (emailMatch2.Success) contact["email"] = emailMatch2.Value;
             result.Entities["contact"] = contact;
+        }
+        else if (Regex.IsMatch(lower, @"\b(årsoppgjør|avskrivning|annual\s*accounts|depreciation|amortissement|jahresabschluss|depreciaci[oó]n|ammortamento|forskuddsbetalt|prepaid|skattekostnad)\b"))
+        {
+            result.TaskType = "annual_accounts";
         }
         else
         {

@@ -62,6 +62,9 @@ public class SandboxValidator
                 case "create_voucher":
                     await ValidateVoucher(api, extracted, handlerResult, report);
                     break;
+                case "annual_accounts":
+                    await ValidateAnnualAccounts(api, extracted, handlerResult, report);
+                    break;
                 case "delete_entity":
                     await ValidateDelete(api, handlerResult, report);
                     break;
@@ -760,6 +763,47 @@ public class SandboxValidator
             report.Checks.Add(new ValidationCheck("correct_amount", expectedTotalAmount.Value.ToString("F2"),
                 debitSum.ToString("F2"), amountOk, 3));
         }
+    }
+
+    private async Task ValidateAnnualAccounts(TripletexApiClient api, ExtractionResult extracted, HandlerResult handlerResult, ValidationReport report)
+    {
+        // Check that at least one voucher was created (we use the first one as primary)
+        if (handlerResult.EntityId == null)
+        {
+            report.Checks.Add(new ValidationCheck("vouchers_found", "at_least_1", "0", false, 4));
+            return;
+        }
+
+        var allIds = new List<long> { handlerResult.EntityId.Value };
+        allIds.AddRange(handlerResult.AdditionalEntityIds);
+        int totalVouchers = allIds.Count;
+
+        // Check: created at least 1 depreciation voucher
+        report.Checks.Add(new ValidationCheck("depreciation_voucher_found", "≥1", totalVouchers.ToString(), totalVouchers >= 1, 3));
+
+        // Check: multiple vouchers created (ideally 3 depreciation + 1 prepaid + 1 tax = 5)
+        report.Checks.Add(new ValidationCheck("multiple_vouchers_found", "≥3", totalVouchers.ToString(), totalVouchers >= 3, 2));
+
+        // Verify first voucher exists in Tripletex
+        var voucherId = handlerResult.EntityId.Value;
+        JsonElement voucher;
+        try
+        {
+            var response = await api.GetAsync($"/ledger/voucher/{voucherId}",
+                new Dictionary<string, string> { ["fields"] = "id,date,description,postings(id,amount,account(id,number))" });
+            voucher = response.GetProperty("value");
+        }
+        catch
+        {
+            report.Checks.Add(new ValidationCheck("voucher_valid", "valid", "not_found", false, 3));
+            return;
+        }
+
+        report.Checks.Add(new ValidationCheck("voucher_valid", "valid", "valid", true, 3));
+
+        // Check first voucher has postings
+        bool hasPostings = voucher.TryGetProperty("postings", out var postings) && postings.GetArrayLength() >= 2;
+        report.Checks.Add(new ValidationCheck("has_postings", "≥2", postings.GetArrayLength().ToString(), hasPostings, 2));
     }
 
     private static readonly Dictionary<string, string> _deleteEntityPaths = new(StringComparer.OrdinalIgnoreCase)

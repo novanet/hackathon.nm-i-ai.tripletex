@@ -45,6 +45,8 @@ builder.Services.AddSingleton<PayrollHandler>();
 builder.Services.AddSingleton<BankReconciliationHandler>();
 builder.Services.AddSingleton<TimesheetHandler>();
 builder.Services.AddSingleton<FixedPriceProjectHandler>();
+builder.Services.AddSingleton<CostAnalysisHandler>();
+builder.Services.AddSingleton<AnnualAccountsHandler>();
 builder.Services.AddSingleton<TaskRouter>();
 builder.Services.AddSingleton<SandboxValidator>();
 builder.Services.AddSingleton<TripletexKnowledgeService>();
@@ -130,6 +132,16 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         {
             extracted.TaskType = "create_credit_note";
             logger.LogInformation("Overriding task_type from create_invoice to create_credit_note (credit note keywords detected)");
+        }
+
+        // Override to cost_analysis when prompt mentions analyzing ledger/cost accounts + creating projects
+        if (extracted.TaskType is "create_project" or "unknown" &&
+            System.Text.RegularExpressions.Regex.IsMatch(promptLower,
+                @"\b(analyser?\s+hovudboka|analyser?\s+hovedboka|analyze?\s+the\s+(?:general\s+)?ledger|kostnadskontoane|kostnadskonto|expense\s+accounts?\s+with\s+(?:biggest|largest)|totalkostnadene\s+auka|analice\s+el\s+libro|analysez\s+le\s+grand\s+livre|analise\s+o\s+raz[aã]o|analysieren\s+Sie\s+das\s+Hauptbuch)\b")
+            )
+        {
+            extracted.TaskType = "cost_analysis";
+            logger.LogInformation("Overriding task_type to cost_analysis (ledger analysis keywords detected)");
         }
 
         // Detect "send" in invoice prompts

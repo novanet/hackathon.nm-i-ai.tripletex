@@ -35,6 +35,8 @@ public class TaskRouter
             ["create_timesheet"] = services.GetRequiredService<TimesheetHandler>(),
             ["set_fixed_price"] = services.GetRequiredService<FixedPriceProjectHandler>(),
             ["update_project"] = services.GetRequiredService<FixedPriceProjectHandler>(),
+            ["annual_accounts"] = services.GetRequiredService<AnnualAccountsHandler>(),
+            ["cost_analysis"] = services.GetRequiredService<CostAnalysisHandler>(),
         };
 
         var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
