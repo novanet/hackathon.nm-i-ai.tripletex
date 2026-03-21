@@ -37,13 +37,15 @@ public class EmployeeHandler : ITaskHandler
         SetIfPresent(body, emp, "lastName");
         SetIfPresent(body, emp, "email");
 
-        // Generate synthetic email when missing (e.g. PDF offer letters rarely include one).
+        // Generate synthetic email when missing or empty (e.g. PDF offer letters rarely include one).
         // STANDARD userType requires email — without it we get a 422.
-        if (!body.ContainsKey("email"))
+        var emailMissing = !body.ContainsKey("email")
+            || string.IsNullOrWhiteSpace(body["email"]?.ToString());
+        if (emailMissing)
         {
             var fn = (body.TryGetValue("firstName", out var fnv) ? fnv?.ToString() : null) ?? "employee";
             var ln = (body.TryGetValue("lastName", out var lnv) ? lnv?.ToString() : null) ?? "noreply";
-            var syntheticEmail = $"{fn.ToLowerInvariant().Replace(" ", ".")}.{ln.ToLowerInvariant().Replace(" ", ".")}@example.org";
+            var syntheticEmail = BuildSyntheticEmail(fn, ln);
             body["email"] = syntheticEmail;
             _logger.LogInformation("No email extracted — using synthetic: {Email}", syntheticEmail);
         }
@@ -75,6 +77,12 @@ public class EmployeeHandler : ITaskHandler
         // in Relationships, search for it; otherwise just take the first one.
         long? deptId = null;
         extracted.Relationships.TryGetValue("department", out var deptName);
+        if (string.IsNullOrWhiteSpace(deptName)
+            && extracted.Entities.TryGetValue("department", out var deptEntity)
+            && deptEntity.TryGetValue("name", out var deptEntityName))
+        {
+            deptName = deptEntityName is JsonElement deptJe ? deptJe.ToString() : deptEntityName?.ToString();
+        }
         var deptQueryParams = new Dictionary<string, string>
         {
             ["count"] = "1",
@@ -152,24 +160,15 @@ public class EmployeeHandler : ITaskHandler
         _logger.LogInformation("Creating employee: {FirstName} {LastName} (inlineEmployment={HasEmployment})",
             body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"), !string.IsNullOrEmpty(startDate));
 
-        JsonElement apiResult;
-        try
-        {
-            apiResult = await api.PostAsync("/employee", body);
-        }
-        catch (TripletexApiException ex) when (ex.StatusCode == 422
-            && body.ContainsKey("employments"))
-        {
-            // Inline employment rejected (sandbox requires division, or other environment constraint) — retry without employment
-            _logger.LogInformation("Inline employment failed (422), retrying without employment");
-            body.Remove("employments");
-            apiResult = await api.PostAsync("/employee", body);
-        }
-        var employeeId = apiResult.GetProperty("value").GetProperty("id").GetInt64();
+        var apiResult = await CreateEmployeeWithRetryAsync(api, body);
+        var employeeValue = apiResult.TryGetProperty("value", out var valueWrapper) ? valueWrapper : apiResult;
+        var employeeId = employeeValue.GetProperty("id").GetInt64();
 
         _logger.LogInformation("Created employee ID: {Id}", employeeId);
 
         var result = new HandlerResult { EntityType = "employee", EntityId = employeeId };
+
+        await TryCreateEmploymentDetailsAsync(api, emp, employeeId, startDate);
 
         // Assign administrator role if needed
         if (needsAdmin)
@@ -279,6 +278,352 @@ public class EmployeeHandler : ITaskHandler
         {
             body[key] = val is JsonElement je ? je.ToString() : val;
         }
+    }
+
+    private async Task<JsonElement> CreateEmployeeWithRetryAsync(TripletexApiClient api, Dictionary<string, object> body)
+    {
+        try
+        {
+            return await api.PostAsync("/employee", body);
+        }
+        catch (TripletexApiException ex) when (ex.StatusCode == 422 && body.ContainsKey("employments"))
+        {
+            _logger.LogInformation("Inline employment failed (422), retrying without employment");
+            body.Remove("employments");
+        }
+
+        try
+        {
+            return await api.PostAsync("/employee", body);
+        }
+        catch (TripletexApiException ex) when (ex.StatusCode == 422 && IsDuplicateEmailError(ex))
+        {
+            var existingEmployee = await TryFindExistingEmployeeByEmailAsync(api, body);
+            if (existingEmployee != null)
+            {
+                _logger.LogInformation("Duplicate email belongs to existing matching employee, reusing employee ID {EmployeeId}", existingEmployee.Value.GetProperty("id").GetInt64());
+                return existingEmployee.Value;
+            }
+
+            var firstName = (body.TryGetValue("firstName", out var fnv) ? fnv?.ToString() : null) ?? "employee";
+            var lastName = (body.TryGetValue("lastName", out var lnv) ? lnv?.ToString() : null) ?? "noreply";
+            var uniqueEmail = BuildUniqueEmail(firstName, lastName, body["email"]?.ToString());
+            body["email"] = uniqueEmail;
+            _logger.LogInformation("Duplicate employee email rejected by API, retrying with unique email: {Email}", uniqueEmail);
+            return await api.PostAsync("/employee", body);
+        }
+    }
+
+    private async Task<JsonElement?> TryFindExistingEmployeeByEmailAsync(TripletexApiClient api, Dictionary<string, object> body)
+    {
+        var email = body.TryGetValue("email", out var emailObj) ? emailObj?.ToString() : null;
+        if (string.IsNullOrWhiteSpace(email))
+            return null;
+
+        var existing = await api.GetAsync("/employee", new Dictionary<string, string>
+        {
+            ["email"] = email,
+            ["count"] = "10",
+            ["fields"] = "id,firstName,lastName,email"
+        });
+
+        if (!existing.TryGetProperty("values", out var values))
+            return null;
+
+        var expectedFirstName = body.TryGetValue("firstName", out var firstNameObj) ? firstNameObj?.ToString() : null;
+        var expectedLastName = body.TryGetValue("lastName", out var lastNameObj) ? lastNameObj?.ToString() : null;
+
+        foreach (var candidate in values.EnumerateArray())
+        {
+            var candidateFirstName = candidate.TryGetProperty("firstName", out var fnProp) ? fnProp.GetString() : null;
+            var candidateLastName = candidate.TryGetProperty("lastName", out var lnProp) ? lnProp.GetString() : null;
+
+            if (string.Equals(candidateFirstName, expectedFirstName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidateLastName, expectedLastName, StringComparison.OrdinalIgnoreCase))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task TryCreateEmploymentDetailsAsync(TripletexApiClient api, Dictionary<string, object> emp, long employeeId, string? startDate)
+    {
+        if (string.IsNullOrWhiteSpace(startDate))
+            return;
+
+        var hasEmploymentDetailData = HasValue(emp, "jobCode")
+            || HasValue(emp, "occupationCode")
+            || HasValue(emp, "employmentPercentage")
+            || HasValue(emp, "percentageOfFullTimeEquivalent")
+            || HasValue(emp, "annualSalary")
+            || HasValue(emp, "workingHoursPerDay")
+            || HasValue(emp, "dailyWorkingHours")
+            || HasValue(emp, "standardWorkHoursPerDay")
+            || HasValue(emp, "employmentType")
+            || HasValue(emp, "employmentForm")
+            || HasValue(emp, "salaryType")
+            || HasValue(emp, "remunerationType");
+
+        if (!hasEmploymentDetailData)
+            return;
+
+        var divisionId = await ResolveDivisionIdAsync(api);
+        var employmentId = await EnsureEmploymentAsync(api, employeeId, startDate, divisionId);
+        if (employmentId == null)
+            return;
+
+        var detailsBody = new Dictionary<string, object>
+        {
+            ["employment"] = new Dictionary<string, object> { ["id"] = employmentId.Value },
+            ["date"] = startDate,
+        };
+
+        var occupationCode = GetString(emp, "occupationCode") ?? GetString(emp, "jobCode");
+        if (!string.IsNullOrWhiteSpace(occupationCode))
+        {
+            var occupationCodeId = await ResolveOccupationCodeIdAsync(api, occupationCode);
+            if (occupationCodeId != null)
+                detailsBody["occupationCode"] = new Dictionary<string, object> { ["id"] = occupationCodeId.Value };
+        }
+
+        var percentage = GetDecimal(emp, "percentageOfFullTimeEquivalent") ?? GetDecimal(emp, "employmentPercentage");
+        if (percentage != null)
+            detailsBody["percentageOfFullTimeEquivalent"] = percentage.Value;
+
+        var annualSalary = GetDecimal(emp, "annualSalary");
+        if (annualSalary != null)
+            detailsBody["annualSalary"] = annualSalary.Value;
+
+        var remunerationType = MapRemunerationType(GetString(emp, "remunerationType") ?? GetString(emp, "salaryType"));
+        if (!string.IsNullOrWhiteSpace(remunerationType))
+            detailsBody["remunerationType"] = remunerationType;
+
+        var employmentType = MapEmploymentType(GetString(emp, "employmentType"));
+        if (!string.IsNullOrWhiteSpace(employmentType))
+            detailsBody["employmentType"] = employmentType;
+
+        var employmentForm = MapEmploymentForm(GetString(emp, "employmentForm") ?? GetString(emp, "employmentType"));
+        if (!string.IsNullOrWhiteSpace(employmentForm))
+            detailsBody["employmentForm"] = employmentForm;
+
+        var workingHours = GetDecimal(emp, "workingHoursPerDay")
+            ?? GetDecimal(emp, "dailyWorkingHours")
+            ?? GetDecimal(emp, "standardWorkHoursPerDay");
+        if (workingHours != null)
+        {
+            detailsBody["workingHoursScheme"] = "NOT_SHIFT";
+            detailsBody["shiftDurationHours"] = workingHours.Value;
+        }
+
+        await api.PostAsync("/employee/employment/details", detailsBody);
+        _logger.LogInformation("Created employment details for employee {EmployeeId}", employeeId);
+    }
+
+    private async Task<long?> EnsureEmploymentAsync(TripletexApiClient api, long employeeId, string startDate, long? divisionId)
+    {
+        var employmentResult = await api.GetAsync("/employee/employment", new Dictionary<string, string>
+        {
+            ["employeeId"] = employeeId.ToString(),
+            ["count"] = "1",
+            ["fields"] = "id,version,startDate,division(id)"
+        });
+
+        if (employmentResult.TryGetProperty("values", out var employments) && employments.GetArrayLength() > 0)
+        {
+            var employment = employments[0];
+            var employmentId = employment.GetProperty("id").GetInt64();
+            var hasDivision = employment.TryGetProperty("division", out var division)
+                && division.ValueKind == JsonValueKind.Object
+                && division.TryGetProperty("id", out _);
+
+            if (!hasDivision && divisionId != null && employment.TryGetProperty("version", out var versionProp))
+            {
+                await api.PutAsync($"/employee/employment/{employmentId}", new Dictionary<string, object>
+                {
+                    ["id"] = employmentId,
+                    ["version"] = versionProp.GetInt64(),
+                    ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                    ["startDate"] = startDate,
+                    ["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value },
+                });
+            }
+
+            return employmentId;
+        }
+
+        try
+        {
+            var body = new Dictionary<string, object>
+            {
+                ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                ["startDate"] = startDate,
+            };
+
+            if (divisionId != null)
+                body["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value };
+
+            var created = await api.PostAsync("/employee/employment", body);
+            return created.GetProperty("value").GetProperty("id").GetInt64();
+        }
+        catch (TripletexApiException ex)
+        {
+            _logger.LogWarning(ex, "Failed to ensure employment for employee {EmployeeId}", employeeId);
+            return null;
+        }
+    }
+
+    private async Task<long?> ResolveOccupationCodeIdAsync(TripletexApiClient api, string occupationCode)
+    {
+        try
+        {
+            var result = await api.GetAsync("/employee/employment/occupationCode", new Dictionary<string, string>
+            {
+                ["count"] = "10",
+                ["fields"] = "id,code,nameNO",
+                ["code"] = occupationCode
+            });
+
+            if (result.TryGetProperty("values", out var values))
+            {
+                foreach (var value in values.EnumerateArray())
+                {
+                    var code = value.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
+                    if (string.Equals(code, occupationCode, StringComparison.OrdinalIgnoreCase))
+                        return value.GetProperty("id").GetInt64();
+                }
+
+                if (values.GetArrayLength() > 0)
+                    return values[0].GetProperty("id").GetInt64();
+            }
+        }
+        catch (TripletexApiException ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve occupation code {OccupationCode}", occupationCode);
+        }
+
+        return null;
+    }
+
+    private async Task<long?> ResolveDivisionIdAsync(TripletexApiClient api)
+    {
+        try
+        {
+            var result = await api.GetAsync("/division", new Dictionary<string, string>
+            {
+                ["count"] = "1",
+                ["fields"] = "id"
+            });
+
+            if (result.TryGetProperty("values", out var values) && values.GetArrayLength() > 0)
+                return values[0].GetProperty("id").GetInt64();
+        }
+        catch (TripletexApiException ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve division for employment details");
+        }
+
+        return null;
+    }
+
+    private static bool HasValue(Dictionary<string, object> entity, string key)
+        => !string.IsNullOrWhiteSpace(GetString(entity, key));
+
+    private static string? GetString(Dictionary<string, object> entity, string key)
+    {
+        if (!entity.TryGetValue(key, out var value) || value is null)
+            return null;
+
+        return value is JsonElement je ? je.ToString() : value.ToString();
+    }
+
+    private static decimal? GetDecimal(Dictionary<string, object> entity, string key)
+    {
+        var value = GetString(entity, key);
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        if (decimal.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            return parsed;
+
+        if (decimal.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.GetCultureInfo("nb-NO"), out parsed))
+            return parsed;
+
+        return null;
+    }
+
+    private static string? MapEmploymentType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var lower = value.Trim().ToLowerInvariant();
+        if (lower.Contains("freelance")) return "FREELANCE";
+        if (lower.Contains("maritime")) return "MARITIME";
+        return "ORDINARY";
+    }
+
+    private static string? MapEmploymentForm(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var lower = value.Trim().ToLowerInvariant();
+        if (lower.Contains("temporary") || lower.Contains("midlertid") || lower.Contains("tempor")) return "TEMPORARY";
+        if (lower.Contains("call")) return "TEMPORARY_ON_CALL";
+        return "PERMANENT";
+    }
+
+    private static string? MapRemunerationType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var lower = value.Trim().ToLowerInvariant();
+        if (lower.Contains("hour") || lower.Contains("time") || lower.Contains("timel")) return "HOURLY_WAGE";
+        if (lower.Contains("commission") || lower.Contains("provis")) return "COMMISION_PERCENTAGE";
+        if (lower.Contains("fee") || lower.Contains("honorar")) return "FEE";
+        return "MONTHLY_WAGE";
+    }
+
+    private static bool IsDuplicateEmailError(TripletexApiException ex)
+        => ex.Message.Contains("e-postadressen", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("email", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildSyntheticEmail(string firstName, string lastName)
+    {
+        var fn = SanitizeEmailPart(firstName, "employee");
+        var ln = SanitizeEmailPart(lastName, "noreply");
+        return $"{fn}.{ln}@example.org";
+    }
+
+    private static string BuildUniqueEmail(string firstName, string lastName, string? currentEmail)
+    {
+        var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        if (!string.IsNullOrWhiteSpace(currentEmail) && currentEmail.Contains('@'))
+        {
+            var parts = currentEmail.Split('@', 2);
+            var local = SanitizeEmailPart(parts[0], "employee");
+            var domain = SanitizeEmailPart(parts[1], "example.org").Replace(".", "-");
+            return $"{local}.{stamp}@{parts[1]}";
+        }
+
+        var fn = SanitizeEmailPart(firstName, "employee");
+        var ln = SanitizeEmailPart(lastName, "noreply");
+        return $"{fn}.{ln}.{stamp}@example.org";
+    }
+
+    private static string SanitizeEmailPart(string? value, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+
+        var cleaned = new string(value
+            .Trim()
+            .ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '.')
+            .ToArray())
+            .Trim('.');
+
+        while (cleaned.Contains("..", StringComparison.Ordinal))
+            cleaned = cleaned.Replace("..", ".", StringComparison.Ordinal);
+
+        return string.IsNullOrWhiteSpace(cleaned) ? fallback : cleaned;
     }
 
     private static List<string> ParseStringList(object? val)

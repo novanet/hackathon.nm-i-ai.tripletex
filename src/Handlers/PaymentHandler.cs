@@ -81,7 +81,7 @@ public class PaymentHandler : ITaskHandler
     private static bool IsReminderFeeTask(ExtractionResult extracted)
     {
         // Primary: explicit task_type set by LLM
-        if (extracted.TaskType == "reminder_fee") return true;
+        if (extracted.TaskType is "reminder_fee" or "overdue_invoice_reminder") return true;
 
         // Legacy fallback: voucher1 entity with debit/credit accounts + payment + unknown customer
         var voucher1 = extracted.Entities.GetValueOrDefault("voucher1");
@@ -150,10 +150,22 @@ public class PaymentHandler : ITaskHandler
 
         // Step 2: Extract voucher and payment details
         var voucher1 = extracted.Entities.GetValueOrDefault("voucher1") ?? new();
-        var debitAccountNum = GetStringField(voucher1, "debitAccount") ?? "1500";
-        var creditAccountNum = GetStringField(voucher1, "creditAccount") ?? "3400";
-        var feeAmount = ParseDecimalField(voucher1, "amount") ?? 50m;
-        var feeDescription = GetStringField(voucher1, "description") ?? "Reminder fee";
+        var reminderFee = extracted.Entities.GetValueOrDefault("reminderFee") ?? new();
+        var payment = extracted.Entities.GetValueOrDefault("payment")
+            ?? extracted.Entities.GetValueOrDefault("payment1") ?? new();
+
+        var debitAccountNum = GetStringField(voucher1, "debitAccount")
+            ?? GetStringField(reminderFee, "debitAccount")
+            ?? "1500";
+        var creditAccountNum = GetStringField(voucher1, "creditAccount")
+            ?? GetStringField(reminderFee, "creditAccount")
+            ?? "3400";
+        var feeAmount = ParseDecimalField(voucher1, "amount")
+            ?? ParseDecimalField(reminderFee, "amount")
+            ?? 50m;
+        var feeDescription = GetStringField(voucher1, "description")
+            ?? GetStringField(reminderFee, "description")
+            ?? "Reminder fee";
 
         // Step 3: Resolve accounts + payment type in parallel
         var debitTask = api.GetAsync("/ledger/account", new Dictionary<string, string>
@@ -290,9 +302,9 @@ public class PaymentHandler : ITaskHandler
         }
 
         // Step 6: Register partial payment on the overdue invoice
-        var payment = extracted.Entities.GetValueOrDefault("payment")
-            ?? extracted.Entities.GetValueOrDefault("payment1") ?? new();
-        var partialAmount = amountOutstanding;
+        var partialAmount = ParseDecimalField(payment, "amount")
+            ?? ParseDecimalField(reminderFee, "partialPaymentAmount")
+            ?? amountOutstanding;
         var paymentTypeId = await paymentTypeTask;
         var paymentDate = ResolvePaymentDate(extracted);
 

@@ -75,6 +75,9 @@ public class SandboxValidator
                 case "run_payroll":
                     await ValidatePayroll(api, extracted, handlerResult, report);
                     break;
+                case "bank_reconciliation":
+                    await ValidateBankReconciliation(api, extracted, handlerResult, report);
+                    break;
                 default:
                     report.Checks.Add(new ValidationCheck("handler_executed", "true",
                         handlerResult.EntityId.HasValue ? "true" : "unknown", handlerResult.EntityId.HasValue));
@@ -107,10 +110,11 @@ public class SandboxValidator
         if (!result.EntityId.HasValue) return;
 
         var emp = await api.GetAsync($"/employee/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "*" });
+            new Dictionary<string, string> { ["fields"] = "id,firstName,lastName,email,dateOfBirth,phoneNumberMobile,department(id,name)" });
         var val = emp.GetProperty("value");
 
         var entity = extracted.Entities.GetValueOrDefault("employee") ?? new();
+        var departmentEntity = extracted.Entities.GetValueOrDefault("department") ?? new();
 
         // Employee found (1 point) — competition: 7 checks / 8pts = ~1.14/check
         report.Checks.Add(new ValidationCheck("employee_found", "true", "true", true, 1));
@@ -131,6 +135,21 @@ public class SandboxValidator
         // Phone (1 point)
         if (entity.ContainsKey("phoneNumberMobile"))
             CheckStringField(val, entity, "phoneNumberMobile", report, 1);
+
+        if (departmentEntity.TryGetValue("name", out var departmentNameObj))
+        {
+            var expectedDepartment = departmentNameObj?.ToString();
+            var actualDepartment = val.TryGetProperty("department", out var departmentProp)
+                && departmentProp.ValueKind == JsonValueKind.Object
+                && departmentProp.TryGetProperty("name", out var departmentNameProp)
+                ? departmentNameProp.GetString()
+                : null;
+
+            report.Checks.Add(new ValidationCheck("department", expectedDepartment ?? "",
+                actualDepartment ?? "(null)", string.Equals(expectedDepartment?.Trim(), actualDepartment?.Trim(), StringComparison.OrdinalIgnoreCase), 1));
+        }
+
+        await ValidateEmployeeEmploymentAsync(api, result.EntityId.Value, entity, report);
 
         // Administrator role (2 points) — competition: ~2pts out of 8 total
         if (result.Metadata.ContainsKey("adminRole"))
@@ -153,6 +172,123 @@ public class SandboxValidator
             {
                 report.Checks.Add(new ValidationCheck("administrator_role", "true", "unknown", false, 2));
             }
+        }
+    }
+
+    private async Task ValidateEmployeeEmploymentAsync(TripletexApiClient api, long employeeId, Dictionary<string, object> entity, ValidationReport report)
+    {
+        var needsEmploymentValidation = entity.ContainsKey("startDate")
+            || entity.ContainsKey("occupationCode")
+            || entity.ContainsKey("jobCode")
+            || entity.ContainsKey("employmentPercentage")
+            || entity.ContainsKey("percentageOfFullTimeEquivalent")
+            || entity.ContainsKey("annualSalary")
+            || entity.ContainsKey("employmentType")
+            || entity.ContainsKey("employmentForm")
+            || entity.ContainsKey("salaryType")
+            || entity.ContainsKey("remunerationType");
+
+        if (!needsEmploymentValidation)
+            return;
+
+        var expectedStartDate = GetStringFromEntity(entity, "startDate");
+        var employmentResponse = await api.GetAsync("/employee/employment", new Dictionary<string, string>
+        {
+            ["employeeId"] = employeeId.ToString(),
+            ["count"] = "20",
+            ["fields"] = "id,startDate,employmentDetails(date,occupationCode(code),percentageOfFullTimeEquivalent,annualSalary,employmentType,employmentForm,remunerationType)"
+        });
+
+        if (!employmentResponse.TryGetProperty("values", out var employments) || employments.GetArrayLength() == 0)
+        {
+            report.Checks.Add(new ValidationCheck("employment_found", "true", "false", false, 1));
+            return;
+        }
+
+        JsonElement? matchingEmployment = null;
+        foreach (var employment in employments.EnumerateArray())
+        {
+            var actualStartDate = employment.TryGetProperty("startDate", out var startDateProp) ? startDateProp.GetString() : null;
+            if (expectedStartDate == null || string.Equals(expectedStartDate, actualStartDate, StringComparison.OrdinalIgnoreCase))
+            {
+                matchingEmployment = employment;
+                break;
+            }
+        }
+
+        matchingEmployment ??= employments[0];
+        var selectedEmployment = matchingEmployment.Value;
+
+        report.Checks.Add(new ValidationCheck("employment_found", "true", "true", true, 1));
+
+        if (expectedStartDate != null)
+        {
+            var actualStartDate = selectedEmployment.TryGetProperty("startDate", out var startDateProp) ? startDateProp.GetString() : null;
+            report.Checks.Add(new ValidationCheck("employment.startDate", expectedStartDate,
+                actualStartDate ?? "(null)", string.Equals(expectedStartDate, actualStartDate, StringComparison.OrdinalIgnoreCase), 1));
+        }
+
+        if (!selectedEmployment.TryGetProperty("employmentDetails", out var detailsArray)
+            || detailsArray.ValueKind != JsonValueKind.Array
+            || detailsArray.GetArrayLength() == 0)
+        {
+            report.Checks.Add(new ValidationCheck("employment.details_found", "true", "false", false, 1));
+            return;
+        }
+
+        var details = detailsArray[detailsArray.GetArrayLength() - 1];
+        report.Checks.Add(new ValidationCheck("employment.details_found", "true", "true", true, 1));
+
+        var expectedOccupationCode = GetStringFromEntity(entity, "occupationCode") ?? GetStringFromEntity(entity, "jobCode");
+        if (!string.IsNullOrWhiteSpace(expectedOccupationCode))
+        {
+            var actualOccupationCode = details.TryGetProperty("occupationCode", out var occupationProp)
+                && occupationProp.ValueKind == JsonValueKind.Object
+                && occupationProp.TryGetProperty("code", out var codeProp)
+                ? codeProp.GetString()
+                : null;
+            report.Checks.Add(new ValidationCheck("employment.occupationCode", expectedOccupationCode,
+                actualOccupationCode ?? "(null)", string.Equals(expectedOccupationCode, actualOccupationCode, StringComparison.OrdinalIgnoreCase), 1));
+        }
+
+        var expectedPercentage = GetDecimalFromEntity(entity, "percentageOfFullTimeEquivalent") ?? GetDecimalFromEntity(entity, "employmentPercentage");
+        if (expectedPercentage.HasValue)
+        {
+            var actualPercentage = details.TryGetProperty("percentageOfFullTimeEquivalent", out var percentageProp) ? percentageProp.GetDecimal() : 0m;
+            report.Checks.Add(new ValidationCheck("employment.percentageOfFullTimeEquivalent", expectedPercentage.Value.ToString("0.##"),
+                actualPercentage.ToString("0.##"), expectedPercentage.Value == actualPercentage, 1));
+        }
+
+        var expectedAnnualSalary = GetDecimalFromEntity(entity, "annualSalary");
+        if (expectedAnnualSalary.HasValue)
+        {
+            var actualAnnualSalary = details.TryGetProperty("annualSalary", out var salaryProp) ? salaryProp.GetDecimal() : 0m;
+            report.Checks.Add(new ValidationCheck("employment.annualSalary", expectedAnnualSalary.Value.ToString("0.##"),
+                actualAnnualSalary.ToString("0.##"), expectedAnnualSalary.Value == actualAnnualSalary, 1));
+        }
+
+        var expectedEmploymentType = NormalizeEmploymentType(GetStringFromEntity(entity, "employmentType"));
+        if (!string.IsNullOrWhiteSpace(expectedEmploymentType))
+        {
+            var actualEmploymentType = details.TryGetProperty("employmentType", out var employmentTypeProp) ? employmentTypeProp.GetString() : null;
+            report.Checks.Add(new ValidationCheck("employment.employmentType", expectedEmploymentType,
+                actualEmploymentType ?? "(null)", string.Equals(expectedEmploymentType, actualEmploymentType, StringComparison.OrdinalIgnoreCase), 1));
+        }
+
+        var expectedEmploymentForm = NormalizeEmploymentForm(GetStringFromEntity(entity, "employmentForm") ?? GetStringFromEntity(entity, "employmentType"));
+        if (!string.IsNullOrWhiteSpace(expectedEmploymentForm))
+        {
+            var actualEmploymentForm = details.TryGetProperty("employmentForm", out var employmentFormProp) ? employmentFormProp.GetString() : null;
+            report.Checks.Add(new ValidationCheck("employment.employmentForm", expectedEmploymentForm,
+                actualEmploymentForm ?? "(null)", string.Equals(expectedEmploymentForm, actualEmploymentForm, StringComparison.OrdinalIgnoreCase), 1));
+        }
+
+        var expectedRemunerationType = NormalizeRemunerationType(GetStringFromEntity(entity, "remunerationType") ?? GetStringFromEntity(entity, "salaryType"));
+        if (!string.IsNullOrWhiteSpace(expectedRemunerationType))
+        {
+            var actualRemunerationType = details.TryGetProperty("remunerationType", out var remunerationTypeProp) ? remunerationTypeProp.GetString() : null;
+            report.Checks.Add(new ValidationCheck("employment.remunerationType", expectedRemunerationType,
+                actualRemunerationType ?? "(null)", string.Equals(expectedRemunerationType, actualRemunerationType, StringComparison.OrdinalIgnoreCase), 1));
         }
     }
 
@@ -677,7 +813,7 @@ public class SandboxValidator
         if (!result.EntityId.HasValue) return;
 
         var voucher = await api.GetAsync($"/ledger/voucher/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "id,description,date,postings(id,amountGross,amountCurrency,amount,account(id,number,name))" });
+            new Dictionary<string, string> { ["fields"] = "id,description,date,postings(id,amountGross,amountCurrency,amount,account(id,number,name),department(id,name))" });
         var val = voucher.GetProperty("value");
 
         // Check 1: voucher_found (2pts)
@@ -697,15 +833,15 @@ public class SandboxValidator
             postingCount = postings.GetArrayLength();
             foreach (var posting in postings.EnumerateArray())
             {
-                if (posting.TryGetProperty("amountGross", out var ag) && ag.ValueKind == JsonValueKind.Number)
+                if (posting.TryGetProperty("amount", out var a) && a.ValueKind == JsonValueKind.Number)
                 {
-                    var amt = ag.GetDecimal();
+                    var amt = a.GetDecimal();
                     if (amt > 0) debitSum += amt;
                     else creditSum += Math.Abs(amt);
                 }
-                else if (posting.TryGetProperty("amount", out var a) && a.ValueKind == JsonValueKind.Number)
+                else if (posting.TryGetProperty("amountGross", out var ag) && ag.ValueKind == JsonValueKind.Number)
                 {
-                    var amt = a.GetDecimal();
+                    var amt = ag.GetDecimal();
                     if (amt > 0) debitSum += amt;
                     else creditSum += Math.Abs(amt);
                 }
@@ -728,33 +864,81 @@ public class SandboxValidator
             if (key.StartsWith("posting", StringComparison.OrdinalIgnoreCase) || key.StartsWith("line", StringComparison.OrdinalIgnoreCase))
                 postingEntities.Add(extracted.Entities[key]);
         }
-        if (postingEntities.Count > 0 && postings.ValueKind == JsonValueKind.Array)
+        var expectedAccounts = new List<string>();
+        foreach (var pe in postingEntities)
+        {
+            var expectedAcct = pe.TryGetValue("accountNumber", out var an) ? an?.ToString()
+                : pe.TryGetValue("account", out var a) ? a?.ToString() : null;
+            if (!string.IsNullOrWhiteSpace(expectedAcct))
+                expectedAccounts.Add(expectedAcct.Trim());
+        }
+
+        var voucherAccount = GetStringFromEntity(voucherEntity, "account") ?? GetStringFromEntity(voucherEntity, "accountNumber");
+        if (!string.IsNullOrWhiteSpace(voucherAccount))
+            expectedAccounts.Add(voucherAccount.Trim());
+        if ((GetStringFromEntity(voucherEntity, "supplierName") ?? GetStringFromEntity(voucherEntity, "supplierOrgNumber")) != null)
+            expectedAccounts.Add("2400");
+
+        expectedAccounts = expectedAccounts.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (expectedAccounts.Count > 0 && postings.ValueKind == JsonValueKind.Array)
         {
             bool accountsOk = true;
-            foreach (var pe in postingEntities)
+            foreach (var expectedAcct in expectedAccounts)
             {
-                var expectedAcct = pe.TryGetValue("accountNumber", out var an) ? an?.ToString()
-                    : pe.TryGetValue("account", out var a) ? a?.ToString() : null;
-                if (expectedAcct != null)
+                bool found = false;
+                foreach (var posting in postings.EnumerateArray())
                 {
-                    bool found = false;
-                    foreach (var posting in postings.EnumerateArray())
+                    if (posting.TryGetProperty("account", out var acctRef) && acctRef.ValueKind == JsonValueKind.Object
+                        && acctRef.TryGetProperty("number", out var numProp))
                     {
-                        if (posting.TryGetProperty("account", out var acctRef) && acctRef.ValueKind == JsonValueKind.Object
-                            && acctRef.TryGetProperty("number", out var numProp))
+                        if (numProp.GetRawText().Trim('"') == expectedAcct)
                         {
-                            if (numProp.GetRawText().Trim('"') == expectedAcct.Trim())
-                            {
-                                found = true;
-                                break;
-                            }
+                            found = true;
+                            break;
                         }
                     }
-                    if (!found) accountsOk = false;
                 }
+                if (!found) accountsOk = false;
             }
             report.Checks.Add(new ValidationCheck("correct_accounts", "true",
                 accountsOk ? "true" : "false", accountsOk, 2));
+        }
+
+        var expectedDepartment = GetStringFromEntity(extracted.Entities.GetValueOrDefault("department") ?? new(), "name");
+        if (expectedDepartment == null)
+        {
+            var dimensionEntity = extracted.Entities.GetValueOrDefault("dimension") ?? new();
+            var dimensionName = GetStringFromEntity(dimensionEntity, "name");
+            if (dimensionName != null && dimensionName.Contains("department", StringComparison.OrdinalIgnoreCase))
+            {
+                expectedDepartment = GetStringFromEntity(voucherEntity, "dimensionValue");
+                if (expectedDepartment == null && dimensionEntity.TryGetValue("values", out var valuesObj) && valuesObj is JsonElement valuesJe && valuesJe.ValueKind == JsonValueKind.Array)
+                {
+                    expectedDepartment = valuesJe.EnumerateArray().FirstOrDefault().GetString();
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedDepartment) && postings.ValueKind == JsonValueKind.Array)
+        {
+            bool departmentFound = false;
+            string actualDepartment = "missing";
+            foreach (var posting in postings.EnumerateArray())
+            {
+                if (posting.TryGetProperty("department", out var departmentRef) && departmentRef.ValueKind == JsonValueKind.Object
+                    && departmentRef.TryGetProperty("name", out var departmentNameProp))
+                {
+                    actualDepartment = departmentNameProp.GetString() ?? "";
+                    if (string.Equals(actualDepartment, expectedDepartment, StringComparison.OrdinalIgnoreCase))
+                    {
+                        departmentFound = true;
+                        break;
+                    }
+                }
+            }
+
+            report.Checks.Add(new ValidationCheck("has_department", expectedDepartment,
+                departmentFound ? expectedDepartment : actualDepartment, departmentFound, 2));
         }
 
         // Check 6: has_correct_amount — verify the posting amounts match extracted values (3pts for high-value vouchers)
@@ -989,7 +1173,219 @@ public class SandboxValidator
         }
     }
 
+    private async Task ValidateBankReconciliation(TripletexApiClient api, ExtractionResult extracted,
+        HandlerResult result, ValidationReport report)
+    {
+        if (!result.EntityId.HasValue)
+        {
+            report.Checks.Add(new ValidationCheck("reconciliation_found", "true", "false", false, 5));
+            report.Checks.Add(new ValidationCheck("invoice_and_supplier_rows_matched", "true", "false", false, 5));
+            return;
+        }
+
+        var reconciliation = await api.GetAsync($"/bank/reconciliation/{result.EntityId.Value}",
+            new Dictionary<string, string>
+            {
+                ["fields"] = "id,account(number),accountingPeriod(id,start,end),bankAccountClosingBalanceCurrency"
+            });
+        var reconciliationValue = reconciliation.GetProperty("value");
+
+        var reconciliationEntity = extracted.Entities.GetValueOrDefault("reconciliation") ?? new();
+        var expectedAccountNumber = GetStringFromEntity(reconciliationEntity, "accountNumber")
+            ?? GetStringFromEntity(reconciliationEntity, "account")
+            ?? result.Metadata.GetValueOrDefault("accountNumber")
+            ?? "1920";
+        var expectedClosingBalance = GetDecimalFromEntity(reconciliationEntity, "closingBalance");
+
+        var parsedTransactions = ParseBankTransactions(extracted.Files);
+        if (!expectedClosingBalance.HasValue && parsedTransactions.Count > 0)
+            expectedClosingBalance = parsedTransactions[^1].RunningBalance;
+
+        var actualAccountNumber = reconciliationValue.TryGetProperty("account", out var accountRef)
+            && accountRef.ValueKind == JsonValueKind.Object
+            && accountRef.TryGetProperty("number", out var accountNumberProp)
+                ? accountNumberProp.GetRawText().Trim('"')
+                : "(missing)";
+        var actualClosingBalance = reconciliationValue.TryGetProperty("bankAccountClosingBalanceCurrency", out var balanceProp)
+            && balanceProp.ValueKind == JsonValueKind.Number
+                ? balanceProp.GetDecimal()
+                : 0m;
+
+        var reconciliationPassed = string.Equals(expectedAccountNumber, actualAccountNumber, StringComparison.OrdinalIgnoreCase)
+            && (!expectedClosingBalance.HasValue || Math.Abs(expectedClosingBalance.Value - actualClosingBalance) < 1m);
+        report.Checks.Add(new ValidationCheck(
+            "reconciliation_found",
+            $"account={expectedAccountNumber},balance={(expectedClosingBalance?.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) ?? "n/a")}",
+            $"account={actualAccountNumber},balance={actualClosingBalance.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}",
+            reconciliationPassed,
+            5));
+
+        var expectedMatchableTransactions = parsedTransactions
+            .Where(tx => tx.Type is BankReconciliationTransactionType.CustomerPayment or BankReconciliationTransactionType.SupplierPayment)
+            .ToList();
+
+        if (expectedMatchableTransactions.Count == 0)
+        {
+            report.Checks.Add(new ValidationCheck("invoice_and_supplier_rows_matched", ">= 0", "0", true, 5));
+            return;
+        }
+
+        var matchesResult = await api.GetAsync("/bank/reconciliation/match", new Dictionary<string, string>
+        {
+            ["bankReconciliationId"] = result.EntityId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["count"] = "5000",
+            ["fields"] = "id,type,transactions(id,description,amountCurrency,matched),postings(id,amount,amountGross,account(number))"
+        });
+
+        var matchedRows = 0;
+        if (matchesResult.TryGetProperty("values", out var matchValues) && matchValues.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var expectedTx in expectedMatchableTransactions)
+            {
+                if (HasAcceptedBankMatch(matchValues, expectedTx))
+                    matchedRows++;
+            }
+        }
+
+        var rowsMatched = matchedRows == expectedMatchableTransactions.Count;
+        report.Checks.Add(new ValidationCheck(
+            "invoice_and_supplier_rows_matched",
+            expectedMatchableTransactions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            matchedRows.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            rowsMatched,
+            5));
+    }
+
     // --- Helper methods ---
+
+    private static bool HasAcceptedBankMatch(JsonElement matchValues, ParsedBankTransaction expectedTx)
+    {
+        foreach (var match in matchValues.EnumerateArray())
+        {
+            if (!match.TryGetProperty("type", out var typeProp))
+                continue;
+
+            var matchType = typeProp.GetString() ?? string.Empty;
+            if (!IsAcceptedBankMatchType(matchType))
+                continue;
+
+            if (!match.TryGetProperty("transactions", out var transactionsProp) || transactionsProp.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var tx in transactionsProp.EnumerateArray())
+            {
+                var actualDescription = tx.TryGetProperty("description", out var descProp)
+                    ? descProp.GetString() ?? string.Empty
+                    : string.Empty;
+                var actualAmount = tx.TryGetProperty("amountCurrency", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number
+                    ? amountProp.GetDecimal()
+                    : 0m;
+
+                if (DescriptionsEquivalent(expectedTx.Description, actualDescription)
+                    && Math.Abs(expectedTx.Amount - actualAmount) < 0.01m)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsAcceptedBankMatchType(string matchType)
+    {
+        return string.Equals(matchType, "MANUAL", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(matchType, "APPROVED_SUGGESTION", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(matchType, "AUTO_MATCHED", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(matchType, "AUTOPOSTING_APPROVED", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool DescriptionsEquivalent(string expected, string actual)
+    {
+        return NormalizeBankText(expected) == NormalizeBankText(actual);
+    }
+
+    private static string NormalizeBankText(string text)
+    {
+        var lowered = text.Trim().ToLowerInvariant();
+        return System.Text.RegularExpressions.Regex.Replace(lowered, "\\s+", " ");
+    }
+
+    private static List<ParsedBankTransaction> ParseBankTransactions(List<SolveFile>? files)
+    {
+        var transactions = new List<ParsedBankTransaction>();
+        if (files == null) return transactions;
+
+        foreach (var file in files)
+        {
+            if (!file.Filename.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) &&
+                !file.MimeType.Contains("csv", StringComparison.OrdinalIgnoreCase) &&
+                !file.MimeType.Contains("text", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                var content = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(file.ContentBase64));
+                var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                if (lines.Length < 2) continue;
+
+                var header = lines[0].Trim();
+                var delimiter = header.Contains(';') ? ';' : ',';
+
+                for (var index = 1; index < lines.Length; index++)
+                {
+                    var line = lines[index].Trim();
+                    if (string.IsNullOrWhiteSpace(line))
+                        continue;
+
+                    var parts = line.Split(delimiter);
+                    if (parts.Length < 4)
+                        continue;
+
+                    var incomingText = parts.Length > 2 ? parts[2].Trim() : string.Empty;
+                    var outgoingText = parts.Length > 3 ? parts[3].Trim() : string.Empty;
+                    var balanceText = parts.Length > 4 ? parts[4].Trim() : string.Empty;
+
+                    decimal amount = 0m;
+                    if (!string.IsNullOrEmpty(incomingText) && decimal.TryParse(incomingText.Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var incoming))
+                        amount = incoming;
+                    else if (!string.IsNullOrEmpty(outgoingText) && decimal.TryParse(outgoingText.Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var outgoing))
+                        amount = outgoing;
+
+                    decimal runningBalance = 0m;
+                    if (!string.IsNullOrEmpty(balanceText))
+                        decimal.TryParse(balanceText.Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out runningBalance);
+
+                    var description = parts[1].Trim();
+                    transactions.Add(new ParsedBankTransaction(description, amount, runningBalance, ClassifyBankTransaction(description)));
+                }
+            }
+            catch
+            {
+                // Best-effort validator parsing only.
+            }
+        }
+
+        return transactions;
+    }
+
+    private static BankReconciliationTransactionType ClassifyBankTransaction(string description)
+    {
+        var lower = description.ToLowerInvariant();
+        if (lower.Contains("innbetaling") || lower.Contains("betaling fra"))
+            return BankReconciliationTransactionType.CustomerPayment;
+        if (lower.Contains("betaling leverand") || lower.Contains("betaling lieferant") || lower.Contains("betaling til"))
+            return BankReconciliationTransactionType.SupplierPayment;
+        if (lower.Contains("bankgebyr") || lower.Contains("bank fee"))
+            return BankReconciliationTransactionType.BankFee;
+        if (lower.Contains("skattetrekk") || lower.Contains("skatt"))
+            return BankReconciliationTransactionType.Tax;
+        if (lower.Contains("lønn") || lower.Contains("salary"))
+            return BankReconciliationTransactionType.Salary;
+        return BankReconciliationTransactionType.Other;
+    }
 
     private static void CheckStringField(JsonElement apiValue, Dictionary<string, object> entity,
         string field, ValidationReport report, int points)
@@ -1037,6 +1433,51 @@ public class SandboxValidator
         report.Checks.Add(new ValidationCheck(field, expectedVal.ToString(), actualVal.ToString(), passed, points));
     }
 
+    private static string? GetStringFromEntity(Dictionary<string, object> entity, string key)
+    {
+        if (!entity.TryGetValue(key, out var v)) return null;
+        if (v is JsonElement je)
+        {
+            return je.ValueKind switch
+            {
+                JsonValueKind.String => je.GetString(),
+                JsonValueKind.Number => je.GetRawText(),
+                JsonValueKind.True => bool.TrueString,
+                JsonValueKind.False => bool.FalseString,
+                _ => je.GetRawText().Trim('"')
+            };
+        }
+        return v?.ToString();
+    }
+
+    private static string? NormalizeEmploymentType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var lower = value.Trim().ToLowerInvariant();
+        if (lower.Contains("freelance")) return "FREELANCE";
+        if (lower.Contains("maritime")) return "MARITIME";
+        return "ORDINARY";
+    }
+
+    private static string? NormalizeEmploymentForm(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var lower = value.Trim().ToLowerInvariant();
+        if (lower.Contains("temporary") || lower.Contains("midlertid") || lower.Contains("tempor")) return "TEMPORARY";
+        if (lower.Contains("call")) return "TEMPORARY_ON_CALL";
+        return "PERMANENT";
+    }
+
+    private static string? NormalizeRemunerationType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var lower = value.Trim().ToLowerInvariant();
+        if (lower.Contains("hour") || lower.Contains("time") || lower.Contains("timel")) return "HOURLY_WAGE";
+        if (lower.Contains("commission") || lower.Contains("provis")) return "COMMISION_PERCENTAGE";
+        if (lower.Contains("fee") || lower.Contains("honorar")) return "FEE";
+        return "MONTHLY_WAGE";
+    }
+
     private static decimal? GetDecimalFromEntity(Dictionary<string, object> entity, string key)
     {
         if (!entity.TryGetValue(key, out var v)) return null;
@@ -1079,3 +1520,22 @@ public record ValidationCheck(
     bool Passed,
     int Points = 1
 );
+
+internal enum BankReconciliationTransactionType
+{
+    CustomerPayment,
+    SupplierPayment,
+    BankFee,
+    Tax,
+    Salary,
+    Other
+}
+
+internal sealed record ParsedBankTransaction(
+    string Description,
+    decimal Amount,
+    decimal RunningBalance,
+    BankReconciliationTransactionType Type
+);
+
+

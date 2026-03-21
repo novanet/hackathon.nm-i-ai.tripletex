@@ -409,9 +409,8 @@ public class PayrollHandler : ITaskHandler
 
             var today = $"{year}-{month:D2}-01";
 
-            // Strategy: try WITHOUT organizationNumber first (Tripletex rejects the parent
-            // company's org number for divisions — "Juridisk enhet kan ikke registreres
-            // som virksomhet/underenhet"). If that also fails, try with a dummy sub-unit number.
+            // Strategy: try WITHOUT organizationNumber first. The company org number is a
+            // legal entity number, and Tripletex rejects it for divisions/sub-units.
             var divBody = new Dictionary<string, object>
             {
                 ["name"] = "Hovedvirksomhet",
@@ -429,41 +428,7 @@ public class PayrollHandler : ITaskHandler
             }
             catch (Exception ex1)
             {
-                _logger.LogWarning("Division creation without orgNumber failed: {Msg}, trying with orgNumber", ex1.Message);
-
-                // Fallback: try with the company org number anyway (some environments accept it)
-                try
-                {
-                    var whoAmI = await api.GetAsync("/token/session/>whoAmI", new Dictionary<string, string>
-                    {
-                        ["fields"] = "company(id,organizationNumber)"
-                    });
-                    string? orgNumber = null;
-                    if (whoAmI.TryGetProperty("value", out var whoVal)
-                        && whoVal.TryGetProperty("company", out var companyInfo)
-                        && companyInfo.TryGetProperty("organizationNumber", out var onWho))
-                    {
-                        orgNumber = onWho.GetString();
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(orgNumber))
-                    {
-                        divBody["organizationNumber"] = orgNumber;
-                        var divResult2 = await api.PostAsync("/division", divBody);
-                        divisionId = divResult2.GetProperty("value").GetProperty("id").GetInt64();
-                        _logger.LogInformation("Created division {Id} with orgNumber {Org}", divisionId, orgNumber);
-                    }
-                    else
-                    {
-                        _logger.LogError("Cannot create division — no org number available");
-                        throw new Exception("Division creation failed: no org number");
-                    }
-                }
-                catch (Exception ex2)
-                {
-                    _logger.LogError(ex2, "Division creation with orgNumber also failed — payroll may fail");
-                    throw;
-                }
+                _logger.LogWarning("Division creation without orgNumber failed: {Msg}. Continuing without creating division.", ex1.Message);
             }
         }
 
@@ -483,15 +448,18 @@ public class PayrollHandler : ITaskHandler
                 var existing = empValues[0];
                 var empId = existing.GetProperty("id").GetInt64();
                 var version = existing.GetProperty("version").GetInt32();
-                _logger.LogInformation("Updating employment {Id} with division {Div}", empId, divisionId);
-                await api.PutAsync($"/employee/employment/{empId}", new Dictionary<string, object>
+                if (divisionId.HasValue)
                 {
-                    ["id"] = empId,
-                    ["version"] = version,
-                    ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
-                    ["division"] = new Dictionary<string, object> { ["id"] = divisionId!.Value },
-                    ["taxDeductionCode"] = "loennFraHovedarbeidsgiver"
-                });
+                    _logger.LogInformation("Updating employment {Id} with division {Div}", empId, divisionId);
+                    await api.PutAsync($"/employee/employment/{empId}", new Dictionary<string, object>
+                    {
+                        ["id"] = empId,
+                        ["version"] = version,
+                        ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                        ["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value },
+                        ["taxDeductionCode"] = "loennFraHovedarbeidsgiver"
+                    });
+                }
                 return empId;
             }
         }
@@ -500,11 +468,10 @@ public class PayrollHandler : ITaskHandler
         var startDate = $"{year}-{month:D2}-01";
         _logger.LogInformation("Creating employment for employee {Id} starting {Date} division {Div}", employeeId, startDate, divisionId);
 
-        var newEmployment = await api.PostAsync("/employee/employment", new Dictionary<string, object>
+        var employmentBody = new Dictionary<string, object>
         {
             ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
             ["startDate"] = startDate,
-            ["division"] = new Dictionary<string, object> { ["id"] = divisionId!.Value },
             ["taxDeductionCode"] = "loennFraHovedarbeidsgiver",
             ["employmentDetails"] = new List<Dictionary<string, object>>
             {
@@ -518,7 +485,11 @@ public class PayrollHandler : ITaskHandler
                     ["percentageOfFullTimeEquivalent"] = 100.0m
                 }
             }
-        });
+        };
+        if (divisionId.HasValue)
+            employmentBody["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value };
+
+        var newEmployment = await api.PostAsync("/employee/employment", employmentBody);
         return newEmployment.GetProperty("value").GetProperty("id").GetInt64();
     }
 

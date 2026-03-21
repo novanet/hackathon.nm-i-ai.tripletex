@@ -9,7 +9,7 @@ namespace TripletexAgent.Handlers;
 
 /// <summary>
 /// Handles bank_reconciliation tasks.
-/// Full flow: resolve account → resolve period → create reconciliation → parse CSV → try import/suggest-match → fallback to adjustments
+/// Full flow: resolve account → resolve period → create reconciliation → transform/import CSV → suggest matches → fallback to adjustments
 /// </summary>
 public class BankReconciliationHandler : ITaskHandler
 {
@@ -87,42 +87,7 @@ public class BankReconciliationHandler : ITaskHandler
         }
 
         // Step 2: Resolve accounting period containing the statement date
-        long? accountingPeriodId = null;
-        var periodResult = await api.GetAsync("/ledger/accountingPeriod", new Dictionary<string, string>
-        {
-            ["startTo"] = date,
-            ["endFrom"] = date,
-            ["count"] = "5",
-            ["fields"] = "id,start,end"
-        });
-        if (periodResult.TryGetProperty("values", out var periodVals))
-        {
-            foreach (var v in periodVals.EnumerateArray())
-            {
-                accountingPeriodId = v.GetProperty("id").GetInt64();
-                break;
-            }
-        }
-
-        if (!accountingPeriodId.HasValue)
-        {
-            // Fallback: try getting all periods and pick the last one
-            var fallback = await api.GetAsync("/ledger/accountingPeriod", new Dictionary<string, string>
-            {
-                ["count"] = "100",
-                ["fields"] = "id,start,end"
-            });
-            if (fallback.TryGetProperty("values", out var fbVals))
-            {
-                JsonElement? latest = null;
-                foreach (var v in fbVals.EnumerateArray())
-                {
-                    latest = v; // just pick the last one
-                }
-                if (latest.HasValue)
-                    accountingPeriodId = latest.Value.GetProperty("id").GetInt64();
-            }
-        }
+        var accountingPeriodId = await ResolveAccountingPeriodIdAsync(api, date);
 
         if (!accountingPeriodId.HasValue)
         {
@@ -133,8 +98,8 @@ public class BankReconciliationHandler : ITaskHandler
         // Step 3: Create manual bank reconciliation
         var body = new Dictionary<string, object>
         {
-            ["account"] = new { id = accountId.Value },
-            ["accountingPeriod"] = new { id = accountingPeriodId.Value },
+            ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
+            ["accountingPeriod"] = new Dictionary<string, object> { ["id"] = accountingPeriodId.Value },
             ["type"] = "MANUAL",
             ["bankAccountClosingBalanceCurrency"] = closingBalance.Value
         };
@@ -148,61 +113,122 @@ public class BankReconciliationHandler : ITaskHandler
         _logger.LogInformation("Created bank reconciliation ID: {Id}", reconId);
 
         // Step 4: If we have CSV transactions, try bank statement import then auto-match
-        if (reconId.HasValue && transactions.Count > 0)
+        var result = new HandlerResult { EntityType = "reconciliation", EntityId = reconId };
+
+        if (reconId.HasValue)
         {
-            await TryImportAndMatch(api, reconId.Value, accountId.Value, transactions, date, extracted.Files);
+            result.Metadata["accountNumber"] = accountNumber;
+            result.Metadata["statementDate"] = date;
+            result.Metadata["closingBalance"] = closingBalance.Value.ToString("0.00", CultureInfo.InvariantCulture);
+            result.Metadata["transactionCount"] = transactions.Count.ToString(CultureInfo.InvariantCulture);
         }
 
-        return new HandlerResult { EntityType = "reconciliation", EntityId = reconId };
+        if (reconId.HasValue && transactions.Count > 0)
+        {
+            var importOutcome = await TryImportAndMatch(api, reconId.Value, accountId.Value, accountNumber, transactions, date, extracted.Files);
+            result.Metadata["bankImportMode"] = importOutcome.Mode;
+            result.Metadata["bankImportSucceeded"] = importOutcome.ImportSucceeded ? "true" : "false";
+            result.Metadata["adjustmentCount"] = importOutcome.AdjustmentCount.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return result;
     }
 
-    private async Task TryImportAndMatch(TripletexApiClient api, long reconId, long accountId, List<BankTransaction> transactions, string endDate, List<SolveFile>? files)
+    private async Task<long?> ResolveAccountingPeriodIdAsync(TripletexApiClient api, string statementDate)
     {
-        // Try bank statement import with various formats
-        var csvFile = FindCsvFile(files);
-        if (csvFile != null)
+        var periodResult = await api.GetAsync("/ledger/accountingPeriod", new Dictionary<string, string>
         {
-            var csvBytes = Convert.FromBase64String(csvFile.ContentBase64);
-            var formats = new[] { "DNB_CSV", "NORDEA_CSV", "DANSKE_BANK_CSV", "SBANKEN_PRIVAT_CSV" };
+            ["startTo"] = statementDate,
+            ["endFrom"] = statementDate,
+            ["count"] = "5",
+            ["fields"] = "id,start,end"
+        });
 
-            var fromDate = transactions[0].Date;
-            var toDate = endDate;
+        if (periodResult.TryGetProperty("values", out var periodVals))
+        {
+            foreach (var v in periodVals.EnumerateArray())
+                return v.GetProperty("id").GetInt64();
+        }
 
-            foreach (var format in formats)
+        if (!DateTime.TryParse(statementDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var statementDateValue))
+            statementDateValue = DateTime.Today;
+
+        var fallback = await api.GetAsync("/ledger/accountingPeriod", new Dictionary<string, string>
+        {
+            ["count"] = "100",
+            ["fields"] = "id,start,end"
+        });
+
+        long? latestId = null;
+        DateTime? latestEnd = null;
+        if (fallback.TryGetProperty("values", out var fbVals))
+        {
+            foreach (var v in fbVals.EnumerateArray())
             {
-                try
+                if (!v.TryGetProperty("id", out var idProp) ||
+                    !v.TryGetProperty("start", out var startProp) ||
+                    !v.TryGetProperty("end", out var endProp) ||
+                    !DateTime.TryParse(startProp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var startDate) ||
+                    !DateTime.TryParse(endProp.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var endDate))
                 {
-                    _logger.LogInformation("Trying bank statement import with format {Format}", format);
-                    var importResult = await api.PostBankStatementImportAsync(
-                        accountId, fromDate, toDate, format, csvBytes, csvFile.Filename);
-                    _logger.LogInformation("Bank statement import succeeded with format {Format}", format);
-
-                    // Try auto-suggest matches
-                    try
-                    {
-                        await api.PutAsync($"/bank/reconciliation/match/:suggest?bankReconciliationId={reconId}", new { });
-                        _logger.LogInformation("Auto-match suggest completed for reconciliation {Id}", reconId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning("Auto-match suggest failed: {Msg}", ex.Message);
-                    }
-
-                    return; // Import succeeded, done
+                    continue;
                 }
-                catch (Exception ex)
+
+                if (startDate <= statementDateValue && statementDateValue <= endDate)
+                    return idProp.GetInt64();
+
+                if (!latestEnd.HasValue || endDate > latestEnd.Value)
                 {
-                    _logger.LogWarning("Import with format {Format} failed: {Msg}", format, ex.Message);
+                    latestEnd = endDate;
+                    latestId = idProp.GetInt64();
                 }
             }
         }
 
-        // Fallback: create adjustments for each transaction
-        _logger.LogInformation("Import path unavailable — creating adjustments for {Count} transactions", transactions.Count);
-        await CreateAdjustments(api, reconId, transactions);
+        return latestId;
     }
 
-    private async Task CreateAdjustments(TripletexApiClient api, long reconId, List<BankTransaction> transactions)
+    private async Task<ImportOutcome> TryImportAndMatch(TripletexApiClient api, long reconId, long accountId, string accountNumber, List<BankTransaction> transactions, string endDate, List<SolveFile>? files)
+    {
+        var csvFile = FindCsvFile(files);
+        if (csvFile != null)
+        {
+            var transformedBytes = BuildDnbCsvImport(accountNumber, transactions);
+            var transformedFileName = Path.GetFileNameWithoutExtension(csvFile.Filename) + "-tripletex-dnb.csv";
+            var fromDate = transactions[0].Date;
+            var toDate = endDate;
+
+            try
+            {
+                _logger.LogInformation("Trying bank statement import with transformed format DNB_CSV for reconciliation {Id}", reconId);
+                await api.PostBankStatementImportAsync(accountId, fromDate, toDate, "DNB_CSV", transformedBytes, transformedFileName);
+                _logger.LogInformation("Bank statement import succeeded with transformed DNB_CSV for reconciliation {Id}", reconId);
+
+                try
+                {
+                    await api.PutAsync("/bank/reconciliation/match/:suggest", new Dictionary<string, object>(),
+                        new Dictionary<string, string> { ["bankReconciliationId"] = reconId.ToString(CultureInfo.InvariantCulture) });
+                    _logger.LogInformation("Auto-match suggest completed for reconciliation {Id}", reconId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Auto-match suggest failed after import for reconciliation {Id}: {Msg}", reconId, ex.Message);
+                }
+
+                return new ImportOutcome("transformed_dnb_import", true, 0);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Transformed DNB_CSV import failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
+            }
+        }
+
+        _logger.LogInformation("Import path unavailable — creating adjustments for {Count} transactions", transactions.Count);
+        var adjustmentCount = await CreateAdjustments(api, reconId, transactions);
+        return new ImportOutcome("adjustments", false, adjustmentCount);
+    }
+
+    private async Task<int> CreateAdjustments(TripletexApiClient api, long reconId, List<BankTransaction> transactions)
     {
         // Resolve payment type for bank transfers
         long? paymentTypeId = null;
@@ -237,7 +263,7 @@ public class BankReconciliationHandler : ITaskHandler
                 ["amount"] = tx.Amount
             };
             if (paymentTypeId.HasValue)
-                adj["paymentType"] = new { id = paymentTypeId.Value };
+                adj["paymentType"] = new Dictionary<string, object> { ["id"] = paymentTypeId.Value };
             adjustments.Add(adj);
         }
 
@@ -253,6 +279,42 @@ public class BankReconciliationHandler : ITaskHandler
                 _logger.LogWarning("Failed to create adjustments: {Msg}", ex.Message);
             }
         }
+
+        return adjustments.Count;
+    }
+
+    private byte[] BuildDnbCsvImport(string accountNumber, List<BankTransaction> transactions)
+    {
+        var accountName = $"Bankkonto {accountNumber}";
+        var builder = new StringBuilder();
+        builder.AppendLine("Konto;Kontonavn;Inngående saldo;Utgående saldo;Bokført dato;Forklarende tekst;Ut;Inn");
+
+        foreach (var tx in transactions)
+        {
+            var incoming = tx.Amount > 0 ? tx.Amount : 0m;
+            var outgoing = tx.Amount < 0 ? Math.Abs(tx.Amount) : 0m;
+            var openingBalance = tx.RunningBalance - tx.Amount;
+            builder.Append(EscapeCsv(accountNumber)).Append(';')
+                .Append(EscapeCsv(accountName)).Append(';')
+                .Append(FormatCsvDecimal(openingBalance)).Append(';')
+                .Append(FormatCsvDecimal(tx.RunningBalance)).Append(';')
+                .Append(EscapeCsv(tx.Date)).Append(';')
+                .Append(EscapeCsv(tx.Description)).Append(';')
+                .Append(outgoing > 0 ? FormatCsvDecimal(outgoing) : string.Empty).Append(';')
+                .Append(incoming > 0 ? FormatCsvDecimal(incoming) : string.Empty)
+                .AppendLine();
+        }
+
+        return Encoding.UTF8.GetBytes(builder.ToString());
+    }
+
+    private static string FormatCsvDecimal(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+
+    private static string EscapeCsv(string value)
+    {
+        if (value.Contains(';') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
     }
 
     private List<BankTransaction> ParseCsvFromFiles(List<SolveFile>? files)
@@ -375,4 +437,6 @@ public class BankReconciliationHandler : ITaskHandler
         Salary,
         Other
     }
+
+    private sealed record ImportOutcome(string Mode, bool ImportSucceeded, int AdjustmentCount);
 }
