@@ -34,22 +34,28 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:53:32 |
+| Timestamp | 03/21/2026 22:30:04 |
 | Task Type | `bank_reconciliation` |
 | Handler | `BankReconciliationHandler` |
-| Success | False |
-| Elapsed | 2544 ms |
-| API Calls | 3 |
-| Errors | 1 |
-| Error | `: Det eksisterer allerede en bankavstemming for denne kontoen i valgte periode.` |
+| Success | True |
+| Elapsed | 4282 ms |
+| API Calls | 10 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber` | ✅  |  |
-| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-03-21&endFrom=2026-03-...` | ✅  |  |
-| 3 | `POST` | `/bank/reconciliation` | ✅  |  |
+| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-03-31&endFrom=2026-03-...` | ✅  |  |
+| 3 | `GET` | `/bank/reconciliation?accountId=429395165&accountingPeriodId=...` | ✅  |  |
+| 4 | `POST` | `/bank/reconciliation` | ✅  |  |
+| 5 | `GET` | `/bank/statement?accountId=429395165&count=100&fields=id` | ✅  |  |
+| 6 | `DELETE` | `/bank/statement/123943014` | ✅  |  |
+| 7 | `POST` | `/bank/statement/import?bankId=0&accountId=429395165&fromDate...` | ✅  |  |
+| 8 | `PUT` | `/bank/reconciliation/match/:suggest?bankReconciliationId=127...` | ✅  |  |
+| 9 | `GET` | `/bank/reconciliation/12705480?fields=id%2Caccount%28number%2...` | ✅  |  |
+| 10 | `GET` | `/bank/reconciliation/match?bankReconciliationId=12705480&cou...` | ✅  |  |
 
 ## Latest Local Validation
 
@@ -64,5 +70,4 @@
 |---|---|---|---|---|
 | reconciliation_found | `account=1920,balance=154522.75` | `account=1920,balance=154522.75` | ✅ | 5 |
 | invoice_and_supplier_rows_matched | `8` | `0` | ❌ | 5 |
-
 

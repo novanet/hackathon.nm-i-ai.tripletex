@@ -55,7 +55,7 @@
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 15 / 15 |
+| Points | 19 / 19 |
 
 ### Checks
 
@@ -66,6 +66,8 @@
 | has_postings | `>= 2` | `3` | ✅ | 2 |
 | postings_balanced | `true` | `true` | ✅ | 2 |
 | correct_accounts | `true` | `true` | ✅ | 2 |
+| has_supplier_reference | `947591762` | `947591762` | ✅ | 2 |
+| has_invoice_reference | `KVITTERING - 04.05.2026` | `KVITTERING - 04.05.2026` | ✅ | 2 |
 | has_department | `Kvalitetskontroll` | `Kvalitetskontroll` | ✅ | 2 |
-| correct_amount | `6250,00` | `6250,00` | ✅ | 3 |
+| correct_amount | `6540,00` | `6540,00` | ✅ | 3 |
 

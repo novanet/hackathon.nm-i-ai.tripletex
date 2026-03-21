@@ -151,6 +151,7 @@ public class LlmExtractor
                 var result = SafeDeserialize(content);
                 var final = result ?? new ExtractionResult { TaskType = "unknown" };
                 final.RawPrompt = prompt;
+                NormalizeFileBasedVoucherAmounts(final, fileContext.Text);
                 ValidateDates(final);
                 return final;
             }
@@ -252,6 +253,85 @@ public class LlmExtractor
                 result.Dates.Add(d.GetString() ?? d.GetRawText());
 
         return result;
+    }
+
+    private void NormalizeFileBasedVoucherAmounts(ExtractionResult extracted, string fileText)
+    {
+        if (extracted.TaskType != "create_voucher" || string.IsNullOrWhiteSpace(fileText))
+            return;
+
+        if (!extracted.Entities.TryGetValue("voucher", out var voucher))
+            return;
+
+        if (!voucher.ContainsKey("supplierName") && !voucher.ContainsKey("supplierOrgNumber"))
+            return;
+
+        var labeledTotal = TryExtractLabeledTotal(fileText);
+        if (!labeledTotal.HasValue || labeledTotal.Value <= 0)
+            return;
+
+        var currentAmount = GetDecimalField(voucher, "amount")
+            ?? GetDecimalField(voucher, "amountGross")
+            ?? GetDecimalField(voucher, "totalAmount");
+
+        if (currentAmount.HasValue && Math.Abs(currentAmount.Value - labeledTotal.Value) < 0.01m)
+            return;
+
+        voucher["amount"] = labeledTotal.Value.ToString("F2", CultureInfo.InvariantCulture);
+
+        if (!extracted.RawAmounts.Any(a => decimal.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            && Math.Abs(parsed - labeledTotal.Value) < 0.01m))
+        {
+            extracted.RawAmounts.Insert(0, labeledTotal.Value.ToString("F2", CultureInfo.InvariantCulture));
+        }
+
+        _logger.LogInformation("Normalized voucher amount from {Current} to labeled total {Total} based on attached file text",
+            currentAmount?.ToString("F2", CultureInfo.InvariantCulture) ?? "<missing>",
+            labeledTotal.Value.ToString("F2", CultureInfo.InvariantCulture));
+    }
+
+    private static decimal? TryExtractLabeledTotal(string text)
+    {
+        var patterns = new[]
+        {
+            @"(?:Totalt|Total|Totalsum|Sum|Summe|Gesamt|Monto total|Montant total|Valor total|Total a pagar)\s*:?\s*(\d[\d\s.,]*)\s*kr?",
+            @"(?:Totalt|Total|Totalsum|Sum|Summe|Gesamt|Monto total|Montant total|Valor total|Total a pagar)(\d[\d\s.,]*)\s*kr?"
+        };
+
+        foreach (var pattern in patterns)
+        {
+            var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!match.Success)
+                continue;
+
+            var amountText = match.Groups[1].Value
+                .Replace(" ", string.Empty)
+                .Replace(',', '.');
+
+            if (decimal.TryParse(amountText, NumberStyles.Any, CultureInfo.InvariantCulture, out var amount))
+                return amount;
+        }
+
+        return null;
+    }
+
+    private static decimal? GetDecimalField(Dictionary<string, object> dict, string key)
+    {
+        if (!dict.TryGetValue(key, out var value) || value is null)
+            return null;
+
+        return value switch
+        {
+            decimal decimalValue => decimalValue,
+            double doubleValue => Convert.ToDecimal(doubleValue, CultureInfo.InvariantCulture),
+            float floatValue => Convert.ToDecimal(floatValue, CultureInfo.InvariantCulture),
+            int intValue => intValue,
+            long longValue => longValue,
+            JsonElement { ValueKind: JsonValueKind.Number } numberElement => numberElement.GetDecimal(),
+            JsonElement { ValueKind: JsonValueKind.String } stringElement when decimal.TryParse(stringElement.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            _ => null
+        };
     }
 
     /// <summary>Regex-based fallback when LLM is unavailable (content filter, rate limit, etc.)</summary>
