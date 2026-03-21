@@ -125,12 +125,11 @@ public class BankReconciliationHandler : ITaskHandler
         }
 
         // Step 3: Create manual bank reconciliation
-        // Note: isApproved field is NOT accepted by the API (422 "Feltet eksisterer ikke i objektet")
+        // Note: isApproved and date fields are NOT accepted by the API (422 "Feltet eksisterer ikke i objektet")
         var body = new Dictionary<string, object>
         {
             ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
-            ["bankAccountClosingBalanceCurrency"] = closingBalance.Value,
-            ["date"] = date
+            ["bankAccountClosingBalanceCurrency"] = closingBalance.Value
         };
         if (accountingPeriodId.HasValue)
         {

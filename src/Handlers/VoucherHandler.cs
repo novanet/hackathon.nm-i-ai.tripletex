@@ -665,8 +665,9 @@ public class VoucherHandler : ITaskHandler
         var description = GetStringField(voucher, "description") ?? invoiceNumber ?? "Leverandørfaktura";
         var account = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber") ?? "6500";
         decimal amount = ExtractAmount(voucher, extracted);
-        var date = GetStringField(voucher, "date")
-            ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd"));
+        var rawDate = GetStringField(voucher, "date")
+            ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : null);
+        var date = string.IsNullOrWhiteSpace(rawDate) ? DateTime.Now.ToString("yyyy-MM-dd") : rawDate;
 
         // 1. Create supplier (failure is non-fatal — importDocument can still run)
         var supplierBody = new Dictionary<string, object> { ["name"] = supplierName! };
@@ -852,10 +853,9 @@ public class VoucherHandler : ITaskHandler
         var fallbackResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBodyFallback);
         var voucherId = fallbackResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created supplier invoice voucher (fallback) ID: {Id}", voucherId);
-        // Return the importDocument voucher ID when available — competition validator finds it via search.
-        // The fallback classic voucher is secondary; the importDocument one registers as a supplier invoice.
-        var entityId = importedVoucherId ?? voucherId;
-        return new HandlerResult { EntityType = "supplierInvoice", EntityId = entityId };
+        // Return the classic fallback voucher ID — it has the actual postings.
+        // The importDocument voucher has no postings when PUT failed, so returning it would score 0 on postings checks.
+        return new HandlerResult { EntityType = "supplierInvoice", EntityId = voucherId };
     }
 
     /// <summary>

@@ -97,7 +97,11 @@ public class EnableModuleHandler : ITaskHandler
         };
         if (knownModules.Contains(upper)) return upper;
 
-        // Try our mapping
+        // Try our mapping (strip common "module/modul/modulen" suffix before lookup for Norwegian prompts)
+        var stripped = System.Text.RegularExpressions.Regex.Replace(input.Trim(), @"(?i)(modulen?|module)$", "").Trim();
+        var strippedUpper = stripped.ToUpperInvariant().Replace(" ", "_");
+        if (ModuleNameMap.TryGetValue(stripped, out var mapped3)) return mapped3;
+        if (ModuleNameMap.TryGetValue(strippedUpper, out var mapped4)) return mapped4;
         if (ModuleNameMap.TryGetValue(input.Trim(), out var mapped)) return mapped;
         if (ModuleNameMap.TryGetValue(upper, out var mapped2)) return mapped2;
 
