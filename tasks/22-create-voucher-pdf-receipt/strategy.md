@@ -9,9 +9,10 @@
 | **Variant** | Voucher from PDF receipt (German) |
 | **Tier** | 3 |
 | **Our Score** | 0.00 |
+| **Sandbox Score** | 15/15 (verified 2026-03-21) |
 | **Leader Score** | 0.00 |
 | **Gap** | 0 (both fail) |
-| **Status** | ❌ Both teams fail |
+| **Status** | Sandbox fixed, competition still unverified |
 | **Handler** | `PdfVoucherHandler.cs` → `VoucherHandler.cs` |
 | **Priority** | LOW — no competitive advantage |
 
@@ -31,17 +32,26 @@ Similar to Task 11/20 — extract supplier/expense/amount from PDF receipt, crea
 | `has_description` | — | ❌ |
 | `has_postings` | — | ❌ |
 
-## Why Both Teams Score 0
+## Current State
 
-Receipts are harder to extract than invoices — less structured data, no standard invoice format. The PDF may be an image-based receipt that requires OCR.
+Sandbox replay is now passing at full correctness. On 2026-03-21 the current handler scored 15/15 locally on all three real receipt variants:
+
+1. German headset receipt → department `Salg`
+2. English train ticket receipt → department `Produksjon`
+3. Portuguese coffee receipt → department `HR`
+
+The remaining issue is competition verification, not sandbox correctness. The task folder is stale because the auto-generated task docs were not refreshed after the later local replay runs.
 
 ## How to Fix
 
-If fixing Task 20 (PDF supplier invoice) works, the same improvements may help here. But since the leader also scores 0, this is not a competitive priority.
+The sandbox path is already fixed. The working ingredients are:
 
-1. Fix Task 20 first (same handler chain)
-2. The receipt PDF may need special extraction instructions
-3. Receipts may not have supplier org numbers, invoice numbers — handler needs to work with less data
+1. Receipt PDF extraction must populate supplier-style voucher fields so the request routes into `HandleSupplierInvoice`
+2. `NormalizeAccountNumber()` must coerce textual account labels to numeric expense accounts
+3. Receipt departments must be resolved or created and attached to the expense posting
+4. Voucher validation must sum `postings.amount` before `amountGross` so VAT-split vouchers balance correctly
+
+If competition still scores 0, the next step is to compare the competition validator's checks against the local validator rather than changing the handler again.
 
 ## Effort
 
@@ -49,6 +59,6 @@ If fixing Task 20 (PDF supplier invoice) works, the same improvements may help h
 
 ## Action Required
 
-- [ ] Fix Task 20 first
-- [ ] If Task 20 fix also helps receipts, bonus
-- [ ] Deprioritize unless Tasks 20 + 11 are solved and there's spare time
+- [x] Verify sandbox correctness with the saved receipt PDFs
+- [ ] Refresh auto-generated task docs when PowerShell tooling is available in the environment
+- [ ] Submit a competition replay only if Tier 3 voucher gaps above this task are already under control
