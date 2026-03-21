@@ -486,41 +486,13 @@ public class EmployeeHandler : ITaskHandler
     {
         try
         {
-            var result = await api.GetAsync("/employee/employment/occupationCode", new Dictionary<string, string>
-            {
-                ["count"] = "100",
-                ["fields"] = "id,code,nameNO",
-                ["query"] = occupationCode
-            });
+            long? exactMatch = await SearchOccupationCodesPageAsync(api, occupationCode, includeCodeFilter: true);
+            if (exactMatch != null)
+                return exactMatch;
 
-            if (result.TryGetProperty("values", out var values))
-            {
-                foreach (var value in values.EnumerateArray())
-                {
-                    var code = value.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
-                    if (string.Equals(code, occupationCode, StringComparison.OrdinalIgnoreCase))
-                        return value.GetProperty("id").GetInt64();
-                }
-
-                if (values.GetArrayLength() > 0)
-                    return values[0].GetProperty("id").GetInt64();
-            }
-
-            var fallback = await api.GetAsync("/employee/employment/occupationCode", new Dictionary<string, string>
-            {
-                ["count"] = "100",
-                ["fields"] = "id,code,nameNO"
-            });
-
-            if (fallback.TryGetProperty("values", out var fallbackValues))
-            {
-                foreach (var value in fallbackValues.EnumerateArray())
-                {
-                    var code = value.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
-                    if (string.Equals(code, occupationCode, StringComparison.OrdinalIgnoreCase))
-                        return value.GetProperty("id").GetInt64();
-                }
-            }
+            exactMatch = await SearchOccupationCodesPageAsync(api, occupationCode, includeCodeFilter: false);
+            if (exactMatch != null)
+                return exactMatch;
         }
         catch (TripletexApiException ex)
         {
@@ -528,6 +500,41 @@ public class EmployeeHandler : ITaskHandler
         }
 
         return null;
+    }
+
+    private async Task<long?> SearchOccupationCodesPageAsync(TripletexApiClient api, string occupationCode, bool includeCodeFilter)
+    {
+        const int pageSize = 1000;
+        var from = 0;
+
+        while (true)
+        {
+            var query = new Dictionary<string, string>
+            {
+                ["from"] = from.ToString(),
+                ["count"] = pageSize.ToString(),
+                ["fields"] = "id,code,nameNO"
+            };
+
+            if (includeCodeFilter)
+                query["code"] = occupationCode;
+
+            var result = await api.GetAsync("/employee/employment/occupationCode", query);
+            if (!result.TryGetProperty("values", out var values) || values.GetArrayLength() == 0)
+                return null;
+
+            foreach (var value in values.EnumerateArray())
+            {
+                var code = value.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
+                if (string.Equals(code, occupationCode, StringComparison.OrdinalIgnoreCase))
+                    return value.GetProperty("id").GetInt64();
+            }
+
+            var fullResultSize = result.TryGetProperty("fullResultSize", out var sizeProp) ? sizeProp.GetInt32() : values.GetArrayLength();
+            from += values.GetArrayLength();
+            if (from >= fullResultSize)
+                return null;
+        }
     }
 
     private async Task EnsureEmployeeMatchesBodyAsync(TripletexApiClient api, long employeeId, Dictionary<string, object> desiredBody)

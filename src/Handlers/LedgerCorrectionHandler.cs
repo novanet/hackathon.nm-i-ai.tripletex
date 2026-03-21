@@ -56,9 +56,16 @@ public class LedgerCorrectionHandler : ITaskHandler
 
         foreach (var correction in corrections)
         {
-            var id = await PostCorrection(api, correction, allPostings, byVoucher, accountNumberToId, correctionDate);
-            if (id.HasValue)
-                createdIds.Add(id.Value);
+            try
+            {
+                var id = await PostCorrection(api, correction, allPostings, byVoucher, accountNumberToId, correctionDate);
+                if (id.HasValue)
+                    createdIds.Add(id.Value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping failed ledger correction {Type} for account {Account}", correction.ErrorType, correction.Account);
+            }
         }
 
         _logger.LogInformation("Ledger correction complete: {Success}/{Total} vouchers created",
@@ -112,9 +119,15 @@ public class LedgerCorrectionHandler : ITaskHandler
                 {
                     // Find the duplicate posting and its counter-account
                     var (ep, counterId) = FindAndGetCounter(c.Account, c.Amount, allPostings, byVoucher);
-                    if (ep == null || counterId == null)
+                    if (counterId == null)
+                        counterId = await ResolveFallbackCounterId(api, c.Account, numberToId);
+
+                    if (ep == null)
+                        _logger.LogWarning("Duplicate fallback: no exact posting found for account={A} amount≈{Amt}; using generic counter account", c.Account, c.Amount);
+
+                    if (counterId == null)
                     {
-                        _logger.LogWarning("Cannot find duplicate posting: account={A} amount≈{Amt}", c.Account, c.Amount);
+                        _logger.LogWarning("Cannot find duplicate posting fallback account: account={A} amount≈{Amt}", c.Account, c.Amount);
                         return null;
                     }
                     var errorId = await ResolveId(api, c.Account, numberToId);
@@ -133,6 +146,8 @@ public class LedgerCorrectionHandler : ITaskHandler
                 {
                     // Find original posting to identify the counter-account
                     var (_, counterId) = FindAndGetCounter(c.Account, c.Amount, allPostings, byVoucher);
+                    if (counterId == null)
+                        counterId = await ResolveFallbackCounterId(api, c.Account, numberToId);
                     var vatAcct = c.VatAccount ?? "2710";
                     var vatId = await ResolveId(api, vatAcct, numberToId);
                     if (vatId == null || counterId == null)
@@ -162,6 +177,8 @@ public class LedgerCorrectionHandler : ITaskHandler
                         return null;
                     }
                     var (_, counterId) = FindAndGetCounter(c.Account, posted, allPostings, byVoucher);
+                    if (counterId == null)
+                        counterId = await ResolveFallbackCounterId(api, c.Account, numberToId);
                     var errorId = await ResolveId(api, c.Account, numberToId);
                     if (errorId == null || counterId == null)
                     {
@@ -233,9 +250,15 @@ public class LedgerCorrectionHandler : ITaskHandler
 
         var sign = posting.AmountGross >= 0 ? 1m : -1m;
         // Prefer opposite-sign counter with largest absolute amount
-        var counter = others.Where(p => p.AmountGross * sign < 0)
-                            .OrderByDescending(p => Math.Abs(p.AmountGross))
-                            .FirstOrDefault()
+        var safeOthers = others.Where(p => !RequiresLinkedEntity(p.AccountNumber)).ToList();
+
+        var counter = safeOthers.Where(p => p.AmountGross * sign < 0)
+                                .OrderByDescending(p => Math.Abs(p.AmountGross))
+                                .FirstOrDefault()
+                      ?? safeOthers.OrderByDescending(p => Math.Abs(p.AmountGross)).FirstOrDefault()
+                      ?? others.Where(p => p.AmountGross * sign < 0)
+                               .OrderByDescending(p => Math.Abs(p.AmountGross))
+                               .FirstOrDefault()
                       ?? others.OrderByDescending(p => Math.Abs(p.AmountGross)).First();
 
         return (posting, counter.AccountId);
@@ -264,6 +287,31 @@ public class LedgerCorrectionHandler : ITaskHandler
 
         _logger.LogWarning("Account {N} not found in chart of accounts", accountNumber);
         return null;
+    }
+
+    private async Task<long?> ResolveFallbackCounterId(TripletexApiClient api, string accountNumber, Dictionary<string, long> cache)
+    {
+        var preferred = accountNumber.StartsWith("6", StringComparison.Ordinal) || accountNumber.StartsWith("7", StringComparison.Ordinal)
+            ? new[] { "1920", "2050" }
+            : new[] { "1920", "2050" };
+
+        foreach (var candidate in preferred)
+        {
+            var resolved = await ResolveId(api, candidate, cache);
+            if (resolved.HasValue)
+                return resolved.Value;
+        }
+
+        return null;
+    }
+
+    private static bool RequiresLinkedEntity(string? accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber))
+            return false;
+
+        return accountNumber.StartsWith("15", StringComparison.Ordinal)
+            || accountNumber.StartsWith("24", StringComparison.Ordinal);
     }
 
     private async Task LoadAccountMap(
