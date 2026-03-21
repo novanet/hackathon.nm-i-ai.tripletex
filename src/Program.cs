@@ -186,6 +186,10 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         logger.LogInformation("Extracted task_type: {TaskType}, action: {Action}",
             extracted.TaskType, extracted.Action);
 
+        // Save received files to disk for debugging/replay
+        if (request.Files?.Count > 0)
+            SaveReceivedFiles(request.Files, extracted.TaskType, logger);
+
         // Dry-run mode: log extraction, skip API calls, return bare 200
         if (isDryRun)
         {
@@ -254,6 +258,42 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
 });
 
 app.Run();
+
+static void SaveReceivedFiles(List<SolveFile> files, string taskType, ILogger logger)
+{
+    try
+    {
+        var sanitizedTask = string.Join("_", taskType.Split(Path.GetInvalidFileNameChars()));
+        var dirName = $"{DateTime.Now:yyyyMMdd-HHmmss}_{sanitizedTask}";
+        var dir = Path.Combine("logs", "files", dirName);
+        Directory.CreateDirectory(dir);
+
+        foreach (var file in files)
+        {
+            // Sanitize filename to prevent path traversal
+            var safeName = Path.GetFileName(file.Filename.Replace("..", "_"));
+            if (string.IsNullOrWhiteSpace(safeName)) safeName = "unnamed";
+
+            var data = Convert.FromBase64String(file.ContentBase64);
+
+            // Skip files > 10MB
+            if (data.Length > 10 * 1024 * 1024)
+            {
+                logger.LogWarning("Skipping file {File} ({Size} bytes) — exceeds 10MB limit", safeName, data.Length);
+                continue;
+            }
+
+            var path = Path.Combine(dir, safeName);
+            File.WriteAllBytes(path, data);
+            logger.LogInformation("Saved received file: {Path} ({Size} bytes, {MimeType})",
+                path, data.Length, file.MimeType);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to save received files (non-fatal)");
+    }
+}
 
 static void LogRecon(SolveRequest request, ExtractionResult extracted, string handlerName, long elapsedMs)
 {

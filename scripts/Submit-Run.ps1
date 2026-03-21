@@ -141,6 +141,21 @@ catch {
     }
 }
 
+# --- Snapshot leaderboard counts for diff after submission ---
+$leaderboardFile = Join-Path $PSScriptRoot "..\src\logs\leaderboard.jsonl"
+$preCounts = @{}
+$preScores = @{}
+if (Test-Path $leaderboardFile) {
+    $lastLine = (Get-Content $leaderboardFile -Encoding UTF8 | Select-Object -Last 1)
+    if ($lastLine) {
+        $prevEntry = $lastLine | ConvertFrom-Json
+        foreach ($t in $prevEntry.tasks) {
+            $preCounts[$t.tx_task_id] = $t.total_attempts
+            $preScores[$t.tx_task_id] = $t.best_score
+        }
+    }
+}
+
 # --- Snapshot submissions.jsonl line count for replay ---
 $submissionsFile = Join-Path $PSScriptRoot "..\src\logs\submissions.jsonl"
 $preLineCount = 0
@@ -319,11 +334,40 @@ try {
     $taskCount = ($leaderboardData | Measure-Object).Count
     $zeroTasks = $leaderboardData | Where-Object { $_.best_score -eq 0 } | ForEach-Object { $_.tx_task_id }
 
+    # Diff attempt counts and scores vs pre-submission snapshot
+    $attemptedTasks = @()
+    $scoreChanges = @()
+    foreach ($t in $leaderboardData) {
+        $tid = $t.tx_task_id
+        $prevAttempts = if ($preCounts.ContainsKey($tid)) { $preCounts[$tid] } else { 0 }
+        $prevScore = if ($preScores.ContainsKey($tid)) { $preScores[$tid] } else { 0 }
+        if ($t.total_attempts -gt $prevAttempts) {
+            $attemptedTasks += @{
+                tx_task_id   = $tid
+                prev_attempts = $prevAttempts
+                new_attempts  = $t.total_attempts
+                delta         = $t.total_attempts - $prevAttempts
+                prev_score    = $prevScore
+                new_score     = $t.best_score
+            }
+        }
+        if ($t.best_score -ne $prevScore) {
+            $scoreChanges += @{
+                tx_task_id = $tid
+                prev_score = $prevScore
+                new_score  = $t.best_score
+                delta      = [Math]::Round($t.best_score - $prevScore, 4)
+            }
+        }
+    }
+
     $leaderboardEntry = @{
         timestamp        = (Get-Date).ToUniversalTime().ToString("o")
         submission_id    = $submissionId
         total_best_score = [Math]::Round($totalScore, 4)
         task_count       = $taskCount
+        attempted_tasks  = $attemptedTasks
+        score_changes    = $scoreChanges
         tasks            = $leaderboardData
     }
 
@@ -335,6 +379,27 @@ try {
     Write-Host "  Total: $([Math]::Round($totalScore, 2)) across $taskCount tasks" -ForegroundColor Yellow
     if ($zeroTasks) {
         Write-Host "  Zero-score tasks: $($zeroTasks -join ', ')" -ForegroundColor Yellow
+    }
+
+    # Print attempted tasks summary
+    if ($attemptedTasks.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Tasks attempted in this submission:" -ForegroundColor Cyan
+        foreach ($at in $attemptedTasks) {
+            $improved = if ($at.new_score -gt $at.prev_score) { " * IMPROVED!" } else { "" }
+            Write-Host "  $($at.tx_task_id) (attempts: $($at.prev_attempts) -> $($at.new_attempts), score: $($at.prev_score) -> $($at.new_score))$improved" -ForegroundColor $(if ($improved) { "Green" } else { "Gray" })
+        }
+    } else {
+        Write-Host "  No new task attempts detected (counts unchanged)." -ForegroundColor Gray
+    }
+    if ($scoreChanges.Count -gt 0) {
+        Write-Host ""
+        Write-Host "Score changes:" -ForegroundColor Cyan
+        foreach ($sc in $scoreChanges) {
+            $color = if ($sc.delta -gt 0) { "Green" } elseif ($sc.delta -lt 0) { "Red" } else { "Gray" }
+            $sign = if ($sc.delta -gt 0) { "+" } else { "" }
+            Write-Host "  $($sc.tx_task_id): $($sc.prev_score) -> $($sc.new_score) ($sign$($sc.delta))" -ForegroundColor $color
+        }
     }
 }
 catch {
