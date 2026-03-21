@@ -47,18 +47,21 @@ Create employee if needed, set up employment + division, create salary transacti
 
 **Local validation: 8/8 (100%)**
 
-## Current State (2026-03-21)
+## Current State (2026-03-22)
 
-**Sandbox fully passing** at 8/8 (100%). Latest sandbox run: 14 calls, 0 errors, score 8/8.
+**Sandbox fully passing** at 8/8 (100%). Latest sandbox run after the handler fix: 15 calls, 0 errors, score 8/8.
 
-**Competition failing.** Latest competition run (2026-03-21 14:44): 7 calls, 2 errors. Error was `"organizationNumber: Juridisk enhet kan ikke registreres som virksomhet/underenhet."` — the division creation failed because the company's org number can't be used as a sub-entity. Handler only made 7 of 14 calls before failing.
+**Latest verified sandbox replay:** William Taylor prompt succeeded end-to-end. The handler created a new employee, created employment with division attached, verified the employment link with a follow-up GET, posted the salary transaction, verified the payslip, and created the 5000-series payroll voucher.
 
-**Root cause:** Division creation uses the company's own org number, which fails in competition's clean environment. In sandbox this works because a division may already exist. The handler needs to:
-1. Skip org number when creating divisions, OR
-2. Use a different org number for the division, OR  
-3. Look up the company's existing division structure first
+**Competition is still unverified after the fix.** The last recorded competition failure is older than the patch and should be treated as stale evidence until a new submission is made.
 
-66 total runs. Sandbox consistently passes (0 errors). Competition has intermittent division creation failures.
+**Updated root cause:** the original division logic had two failure modes in clean environments:
+1. Omitting `organizationNumber` can fail with `organizationNumber: Feltet må fylles ut.`
+2. Using the company's own organization number can fail with `Juridisk enhet kan ikke registreres som virksomhet/underenhet.`
+
+**Current fix:** PayrollHandler now resolves an existing division if present; otherwise it creates `Hovedvirksomhet` with a synthetic 9-digit underenhet number, then verifies the employment actually comes back with `division.id` before allowing `POST /salary/transaction`.
+
+66 total runs. Sandbox currently validates cleanly. Competition confirmation is still pending.
 
 ## Key Fix Applied
 
@@ -68,12 +71,13 @@ Create employee if needed, set up employment + division, create salary transacti
 
 ## Remaining Issues
 
-1. **Division creation fails in competition** — org number conflict. This is the #1 blocker preventing competition score improvement.
-2. Competition score stuck at 1.00 despite local 8/8 — the division error aborts the handler before salary transaction is created.
+1. **Competition confirmation still missing** — sandbox passes, but the clean competition environment has not yet been rerun after the patch.
+2. **Task docs still show the last stale competition result** — this will correct itself after the next submission replay and refresh.
 
 ## Action Required
 
-- [ ] Fix division creation to not use company org number (or find existing division)
-- [ ] Test with competition-like clean environment
-- [ ] Submit and verify score improves from 1.00
+- [x] Fix payroll division creation and employment linkage
+- [x] Verify sandbox replay at 8/8
+- [ ] Submit a fresh competition run when external submission is allowed
+- [ ] Compare competition score vs local validator and adjust `SandboxValidator.cs` if they diverge
 - [ ] Target: 4.00 (matching leader)

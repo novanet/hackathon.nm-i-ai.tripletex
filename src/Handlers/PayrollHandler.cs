@@ -381,56 +381,9 @@ public class PayrollHandler : ITaskHandler
 
     private async Task<long> EnsureEmployment(TripletexApiClient api, long employeeId, int year, int month, bool isNewEmployee = false)
     {
-        // Get or create division (virksomhet) — required for payroll
-        long? divisionId = null;
-        var divisions = await api.GetAsync("/division", new Dictionary<string, string>
-        {
-            ["count"] = "1",
-            ["fields"] = "id"
-        });
-        if (divisions.TryGetProperty("values", out var divs) && divs.GetArrayLength() > 0)
-        {
-            divisionId = divs[0].GetProperty("id").GetInt64();
-        }
-        else
-        {
-            // No division exists — create one (required for payroll/A-melding)
-            _logger.LogInformation("No division found, creating one for payroll");
-
-            // Get a municipality reference
-            var munis = await api.GetAsync("/municipality", new Dictionary<string, string>
-            {
-                ["count"] = "1",
-                ["fields"] = "id"
-            });
-            long? muniId = null;
-            if (munis.TryGetProperty("values", out var muniValues) && muniValues.GetArrayLength() > 0)
-                muniId = muniValues[0].GetProperty("id").GetInt64();
-
-            var today = $"{year}-{month:D2}-01";
-
-            // Strategy: try WITHOUT organizationNumber first. The company org number is a
-            // legal entity number, and Tripletex rejects it for divisions/sub-units.
-            var divBody = new Dictionary<string, object>
-            {
-                ["name"] = "Hovedvirksomhet",
-                ["startDate"] = today,
-                ["municipalityDate"] = today
-            };
-            if (muniId != null)
-                divBody["municipality"] = new Dictionary<string, object> { ["id"] = muniId.Value };
-
-            try
-            {
-                var divResult = await api.PostAsync("/division", divBody);
-                divisionId = divResult.GetProperty("value").GetProperty("id").GetInt64();
-                _logger.LogInformation("Created division {Id} (no orgNumber)", divisionId);
-            }
-            catch (Exception ex1)
-            {
-                _logger.LogWarning("Division creation without orgNumber failed: {Msg}. Continuing without creating division.", ex1.Message);
-            }
-        }
+        var divisionId = await ResolveOrCreatePayrollDivisionAsync(api, year, month);
+        if (!divisionId.HasValue)
+            throw new InvalidOperationException("Could not resolve or create payroll division required for salary transactions.");
 
         // Check if employee has an employment (skip for newly created employees — guaranteed none)
         if (!isNewEmployee)
@@ -448,7 +401,14 @@ public class PayrollHandler : ITaskHandler
                 var existing = empValues[0];
                 var empId = existing.GetProperty("id").GetInt64();
                 var version = existing.GetProperty("version").GetInt32();
-                if (divisionId.HasValue)
+                JsonElement existingDivisionIdProp = default;
+                var hasDivision = existing.TryGetProperty("division", out var existingDivision)
+                    && existingDivision.ValueKind == JsonValueKind.Object
+                    && existingDivision.TryGetProperty("id", out existingDivisionIdProp)
+                    && existingDivisionIdProp.ValueKind == JsonValueKind.Number;
+                var existingDivisionId = hasDivision ? existingDivisionIdProp.GetInt64() : (long?)null;
+
+                if (existingDivisionId != divisionId.Value)
                 {
                     _logger.LogInformation("Updating employment {Id} with division {Div}", empId, divisionId);
                     await api.PutAsync($"/employee/employment/{empId}", new Dictionary<string, object>
@@ -460,6 +420,8 @@ public class PayrollHandler : ITaskHandler
                         ["taxDeductionCode"] = "loennFraHovedarbeidsgiver"
                     });
                 }
+
+                await EnsureEmploymentDivisionLinkedAsync(api, employeeId, empId, divisionId.Value);
                 return empId;
             }
         }
@@ -486,11 +448,132 @@ public class PayrollHandler : ITaskHandler
                 }
             }
         };
-        if (divisionId.HasValue)
-            employmentBody["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value };
+        employmentBody["division"] = new Dictionary<string, object> { ["id"] = divisionId.Value };
 
         var newEmployment = await api.PostAsync("/employee/employment", employmentBody);
-        return newEmployment.GetProperty("value").GetProperty("id").GetInt64();
+        var newEmploymentId = newEmployment.GetProperty("value").GetProperty("id").GetInt64();
+        await EnsureEmploymentDivisionLinkedAsync(api, employeeId, newEmploymentId, divisionId.Value);
+        return newEmploymentId;
+    }
+
+    private async Task<long?> ResolveOrCreatePayrollDivisionAsync(TripletexApiClient api, int year, int month)
+    {
+        var divisions = await api.GetAsync("/division", new Dictionary<string, string>
+        {
+            ["count"] = "1",
+            ["fields"] = "id"
+        });
+        if (divisions.TryGetProperty("values", out var divs) && divs.GetArrayLength() > 0)
+            return divs[0].GetProperty("id").GetInt64();
+
+        _logger.LogInformation("No division found, creating one for payroll");
+
+        var municipalityId = await ResolveMunicipalityIdAsync(api);
+        if (!municipalityId.HasValue)
+            return null;
+
+        var existingDivisionNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var companyDivisions = await api.GetAsync("/company/divisions", new Dictionary<string, string>
+            {
+                ["count"] = "100",
+                ["fields"] = "id,organizationNumber,name"
+            });
+
+            if (companyDivisions.TryGetProperty("values", out var values) && values.GetArrayLength() > 0)
+            {
+                foreach (var value in values.EnumerateArray())
+                {
+                    if (value.TryGetProperty("organizationNumber", out var orgProp)
+                        && orgProp.ValueKind == JsonValueKind.String
+                        && !string.IsNullOrWhiteSpace(orgProp.GetString()))
+                    {
+                        existingDivisionNumbers.Add(orgProp.GetString()!);
+                    }
+
+                    if (value.TryGetProperty("id", out var existingIdProp) && existingIdProp.ValueKind == JsonValueKind.Number)
+                        return existingIdProp.GetInt64();
+                }
+            }
+        }
+        catch (TripletexApiException ex)
+        {
+            _logger.LogWarning(ex, "Failed to inspect company divisions before payroll division creation");
+        }
+
+        var startDate = $"{year}-{month:D2}-01";
+        var organizationNumber = PickSyntheticDivisionOrganizationNumber(existingDivisionNumbers);
+        var divBody = new Dictionary<string, object>
+        {
+            ["name"] = "Hovedvirksomhet",
+            ["organizationNumber"] = organizationNumber,
+            ["startDate"] = startDate,
+            ["municipalityDate"] = startDate,
+            ["municipality"] = new Dictionary<string, object> { ["id"] = municipalityId.Value }
+        };
+
+        var divResult = await api.PostAsync("/division", divBody);
+        var divisionId = divResult.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created payroll division {DivisionId} with orgNumber {OrganizationNumber}", divisionId, organizationNumber);
+        return divisionId;
+    }
+
+    private async Task<long?> ResolveMunicipalityIdAsync(TripletexApiClient api)
+    {
+        var munis = await api.GetAsync("/municipality", new Dictionary<string, string>
+        {
+            ["count"] = "1",
+            ["fields"] = "id"
+        });
+        if (munis.TryGetProperty("values", out var muniValues) && muniValues.GetArrayLength() > 0)
+            return muniValues[0].GetProperty("id").GetInt64();
+
+        return null;
+    }
+
+    private async Task EnsureEmploymentDivisionLinkedAsync(TripletexApiClient api, long employeeId, long employmentId, long divisionId)
+    {
+        var employments = await api.GetAsync("/employee/employment", new Dictionary<string, string>
+        {
+            ["employeeId"] = employeeId.ToString(),
+            ["count"] = "20",
+            ["fields"] = "id,division(id)"
+        });
+
+        if (!employments.TryGetProperty("values", out var values))
+            throw new InvalidOperationException($"Employment {employmentId} could not be verified for employee {employeeId}.");
+
+        foreach (var employment in values.EnumerateArray())
+        {
+            if (!employment.TryGetProperty("id", out var idProp) || idProp.GetInt64() != employmentId)
+                continue;
+
+            var isLinked = employment.TryGetProperty("division", out var division)
+                && division.ValueKind == JsonValueKind.Object
+                && division.TryGetProperty("id", out var divisionIdProp)
+                && divisionIdProp.ValueKind == JsonValueKind.Number
+                && divisionIdProp.GetInt64() == divisionId;
+
+            if (isLinked)
+                return;
+
+            throw new InvalidOperationException($"Employment {employmentId} was created without the payroll division attached.");
+        }
+
+        throw new InvalidOperationException($"Employment {employmentId} could not be found for employee {employeeId} after update.");
+    }
+
+    private static string PickSyntheticDivisionOrganizationNumber(HashSet<string> existingNumbers)
+    {
+        for (var candidate = 999999999; candidate >= 999999900; candidate--)
+        {
+            var value = candidate.ToString();
+            if (!existingNumbers.Contains(value))
+                return value;
+        }
+
+        return "999999999";
     }
 
     private static string? GetString(Dictionary<string, object> dict, string key)
