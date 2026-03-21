@@ -1,0 +1,8 @@
+Dato;Forklaring;Inn;Ut;Saldo
+2025-06-01;Innbetaling fra Kunde AS / Faktura 1001;15000;;140000
+2025-06-05;Betaling Leverandor Utstyr AS;;8500;131500
+2025-06-10;Bankgebyr;;250;131250
+2025-06-15;Innbetaling fra Test Kunde / Faktura 1002;25000;;156250
+2025-06-20;Skattetrekk;;12500;143750
+2025-06-25;Betaling Leverandor Kontor AS;;5000;138750
+2025-06-30;Innbetaling fra Bedrift AS / Faktura 1003;11250;;150000

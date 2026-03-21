@@ -31,4 +31,8 @@ public class ExtractionResult
     /// <summary>Original prompt text (set by LlmExtractor, not from JSON)</summary>
     [JsonIgnore]
     public string? RawPrompt { get; set; }
+
+    /// <summary>Attached files from the request (set by Program.cs, not from JSON)</summary>
+    [JsonIgnore]
+    public List<SolveFile>? Files { get; set; }
 }

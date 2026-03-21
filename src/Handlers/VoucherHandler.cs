@@ -30,6 +30,16 @@ public class VoucherHandler : ITaskHandler
         if (supplierName != null || supplierOrgNumber != null)
             return await HandleSupplierInvoice(api, extracted, voucher);
 
+        // --- Multi-voucher detection (voucher1, voucher2, ...) ---
+        var numberedVouchers = extracted.Entities
+            .Where(kv => kv.Key.StartsWith("voucher", StringComparison.OrdinalIgnoreCase)
+                      && kv.Key.Length > 7
+                      && char.IsDigit(kv.Key[7]))
+            .OrderBy(kv => kv.Key)
+            .ToList();
+        if (numberedVouchers.Count > 0 && voucher.Count == 0)
+            return await HandleMultiVoucher(api, extracted, numberedVouchers);
+
         // --- Step 1: Create custom dimension + values if present ---
         int? dimensionIndex = null;
         long? linkedDimensionValueId = null;
@@ -166,38 +176,51 @@ public class VoucherHandler : ITaskHandler
             var creditAccount = GetStringField(voucher, "creditAccount") ?? GetStringField(voucher, "credit_account");
             decimal amount = ExtractAmount(voucher, extracted);
 
-            if (debitAccount != null && amount != 0)
+            if (debitAccount != null && creditAccount != null && amount != 0)
             {
                 var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
-                if (debitId.HasValue)
+                var (creditId, creditVatId, _) = await ResolveAccountId(api, creditAccount);
+                if (debitId.HasValue && creditId.HasValue)
                 {
-                    var p = new Dictionary<string, object>
+                    postings.Add(new Dictionary<string, object>
                     {
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = debitId.Value },
                         ["amountGross"] = amount,
                         ["amountGrossCurrency"] = amount
-                    };
-                    if (debitVatId.HasValue) p["vatType"] = new { id = debitVatId.Value };
-                    postings.Add(p);
-                }
-            }
-            if (creditAccount != null && amount != 0)
-            {
-                var (creditId, creditVatId, _) = await ResolveAccountId(api, creditAccount);
-                if (creditId.HasValue)
-                {
-                    var p = new Dictionary<string, object>
+                    });
+                    if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
+                    postings.Add(new Dictionary<string, object>
                     {
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = creditId.Value },
                         ["amountGross"] = -amount,
                         ["amountGrossCurrency"] = -amount
-                    };
-                    if (creditVatId.HasValue) p["vatType"] = new { id = creditVatId.Value };
-                    postings.Add(p);
+                    });
+                    if (creditVatId.HasValue) postings[^1]["vatType"] = new { id = creditVatId.Value };
+                }
+                else
+                {
+                    _logger.LogWarning("Skipping voucher: debit={Debit}(found={DF}) credit={Credit}(found={CF})",
+                        debitAccount, debitId.HasValue, creditAccount, creditId.HasValue);
+                }
+            }
+            else if (debitAccount != null && amount != 0)
+            {
+                var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
+                if (debitId.HasValue)
+                {
+                    postings.Add(new Dictionary<string, object>
+                    {
+                        ["date"] = date,
+                        ["description"] = description,
+                        ["account"] = new { id = debitId.Value },
+                        ["amountGross"] = amount,
+                        ["amountGrossCurrency"] = amount
+                    });
+                    if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
                 }
             }
         }
@@ -264,7 +287,7 @@ public class VoucherHandler : ITaskHandler
         return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
     }
 
-    private async Task<Dictionary<string, object>> BuildPostingFromJson(TripletexApiClient api, JsonElement item, string date)
+    private async Task<Dictionary<string, object>> BuildPostingFromJson(TripletexApiClient api, JsonElement item, string date, double? resolvedComputedAmount = null)
     {
         var posting = new Dictionary<string, object> { ["date"] = date };
         if (item.TryGetProperty("description", out var d)) posting["description"] = d.GetString()!;
@@ -283,17 +306,33 @@ public class VoucherHandler : ITaskHandler
             if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
         }
 
+        double? rawAmount = null;
         if (item.TryGetProperty("amountGross", out var ag))
         {
-            var val = ag.ValueKind == JsonValueKind.Number ? ag.GetDouble() : double.Parse(ag.GetString()!, CultureInfo.InvariantCulture);
-            posting["amountGross"] = val;
-            posting["amountGrossCurrency"] = val;
+            if (ag.ValueKind == JsonValueKind.Number)
+                rawAmount = ag.GetDouble();
+            else if (ag.ValueKind == JsonValueKind.String && double.TryParse(ag.GetString()!, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                rawAmount = parsed;
         }
         else if (item.TryGetProperty("amount", out var am))
         {
-            var val = am.ValueKind == JsonValueKind.Number ? am.GetDouble() : double.Parse(am.GetString()!, CultureInfo.InvariantCulture);
-            posting["amountGross"] = val;
-            posting["amountGrossCurrency"] = val;
+            if (am.ValueKind == JsonValueKind.Number)
+                rawAmount = am.GetDouble();
+            else if (am.ValueKind == JsonValueKind.String && double.TryParse(am.GetString()!, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed2))
+                rawAmount = parsed2;
+            else if (am.ValueKind == JsonValueKind.String && resolvedComputedAmount.HasValue)
+                rawAmount = resolvedComputedAmount.Value;
+        }
+
+        if (rawAmount.HasValue)
+        {
+            // Apply debitCredit sign: "credit" negates the amount
+            if (item.TryGetProperty("debitCredit", out var dc) && dc.ValueKind == JsonValueKind.String
+                && string.Equals(dc.GetString(), "credit", StringComparison.OrdinalIgnoreCase))
+                rawAmount = -Math.Abs(rawAmount.Value);
+
+            posting["amountGross"] = rawAmount.Value;
+            posting["amountGrossCurrency"] = rawAmount.Value;
         }
 
         return posting;
@@ -363,7 +402,186 @@ public class VoucherHandler : ITaskHandler
                 return (id, vatId, locked);
             }
         }
+        _logger.LogWarning("Account {Number} not found in chart of accounts", accountNumber);
         return (null, null, false);
+    }
+
+    private async Task<HandlerResult> HandleMultiVoucher(TripletexApiClient api, ExtractionResult extracted,
+        List<KeyValuePair<string, Dictionary<string, object>>> numberedVouchers)
+    {
+        _logger.LogInformation("Processing {Count} numbered vouchers", numberedVouchers.Count);
+        long firstVoucherId = 0;
+        int created = 0;
+
+        foreach (var (key, voucherEntity) in numberedVouchers)
+        {
+            var date = GetStringField(voucherEntity, "date")
+                ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd"));
+            var description = GetStringField(voucherEntity, "description") ?? "Bilag";
+
+            var postings = new List<Dictionary<string, object>>();
+
+            // Path 1: Structured postings array inside the voucher entity
+            if (voucherEntity.TryGetValue("postings", out var pVal) && pVal is JsonElement pArr && pArr.ValueKind == JsonValueKind.Array)
+            {
+                // Check if any posting has a computed (non-numeric) amount
+                double? resolvedComputed = null;
+                foreach (var item in pArr.EnumerateArray())
+                {
+                    var amtProp = item.TryGetProperty("amount", out var amCheck) ? amCheck
+                        : item.TryGetProperty("amountGross", out var agCheck) ? agCheck
+                        : default;
+                    if (amtProp.ValueKind == JsonValueKind.String)
+                    {
+                        var amtStr = amtProp.GetString();
+                        if (amtStr != null && !double.TryParse(amtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out _))
+                        {
+                            _logger.LogInformation("Detected computed amount '{Amt}' in {Key} — resolving via ledger", amtStr, key);
+                            resolvedComputed ??= await ResolveComputedTaxAmountAsync(api, date);
+                            break;
+                        }
+                    }
+                }
+
+                foreach (var item in pArr.EnumerateArray())
+                {
+                    var p = await BuildPostingFromJson(api, item, date, resolvedComputed);
+                    if (p.ContainsKey("amountGross"))
+                        postings.Add(p);
+                    else
+                        _logger.LogWarning("Skipping posting in {Key} — non-numeric or missing amount", key);
+                }
+            }
+
+            // Path 2: debitAccount/creditAccount pair
+            if (postings.Count == 0)
+            {
+                var debitAccount = GetStringField(voucherEntity, "debitAccount") ?? GetStringField(voucherEntity, "debit_account");
+                var creditAccount = GetStringField(voucherEntity, "creditAccount") ?? GetStringField(voucherEntity, "credit_account");
+                decimal amount = ExtractAmount(voucherEntity, extracted);
+
+                if (debitAccount != null && creditAccount != null && amount != 0)
+                {
+                    // Both accounts specified — resolve both and only create if both exist
+                    var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
+                    var (creditId, creditVatId, _) = await ResolveAccountId(api, creditAccount);
+                    if (debitId.HasValue && creditId.HasValue)
+                    {
+                        postings.Add(new Dictionary<string, object>
+                        {
+                            ["date"] = date,
+                            ["description"] = description,
+                            ["account"] = new { id = debitId.Value },
+                            ["amountGross"] = amount,
+                            ["amountGrossCurrency"] = amount
+                        });
+                        if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
+                        postings.Add(new Dictionary<string, object>
+                        {
+                            ["date"] = date,
+                            ["description"] = description,
+                            ["account"] = new { id = creditId.Value },
+                            ["amountGross"] = -amount,
+                            ["amountGrossCurrency"] = -amount
+                        });
+                        if (creditVatId.HasValue) postings[^1]["vatType"] = new { id = creditVatId.Value };
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Skipping {Key}: debit={Debit}(found={DF}) credit={Credit}(found={CF})",
+                            key, debitAccount, debitId.HasValue, creditAccount, creditId.HasValue);
+                    }
+                }
+                else if (debitAccount != null && amount != 0)
+                {
+                    // Only debit account — will fall through to Path 3 if this also fails
+                    var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
+                    if (debitId.HasValue)
+                    {
+                        postings.Add(new Dictionary<string, object>
+                        {
+                            ["date"] = date,
+                            ["description"] = description,
+                            ["account"] = new { id = debitId.Value },
+                            ["amountGross"] = amount,
+                            ["amountGrossCurrency"] = amount
+                        });
+                        if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
+                    }
+                }
+            }
+
+            // Path 3: single account + auto counter-posting
+            if (postings.Count == 0)
+            {
+                var account = GetStringField(voucherEntity, "account") ?? GetStringField(voucherEntity, "accountNumber");
+                decimal amount = ExtractAmount(voucherEntity, extracted);
+                if (account != null && amount != 0)
+                {
+                    var (accountId, vatId, _) = await ResolveAccountId(api, account);
+                    if (accountId.HasValue)
+                    {
+                        var debitP = new Dictionary<string, object>
+                        {
+                            ["date"] = date,
+                            ["description"] = description,
+                            ["account"] = new { id = accountId.Value },
+                            ["amountGross"] = amount,
+                            ["amountGrossCurrency"] = amount
+                        };
+                        if (vatId.HasValue) debitP["vatType"] = new { id = vatId.Value };
+                        postings.Add(debitP);
+
+                        var (counterId, _, _) = await ResolveAccountId(api, "1920");
+                        if (counterId.HasValue)
+                            postings.Add(new Dictionary<string, object>
+                            {
+                                ["date"] = date,
+                                ["description"] = description,
+                                ["account"] = new { id = counterId.Value },
+                                ["amountGross"] = -amount,
+                                ["amountGrossCurrency"] = -amount
+                            });
+                    }
+                }
+            }
+
+            if (postings.Count == 0)
+            {
+                _logger.LogWarning("Skipping {Key} — no valid postings could be built", key);
+                continue;
+            }
+
+            for (int i = 0; i < postings.Count; i++)
+                postings[i]["row"] = i + 1;
+
+            _logger.LogInformation("Creating voucher {Key}: {Description} with {PostingCount} postings",
+                key, description, postings.Count);
+
+            try
+            {
+                var body = new Dictionary<string, object>
+                {
+                    ["date"] = date,
+                    ["description"] = description,
+                    ["postings"] = postings
+                };
+
+                var result = await api.PostAsync("/ledger/voucher?sendToLedger=true", body);
+                var voucherId = result.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created voucher {Key} ID: {Id}", key, voucherId);
+
+                if (firstVoucherId == 0) firstVoucherId = voucherId;
+                created++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to create {Key}: {Msg}", key, ex.Message);
+            }
+        }
+
+        _logger.LogInformation("Multi-voucher complete: {Created}/{Total} vouchers created", created, numberedVouchers.Count);
+        return new HandlerResult { EntityType = "voucher", EntityId = firstVoucherId };
     }
 
     private async Task<HandlerResult> HandleSupplierInvoice(TripletexApiClient api, ExtractionResult extracted, Dictionary<string, object> voucher)
@@ -419,51 +637,7 @@ public class VoucherHandler : ITaskHandler
                 }
         }
 
-        // 4. Try SupplierInvoice path: importDocument → PUT /supplierInvoice/voucher/{id}/postings
-        try
-        {
-            var importResult = await api.PostMultipartFileAsync("/ledger/voucher/importDocument", MinimalPdf, "invoice.pdf");
-            var emptyVoucherId = importResult.GetProperty("values")[0].GetProperty("id").GetInt64();
-            _logger.LogInformation("Imported empty voucher ID: {Id}", emptyVoucherId);
-
-            // Build OrderLinePosting in nested {"posting": {...}} format
-            var postingData = new Dictionary<string, object>
-            {
-                ["account"] = new { id = accountId!.Value },
-                ["amountGross"] = amount,
-                ["amountGrossCurrency"] = amount,
-                ["supplier"] = new { id = supplierId },
-                ["date"] = date,
-                ["description"] = description,
-                ["row"] = 1
-            };
-            if (inputVatId.HasValue) postingData["vatType"] = new { id = inputVatId.Value };
-            if (invoiceNumber != null) postingData["invoiceNumber"] = invoiceNumber;
-
-            var orderLinePostings = new[] { new Dictionary<string, object> { ["posting"] = postingData } };
-            var putResult = await api.PutAsync(
-                $"/supplierInvoice/voucher/{emptyVoucherId}/postings?sendToLedger=false&voucherDate={date}",
-                orderLinePostings);
-
-            // Extract SupplierInvoice ID from response
-            long siId = emptyVoucherId;
-            if (putResult.ValueKind != JsonValueKind.Undefined && putResult.ValueKind != JsonValueKind.Null)
-            {
-                if (putResult.TryGetProperty("value", out var siVal) && siVal.TryGetProperty("id", out var siIdEl))
-                    siId = siIdEl.GetInt64();
-                else if (putResult.TryGetProperty("values", out var siVals) && siVals.GetArrayLength() > 0
-                    && siVals[0].TryGetProperty("id", out var firstId))
-                    siId = firstId.GetInt64();
-            }
-            _logger.LogInformation("Created SupplierInvoice via PUT postings, SI ID: {Id}", siId);
-            return new HandlerResult { EntityType = "supplierInvoice", EntityId = siId };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("SupplierInvoice PUT postings path failed ({Msg}), falling back to classic voucher", ex.Message);
-        }
-
-        // 5. Fallback: classic Leverandørfaktura voucher
+        // 4. Classic Leverandørfaktura voucher (importDocument+PUT /supplierInvoice/voucher/{id}/postings always returns 500, skipped)
         var voucherTypes = await api.GetAsync("/ledger/voucherType",
             new Dictionary<string, string> { ["name"] = "Leverandørfaktura", ["count"] = "10", ["fields"] = "id,name" });
         long? voucherTypeId = null;
@@ -516,6 +690,47 @@ public class VoucherHandler : ITaskHandler
         var voucherId = fallbackResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created supplier invoice voucher (fallback) ID: {Id}", voucherId);
         return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
+    }
+
+    /// <summary>
+    /// Resolves computed tax amount by querying the ledger for P&L result and applying 22% Norwegian corporate tax rate.
+    /// Queries accounts 3000-8699 (operating + financial result, before tax expense on 8700).
+    /// </summary>
+    private async Task<double> ResolveComputedTaxAmountAsync(TripletexApiClient api, string date, double taxRate = 0.22)
+    {
+        var year = date.Length >= 4 ? date[..4] : DateTime.Now.Year.ToString();
+        var dateFrom = $"{year}-01-01";
+        var dateTo = $"{int.Parse(year) + 1}-01-01"; // exclusive end
+
+        var result = await api.GetAsync("/ledger/posting", new Dictionary<string, string>
+        {
+            ["dateFrom"] = dateFrom,
+            ["dateTo"] = dateTo,
+            ["accountNumberFrom"] = "3000",
+            ["accountNumberTo"] = "8699",
+            ["count"] = "10000",
+            ["fields"] = "amount"
+        });
+
+        double totalPnL = 0;
+        if (result.TryGetProperty("values", out var values))
+        {
+            foreach (var v in values.EnumerateArray())
+            {
+                if (v.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Number)
+                    totalPnL += amt.GetDouble();
+            }
+        }
+
+        // In Tripletex: income is credit (negative), expense is debit (positive)
+        // Taxable result = -(sum of P&L postings) → positive when profitable
+        var taxableResult = -totalPnL;
+        var taxCost = taxableResult > 0 ? Math.Round(taxableResult * taxRate, 2) : 0;
+
+        _logger.LogInformation("Tax calculation: P&L sum={PnL:F2}, taxable result={Taxable:F2}, tax ({Rate}%)={Tax:F2}",
+            totalPnL, taxableResult, taxRate * 100, taxCost);
+
+        return taxCost;
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)

@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using OpenAI;
@@ -130,6 +131,7 @@ public class LlmExtractor
                 var result = SafeDeserialize(content);
                 var final = result ?? new ExtractionResult { TaskType = "unknown" };
                 final.RawPrompt = prompt;
+                ValidateDates(final);
                 return final;
             }
             catch (Exception ex)
@@ -507,6 +509,62 @@ public class LlmExtractor
                 return $"{year:D4}-{month:D2}-{day:D2}";
         }
         return null;
+    }
+
+    /// <summary>Validate and fix dates in extraction result. Snaps invalid dates (e.g. Feb 29 on non-leap year) to last valid day of month.</summary>
+    private void ValidateDates(ExtractionResult result)
+    {
+        // Fix dates in the dates list
+        for (int i = 0; i < result.Dates.Count; i++)
+        {
+            var fixedDate = FixDateIfInvalid(result.Dates[i]);
+            if (fixedDate != null && fixedDate != result.Dates[i])
+            {
+                _logger.LogWarning("Fixed invalid date {Original} → {Fixed}", result.Dates[i], fixedDate);
+                result.Dates[i] = fixedDate;
+            }
+        }
+
+        // Fix date fields in entities
+        foreach (var entity in result.Entities.Values)
+        {
+            foreach (var key in entity.Keys.ToList())
+            {
+                if (!key.Contains("date", StringComparison.OrdinalIgnoreCase) &&
+                    !key.Contains("Date", StringComparison.Ordinal)) continue;
+
+                var val = entity[key];
+                var dateStr = val is JsonElement je ? je.GetString() : val?.ToString();
+                if (string.IsNullOrEmpty(dateStr)) continue;
+
+                var fixedDate = FixDateIfInvalid(dateStr);
+                if (fixedDate != null && fixedDate != dateStr)
+                {
+                    _logger.LogWarning("Fixed invalid entity date {Key}: {Original} → {Fixed}", key, dateStr, fixedDate);
+                    entity[key] = fixedDate;
+                }
+            }
+        }
+    }
+
+    private static string? FixDateIfInvalid(string dateStr)
+    {
+        if (DateTime.TryParseExact(dateStr, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+            return dateStr; // Already valid
+
+        // Try to extract year-month-day and snap to last valid day
+        var match = Regex.Match(dateStr, @"^(\d{4})-(\d{2})-(\d{2})$");
+        if (match.Success &&
+            int.TryParse(match.Groups[1].Value, out var year) &&
+            int.TryParse(match.Groups[2].Value, out var month) &&
+            month >= 1 && month <= 12 &&
+            year >= 1900 && year <= 2100)
+        {
+            var maxDay = DateTime.DaysInMonth(year, month);
+            return $"{year:D4}-{month:D2}-{maxDay:D2}";
+        }
+
+        return null; // Can't fix, leave as-is
     }
 
     private FileProcessingResult ProcessFiles(List<SolveFile>? files)

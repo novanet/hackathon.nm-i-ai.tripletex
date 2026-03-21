@@ -33,7 +33,7 @@ public class InvoiceHandler : ITaskHandler
         return new HandlerResult { EntityType = "invoice", EntityId = invoiceId };
     }
 
-    public async Task<(long invoiceId, decimal amount)> CreateInvoiceChainAsync(TripletexApiClient api, ExtractionResult extracted)
+    public async Task<(long invoiceId, decimal amount)> CreateInvoiceChainAsync(TripletexApiClient api, ExtractionResult extracted, long? currencyId = null)
     {
         // Full chain: Customer (find or create) → Order (with OrderLines + VatType) → Invoice → optionally Send
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
@@ -99,6 +99,8 @@ public class InvoiceHandler : ITaskHandler
             ["deliveryDate"] = deliveryDate,
             ["orderLines"] = lines
         };
+        if (currencyId.HasValue && currencyId.Value > 0)
+            orderBody["currency"] = new { id = currencyId.Value };
 
         JsonElement orderResult;
         try
