@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:29:53 |
+| Timestamp | 03/21/2026 23:50:04 |
 | Task Type | `create_supplier` |
 | Handler | `SupplierHandler` |
 | Success | True |
-| Elapsed | 2364 ms |
+| Elapsed | 2673 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_supplier","action":"create","language":"nb","entities":{"supplier":{"name":"Skogheim AS","orgNumber":"940566096","email":"faktura@skogheim.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_supplier","action":"create","language":"en","entities":{"supplier":{"name":"Silveroak Ltd","orgNumber":"943413231","email":"faktura@silveroakltd.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

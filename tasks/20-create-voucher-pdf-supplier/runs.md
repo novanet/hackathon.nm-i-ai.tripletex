@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:32:32 |
+| Timestamp | 03/21/2026 23:50:17 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 4517 ms |
+| Elapsed | 5513 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -19,7 +19,7 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6340&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6300&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
@@ -28,6 +28,6 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"de","entities":{"voucher":{"supplierName":"Bergwerk GmbH","supplierOrgNumber":"844441010","invoiceNumber":"INV-2026-9617","account":"6340","amount":17187,"date":"2026-02-27","vatRate":"25"}},"relationships":{},"raw_amounts":["13750","3437","17187"],"dates":["2026-02-27","2026-03-29"],"files_needed":true}
+{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Étoile SARL","supplierOrgNumber":"857637224","invoiceNumber":"INV-2026-8404","account":"6300","amount":92750,"date":"2026-06-06","vatRate":"25"},"supplier":{"name":"Étoile SARL","orgNumber":"857637224","addressLine1":"Sjøgata 137","postalCode":"3015","city":"Drammen","bankAccountNumber":"19048571614"}},"relationships":{},"raw_amounts":["74200","18550","92750"],"dates":["2026-06-06","2026-07-06"],"files_needed":true}
 ```
 

@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:35:53 |
+| Timestamp | 03/21/2026 23:49:18 |
 | Task Type | `annual_accounts` |
 | Handler | `AnnualAccountsHandler` |
 | Success | True |
-| Elapsed | 7619 ms |
+| Elapsed | 7893 ms |
 | API Calls | 14 |
 | Errors | 0 |
 
@@ -22,21 +22,21 @@
 | 2 | `POST` | `/ledger/account` | ✅  |  |
 | 3 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber` | ✅  |  |
 | 4 | `POST` | `/ledger/account` | ✅  |  |
-| 5 | `GET` | `/ledger/account?number=6030&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=6010&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 6 | `GET` | `/ledger/account?number=1209&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 7 | `GET` | `/ledger/account?number=1720&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 7 | `GET` | `/ledger/account?number=1700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 8 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 9 | `GET` | `/ledger/account?number=2920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 10 | `GET` | `/ledger/account?number=1210&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 11 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 12 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 13 | `GET` | `/ledger/posting?dateFrom=2026-01-01&dateTo=2027-01-01&accoun...` | ✅  |  |
-| 14 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 11 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 12 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 13 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 14 | `GET` | `/ledger/posting?dateFrom=2026-01-01&dateTo=2027-01-01&accoun...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"annual_accounts","action":"create","language":"en","entities":{"annualAccounts":{"date":"2026-03-31","depreciationExpenseAccount":"6030","accumulatedDepreciationAccount":"1209","prepaidAccount":"1720","prepaidAmount":9200,"taxExpenseAccount":null,"taxPayableAccount":null,"taxRate":null},"asset1":{"name":"Fixed Asset","bookValue":275800,"usefulLife":3,"assetAccount":"1210"},"accrual1":{"description":"Salary accrual","debitAccount":"5000","creditAccount":"2900","amount":null}},"relationships":{},"raw_amounts":["9200.00","275800.00"],"dates":["2026-03-31"],"files_needed":false}
+{"task_type":"annual_accounts","action":"create","language":"es","entities":{"annualAccounts":{"date":"2026-03-31","depreciationExpenseAccount":"6010","accumulatedDepreciationAccount":"1209","prepaidAccount":"1700","prepaidAmount":11900,"taxExpenseAccount":"8700","taxPayableAccount":"2920","taxRate":0.22},"asset1":{"name":"Activo fijo","bookValue":107950,"usefulLife":6,"assetAccount":"1210"},"provision1":{"debitAccount":"5000","creditAccount":"2900","amount":11900}},"relationships":{},"raw_amounts":["11900.00","107950.00"],"dates":["2026-03-31"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

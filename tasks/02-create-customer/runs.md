@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 02:12:57 |
+| Timestamp | 03/21/2026 23:48:08 |
 | Task Type | `create_customer` |
 | Handler | `CustomerHandler` |
 | Success | True |
-| Elapsed | 5501 ms |
+| Elapsed | 2383 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -19,6 +19,12 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/customer` | ✅  |  |
+
+### LLM Extraction
+
+```json
+{"task_type":"create_customer","action":"create","language":"nb","entities":{"customer":{"name":"Bergvik AS","orgNumber":"914572479","addressLine1":"Solveien 74","postalCode":"7010","city":"Trondheim","email":"post@bergvik.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+```
 
 ## Latest Sandbox Run
 
@@ -57,5 +63,4 @@
 | address.addressLine1 | `Storgata 97` | `Storgata 97` | ✅ | 1 |
 | address.postalCode | `5003` | `5003` | ✅ | 1 |
 | address.city | `Bergen` | `Bergen` | ✅ | 1 |
-
 

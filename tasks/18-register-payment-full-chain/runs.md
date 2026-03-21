@@ -6,31 +6,27 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:58:23 |
+| Timestamp | 03/21/2026 23:47:30 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 19353 ms |
-| API Calls | 8 |
+| Elapsed | 4020 ms |
+| API Calls | 4 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 2 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 3 | `POST` | `/customer` | ✅  |  |
-| 4 | `GET` | `/product?number=8474&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/product?number=3064&count=1&fields=id` | ✅  |  |
-| 6 | `POST` | `/order` | ✅  |  |
-| 7 | `POST` | `/invoice` | ✅  |  |
-| 8 | `PUT` | `/invoice/2147619787/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=975389642&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/invoice?customerId=108466089&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
+| 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 4 | `PUT` | `/invoice/2147653594/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"en","entities":{"customer":{"name":"Greenfield Ltd","orgNumber":"914083478"},"invoice":{"orderLines":[{"product":"Web Design","productNumber":"8474","unitPrice":23450},{"product":"Software License","productNumber":"3064","unitPrice":7800}]},"payment":{"amount":31250}},"relationships":{"customer":"Greenfield Ltd"},"raw_amounts":["23450","7800","31250"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"pt","entities":{"customer":{"name":"Estrela Lda","orgNumber":"975389642"},"payment":{"amount":47200}},"relationships":{"invoice":"Serviço de rede"},"raw_amounts":["47200"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
@@ -79,5 +75,4 @@
 | correct_paid_amount | `31250,00` | `31250,00` | ✅ | 2 |
 | has_customer | `true` | `true` | ✅ | 1 |
 | has_amount | `> 0` | `31250,0` | ✅ | 1 |
-
 

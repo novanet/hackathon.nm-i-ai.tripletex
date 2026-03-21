@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:44:21 |
+| Timestamp | 03/21/2026 23:48:50 |
 | Task Type | `create_department` |
 | Handler | `DepartmentHandler` |
 | Success | True |
-| Elapsed | 3633 ms |
+| Elapsed | 3069 ms |
 | API Calls | 3 |
 | Errors | 0 |
 
@@ -25,7 +25,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_department","action":"create","language":"nb","entities":{"department1":{"name":"Produksjon"},"department2":{"name":"Lager"},"department3":{"name":"Kvalitetskontroll"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_department","action":"create","language":"de","entities":{"department1":{"name":"Økonomi"},"department2":{"name":"Regnskap"},"department3":{"name":"Kvalitetskontroll"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

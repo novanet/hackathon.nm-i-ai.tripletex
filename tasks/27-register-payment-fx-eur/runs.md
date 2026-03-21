@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:25:07 |
+| Timestamp | 03/21/2026 23:51:07 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 4209 ms |
+| Elapsed | 5438 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -23,12 +23,12 @@
 | 3 | `POST` | `/customer` | ✅  |  |
 | 4 | `POST` | `/order` | ✅  |  |
 | 5 | `POST` | `/invoice` | ✅  |  |
-| 6 | `PUT` | `/invoice/2147651118/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 6 | `PUT` | `/invoice/2147654088/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"fr","entities":{"payment":{"amount":135000.0,"currency":"NOK","exchangeRate":10.71,"exchangeRateDifferenceAccount":"8070"},"customer":{"name":"Océan SARL","orgNumber":"863081793"}},"relationships":{},"raw_amounts":["12689","11.28","10.71"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"pt","entities":{"customer":{"name":"Porto Alegre Lda","orgNumber":"868620390"},"payment":{"amount":226800.28,"currency":"NOK","exchangeRate":12.72},"exchangeDifference":{"amount":16443.21,"account":"8070"}},"relationships":{"invoice":"17799 EUR at 11.79 NOK/EUR"},"raw_amounts":["17799","11.79","12.72"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
