@@ -124,20 +124,19 @@ public class BankReconciliationHandler : ITaskHandler
             }
         }
 
-        if (!accountingPeriodId.HasValue)
-        {
-            _logger.LogWarning("Could not resolve accounting period for date {Date} — aborting", date);
-            return HandlerResult.Empty;
-        }
-
         // Step 3: Create manual bank reconciliation
+        // Note: isApproved field is NOT accepted by the API (422 "Feltet eksisterer ikke i objektet")
         var body = new Dictionary<string, object>
         {
             ["account"] = new { id = accountId.Value },
-            ["accountingPeriod"] = new { id = accountingPeriodId.Value },
-            ["type"] = "MANUAL",
-            ["bankAccountClosingBalanceCurrency"] = closingBalance.Value
+            ["bankAccountClosingBalanceCurrency"] = closingBalance.Value,
+            ["date"] = date
         };
+        if (accountingPeriodId.HasValue)
+        {
+            body["accountingPeriod"] = new { id = accountingPeriodId.Value };
+            body["type"] = "MANUAL";
+        }
 
         var reconResult = await api.PostAsync("/bank/reconciliation", body);
 

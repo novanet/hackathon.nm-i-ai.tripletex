@@ -703,12 +703,7 @@ public class PaymentHandler : ITaskHandler
                 return cached;
         }
 
-        // Dynamic lookup — IDs vary per environment, never hardcode
-        return await ResolvePaymentTypeIdDynamic(api);
-    }
-
-    private async Task<long> ResolvePaymentTypeIdDynamic(TripletexApiClient api)
-    {
+        // Always resolve dynamically — hardcoded IDs cause 404 in competition environments
         var result = await api.GetAsync("/invoice/paymentType", new Dictionary<string, string>
         {
             ["count"] = "100",
@@ -731,6 +726,7 @@ public class PaymentHandler : ITaskHandler
                     }
                 }
             }
+            // Fallback: take the first available
             if (typeId == 0)
             {
                 foreach (var t in types.EnumerateArray())
@@ -743,7 +739,7 @@ public class PaymentHandler : ITaskHandler
 
         if (typeId == 0)
         {
-            _logger.LogWarning("No payment types found via /invoice/paymentType — falling back to typeId=1");
+            _logger.LogWarning("No payment types found — using fallback ID 1");
             typeId = 1;
         }
 
