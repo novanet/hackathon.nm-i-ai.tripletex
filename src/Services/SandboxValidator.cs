@@ -814,7 +814,7 @@ public class SandboxValidator
             ["dateFrom"] = paymentDate!,
             ["dateTo"] = dateTo!,
             ["accountNumberFrom"] = "8050",
-            ["accountNumberTo"] = "8070",
+            ["accountNumberTo"] = "8160",
             ["count"] = "200",
             ["fields"] = "id,amount,account(number),description,voucher(id,description),date"
         });
