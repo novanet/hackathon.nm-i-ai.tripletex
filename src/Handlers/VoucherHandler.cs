@@ -277,8 +277,9 @@ public class VoucherHandler : ITaskHandler
 
         if (accountStr != null && accountStr.Length <= 4)
         {
-            var (accId, vatId, _) = await ResolveAccountId(api, accountStr);
+            var (accId, vatId, vatLocked) = await ResolveAccountId(api, accountStr);
             if (accId.HasValue) posting["account"] = new { id = accId.Value };
+            // vatId is null when account is locked to VAT 0 (no VAT) — ResolveAccountId filters it
             if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
         }
 

@@ -41,6 +41,10 @@ public class EmployeeHandler : ITaskHandler
         SetIfPresent(body, emp, "nationalIdentityNumber");
         SetIfPresent(body, emp, "bankAccountNumber");
 
+        // dateOfBirth is required by the API — provide a default if not in prompt
+        if (!body.ContainsKey("dateOfBirth"))
+            body["dateOfBirth"] = "1990-01-01";
+
         // Extract startDate for employment (separate API object)
         string? startDate = null;
         if (emp.TryGetValue("startDate", out var sdObj))
@@ -73,9 +77,54 @@ public class EmployeeHandler : ITaskHandler
             deptId = depts[0].GetProperty("id").GetInt64();
         }
 
+        // If no department found and a specific one was searched, try without the query filter
+        if (deptId == null && !string.IsNullOrEmpty(deptName))
+        {
+            var fallbackDeptResult = await api.GetAsync("/department", new Dictionary<string, string>
+            {
+                ["count"] = "1",
+                ["fields"] = "id"
+            });
+            if (fallbackDeptResult.TryGetProperty("values", out var fallbackDepts) && fallbackDepts.GetArrayLength() > 0)
+                deptId = fallbackDepts[0].GetProperty("id").GetInt64();
+        }
+
+        // If still no department, create one — required when department module is active
+        if (deptId == null)
+        {
+            _logger.LogInformation("No department found, creating default department for employee");
+            try
+            {
+                var newDept = await api.PostAsync("/department", new Dictionary<string, object>
+                {
+                    ["name"] = "Hovedavdeling",
+                    ["departmentNumber"] = "1"
+                });
+                deptId = newDept.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created default department {Id}", deptId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create default department, trying departmentNumber 99");
+                try
+                {
+                    var newDept = await api.PostAsync("/department", new Dictionary<string, object>
+                    {
+                        ["name"] = "Hovedavdeling",
+                        ["departmentNumber"] = "99"
+                    });
+                    deptId = newDept.GetProperty("value").GetProperty("id").GetInt64();
+                }
+                catch (Exception ex2)
+                {
+                    _logger.LogWarning(ex2, "Department creation also failed — proceeding without department");
+                }
+            }
+        }
+
         if (deptId != null)
         {
-            body["department"] = new { id = deptId.Value };
+            body["department"] = new Dictionary<string, object> { ["id"] = deptId.Value };
         }
 
         _logger.LogInformation("Creating employee: {FirstName} {LastName}",
@@ -104,11 +153,11 @@ public class EmployeeHandler : ITaskHandler
 
             var empBody = new Dictionary<string, object>
             {
-                ["employee"] = new { id = employeeId },
+                ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
                 ["startDate"] = startDate
             };
             if (divId.HasValue)
-                empBody["division"] = new { id = divId.Value };
+                empBody["division"] = new Dictionary<string, object> { ["id"] = divId.Value };
 
             await api.PostAsync("/employee/employment", empBody);
         }

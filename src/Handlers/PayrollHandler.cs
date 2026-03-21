@@ -112,11 +112,11 @@ public class PayrollHandler : ITaskHandler
             {
                 var version = empEl.TryGetProperty("version", out var vProp) ? vProp.GetInt32() : 1;
                 _logger.LogInformation("Employee {Id} missing dateOfBirth, patching with default", employeeId);
-                await api.PutAsync($"/employee/{employeeId}", new
+                await api.PutAsync($"/employee/{employeeId}", new Dictionary<string, object>
                 {
-                    id = employeeId,
-                    version,
-                    dateOfBirth = "1990-01-01"
+                    ["id"] = employeeId,
+                    ["version"] = version,
+                    ["dateOfBirth"] = "1990-01-01"
                 });
             }
         }
@@ -222,20 +222,22 @@ public class PayrollHandler : ITaskHandler
         }
 
         // Build the full transaction with inline payslip containing specifications
-        var transactionBody = new
+        // Use Dictionary<string,object> throughout — anonymous types inside object parameters
+        // can lose properties during System.Text.Json serialization (STJ polymorphism bug)
+        var transactionBody = new Dictionary<string, object>
         {
-            date = voucherDate,
-            year,
-            month,
-            payslips = new[]
+            ["date"] = voucherDate,
+            ["year"] = year,
+            ["month"] = month,
+            ["payslips"] = new List<Dictionary<string, object>>
             {
-                new
+                new Dictionary<string, object>
                 {
-                    employee = new { id = employeeId },
-                    date = voucherDate,
-                    year,
-                    month,
-                    specifications
+                    ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                    ["date"] = voucherDate,
+                    ["year"] = year,
+                    ["month"] = month,
+                    ["specifications"] = specifications
                 }
             }
         };
@@ -469,13 +471,13 @@ public class PayrollHandler : ITaskHandler
                 var empId = existing.GetProperty("id").GetInt64();
                 var version = existing.GetProperty("version").GetInt32();
                 _logger.LogInformation("Updating employment {Id} with division {Div}", empId, divisionId);
-                await api.PutAsync($"/employee/employment/{empId}", new
+                await api.PutAsync($"/employee/employment/{empId}", new Dictionary<string, object>
                 {
-                    id = empId,
-                    version,
-                    employee = new { id = employeeId },
-                    division = new { id = divisionId!.Value },
-                    taxDeductionCode = "loennFraHovedarbeidsgiver"
+                    ["id"] = empId,
+                    ["version"] = version,
+                    ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                    ["division"] = new Dictionary<string, object> { ["id"] = divisionId!.Value },
+                    ["taxDeductionCode"] = "loennFraHovedarbeidsgiver"
                 });
                 return;
             }
@@ -485,22 +487,22 @@ public class PayrollHandler : ITaskHandler
         var startDate = $"{year}-{month:D2}-01";
         _logger.LogInformation("Creating employment for employee {Id} starting {Date} division {Div}", employeeId, startDate, divisionId);
 
-        await api.PostAsync("/employee/employment", new
+        await api.PostAsync("/employee/employment", new Dictionary<string, object>
         {
-            employee = new { id = employeeId },
-            startDate,
-            division = new { id = divisionId!.Value },
-            taxDeductionCode = "loennFraHovedarbeidsgiver",
-            employmentDetails = new[]
+            ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+            ["startDate"] = startDate,
+            ["division"] = new Dictionary<string, object> { ["id"] = divisionId!.Value },
+            ["taxDeductionCode"] = "loennFraHovedarbeidsgiver",
+            ["employmentDetails"] = new List<Dictionary<string, object>>
             {
-                new
+                new Dictionary<string, object>
                 {
-                    date = startDate,
-                    employmentType = (string?)"ORDINARY",
-                    employmentForm = (string?)"PERMANENT",
-                    remunerationType = (string?)"MONTHLY_WAGE",
-                    workingHoursScheme = (string?)"NOT_SHIFT",
-                    percentageOfFullTimeEquivalent = 100.0m
+                    ["date"] = startDate,
+                    ["employmentType"] = "ORDINARY",
+                    ["employmentForm"] = "PERMANENT",
+                    ["remunerationType"] = "MONTHLY_WAGE",
+                    ["workingHoursScheme"] = "NOT_SHIFT",
+                    ["percentageOfFullTimeEquivalent"] = 100.0m
                 }
             }
         });

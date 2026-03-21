@@ -9,9 +9,9 @@ Keep entries short (1–2 lines). Include the date discovered.
 ## Tripletex API Quirks
 
 - **Employee `startDate` is NOT a field on `/employee`** — use `POST /employee/employment` as a separate call after creating the employee. The employee POST will 422 with "Feltet eksisterer ikke i objektet" if you include `startDate`. _(2026-03-20)_
-- **Employee `dateOfBirth` must be set** before creating employment — otherwise 422 "Feltet må fylles ut". Always extract DOB from prompt. _(2026-03-20)_
+- **Employee `dateOfBirth` must be set** before creating employment — otherwise 422 "Feltet må fylles ut". Always extract DOB from prompt. EmployeeHandler now defaults to `1990-01-01` if not provided. _(2026-03-20, UPDATED 2026-03-21)_
 - **Employee `userType` must not be `"0"` or empty** — use `"STANDARD"`. Error: "Brukertype kan ikke være «0» eller tom." Must be set when creating employees anywhere (specifically in TravelExpenseHandler and other handlers, not just EmployeeHandler). _(2026-03-20)_
-- **Employee `department.id` required when department module active** — query `GET /department?count=1` and use first available ID. Sandbox has department module enabled. Competition may or may not have it. _(2026-03-20)_
+- **Employee `department.id` required when department module active** — query `GET /department?count=1` and use first available ID. If none exists, EmployeeHandler now auto-creates a default "Hovedavdeling" department. Sandbox and competition both have department module enabled. _(2026-03-20, UPDATED 2026-03-21)_
 - **Employee `email` is required** for Tripletex users — 422 "Må angis for Tripletex-brukere" if missing. Use `userType = "NO_ACCESS"` when creating employees without an email (e.g. in PayrollHandler auto-create). NO*ACCESS employees don't need email and can still receive payroll. *(2026-03-20, UPDATED)\_
 - **Employment `division` required in some environments** — sandbox requires `division.id` on `POST /employee/employment` ("Arbeidsforholdet må knyttes til en virksomhet/underenhet"), but competition environments work without it. Handler now proactively fetches `GET /division?count=1&fields=id` and includes division in the employment body (no retry needed). _(2026-03-20, UPDATED)_
 - **Project `startDate` is required** — defaults to today if not specified in prompt. Error: "Feltet må fylles ut." _(2026-03-20)_
@@ -58,6 +58,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Voucher account lock detection requires `vatLocked` field** — use `fields=id,number,vatLocked,vatType(id,number)` when fetching account. The `vatLocked` boolean is the only reliable way to determine if an account is locked to its vatType. Having a default `vatType` does NOT mean locked (e.g. account 6540 has default vatType 0 but `vatLocked=false` → can override with input VAT). Account 7100 has `vatLocked=true` → must respect its locked vatType. Previous bug: assuming any vatType presence = locked caused supplier invoices on account 6540 to skip VAT lookup entirely, resulting in 0/4 competition score. _(2026-03-20)_
 - **Delete entity validation**: only checks `entity_deleted` (3 pts). _(2026-03-20)_
 - **All 14 validation tasks achieved 100% correctness** in latest sandbox run. _(2026-03-20)_
+- **Payroll STJ serialization fix** — anonymous types inside `object` parameters (e.g., payslip body with `employee = new { id = X }`) silently dropped properties during `JsonSerializer.Serialize(body)`. Converting to `Dictionary<string, object>` throughout PayrollHandler fixed `has_employee_link` and `payslip_generated` checks (0/4 → 8/8). Same fix applied to EmployeeHandler entity refs. Always use Dictionary, never anonymous types, for nested objects inside Dictionary/object parameters. _(2026-03-21)_
 
 ## Efficiency Baselines (Observed Optimal)
 
