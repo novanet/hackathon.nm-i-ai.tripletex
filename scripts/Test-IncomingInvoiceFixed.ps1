@@ -59,21 +59,21 @@ $vatId = 1                # VAT type 25% input
 Write-Host "=== POST /incomingInvoice WITH externalId ==="
 $iiBody = @{
     invoiceHeader = @{
-        vendorId = $supplierId
-        invoiceDate = $today
-        dueDate = $dueDate
+        vendorId      = $supplierId
+        invoiceDate   = $today
+        dueDate       = $dueDate
         invoiceAmount = 5000
-        description = "Test incoming invoice with externalId"
+        description   = "Test incoming invoice with externalId"
         invoiceNumber = "TEST-VERIFY-004"
     }
-    orderLines = @(
+    orderLines    = @(
         @{
-            row = 1
-            externalId = "line-1"
-            accountId = $acctId
+            row           = 1
+            externalId    = "line-1"
+            accountId     = $acctId
             amountInclVat = 5000
-            vatTypeId = $vatId
-            description = "Test line"
+            vatTypeId     = $vatId
+            description   = "Test line"
         }
     )
 } | ConvertTo-Json -Depth 4
@@ -108,7 +108,8 @@ if ($r1.Status -eq 201 -or $r1.Status -eq 200) {
     # Direct GET
     Write-Host "`n=== GET /supplierInvoice/{voucherId} directly ==="
     $r4 = Do-Get "/supplierInvoice/$voucherId"
-} else {
+}
+else {
     Write-Host "`n  ERROR: POST /incomingInvoice failed with $($r1.Status)"
     Write-Host "  Need to check validation errors and fix."
 }

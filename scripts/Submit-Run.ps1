@@ -343,7 +343,7 @@ try {
         $prevScore = if ($preScores.ContainsKey($tid)) { $preScores[$tid] } else { 0 }
         if ($t.total_attempts -gt $prevAttempts) {
             $attemptedTasks += @{
-                tx_task_id   = $tid
+                tx_task_id    = $tid
                 prev_attempts = $prevAttempts
                 new_attempts  = $t.total_attempts
                 delta         = $t.total_attempts - $prevAttempts
@@ -381,25 +381,174 @@ try {
         Write-Host "  Zero-score tasks: $($zeroTasks -join ', ')" -ForegroundColor Yellow
     }
 
-    # Print attempted tasks summary
-    if ($attemptedTasks.Count -gt 0) {
-        Write-Host ""
-        Write-Host "Tasks attempted in this submission:" -ForegroundColor Cyan
-        foreach ($at in $attemptedTasks) {
-            $improved = if ($at.new_score -gt $at.prev_score) { " * IMPROVED!" } else { "" }
-            Write-Host "  $($at.tx_task_id) (attempts: $($at.prev_attempts) -> $($at.new_attempts), score: $($at.prev_score) -> $($at.new_score))$improved" -ForegroundColor $(if ($improved) { "Green" } else { "Gray" })
-        }
-    } else {
-        Write-Host "  No new task attempts detected (counts unchanged)." -ForegroundColor Gray
+    # --- Known check names per task_type (best-effort annotation for anonymous "Check N") ---
+    $knownChecks = @{
+        "create_employee"       = @("employee_found", "firstName", "lastName", "email", "admin_role")
+        "create_customer"       = @("customer_found", "name", "email", "organizationNumber", "addr.addressLine1", "addr.postalCode", "addr.city", "phoneNumber")
+        "create_supplier"       = @("supplier_found", "name", "email", "organizationNumber", "phoneNumber")
+        "create_product"        = @("product_found", "name", "number", "price")
+        "create_department"     = @("department_found", "name", "departmentNumber")
+        "create_project"        = @("project_found", "name", "has_customer", "has_project_manager")
+        "create_invoice"        = @("invoice_found", "has_customer", "has_amount", "correct_amount")
+        "register_payment"      = @("invoice_found", "payment_registered")
+        "run_payroll"           = @("salary_transaction_found", "has_employee_link", "payslip_generated", "correct_amount")
+        "create_travel_expense" = @("travel_expense_found", "has_title", "has_employee", "has_costs")
+        "create_credit_note"    = @("credit_note_created")
+        "create_voucher"        = @("voucher_found", "has_description", "has_postings")
     }
-    if ($scoreChanges.Count -gt 0) {
-        Write-Host ""
-        Write-Host "Score changes:" -ForegroundColor Cyan
-        foreach ($sc in $scoreChanges) {
-            $color = if ($sc.delta -gt 0) { "Green" } elseif ($sc.delta -lt 0) { "Red" } else { "Gray" }
-            $sign = if ($sc.delta -gt 0) { "+" } else { "" }
-            Write-Host "  $($sc.tx_task_id): $($sc.prev_score) -> $($sc.new_score) ($sign$($sc.delta))" -ForegroundColor $color
+
+    # --- Load / update persistent tx_task_id → task_type mapping ---
+    $mappingFile = Join-Path $PSScriptRoot "..\src\logs\task_mapping.json"
+    $taskMapping = @{}
+    if (Test-Path $mappingFile) {
+        try {
+            $taskMapping = Get-Content $mappingFile -Raw -Encoding UTF8 | ConvertFrom-Json -AsHashtable
         }
+        catch { $taskMapping = @{} }
+    }
+
+    # --- Correlate: sort attempted tasks and new submissions by timestamp, zip positionally ---
+    $correlated = @()
+    $sortedAttempted = @()
+    if ($attemptedTasks.Count -gt 0) {
+        # Sort leaderboard attempted tasks by last_attempt_at ascending
+        $sortedAttempted = $attemptedTasks | ForEach-Object {
+            $tid = $_.tx_task_id
+            $lb = $leaderboardData | Where-Object { $_.tx_task_id -eq $tid } | Select-Object -First 1
+            $_ | Add-Member -NotePropertyName last_attempt_at -NotePropertyValue $lb.last_attempt_at -PassThru
+        } | Sort-Object { [datetime]::Parse($_.last_attempt_at) }
+
+        # Sort new submissions.jsonl entries (non-ping) by timestamp ascending
+        $sortedSubmissions = @()
+        if (Test-Path $submissionsFile) {
+            $currentLines = Get-Content $submissionsFile -Encoding UTF8
+            $newSubLines = $currentLines | Select-Object -Skip $preLineCount
+            foreach ($sl in $newSubLines) {
+                try {
+                    $se = $sl | ConvertFrom-Json
+                    if ($se.prompt -eq "ping" -or $se.task_type -eq "unknown") { continue }
+                    $sortedSubmissions += $se
+                }
+                catch { }
+            }
+            $sortedSubmissions = $sortedSubmissions | Sort-Object { [datetime]::Parse($_.timestamp) }
+        }
+
+        # Zip positionally
+        $len = [Math]::Min($sortedAttempted.Count, $sortedSubmissions.Count)
+        for ($i = 0; $i -lt $len; $i++) {
+            $at = $sortedAttempted[$i]
+            $sub = $sortedSubmissions[$i]
+            $correlated += @{
+                tx_task_id  = $at.tx_task_id
+                task_type   = $sub.task_type
+                handler     = $sub.handler
+                success     = $sub.success
+                error       = $sub.error
+                call_count  = $sub.call_count
+                error_count = $sub.error_count
+                prev_score  = $at.prev_score
+                new_score   = $at.new_score
+                timestamp   = $sub.timestamp
+            }
+            # Update persistent mapping (append-only — never overwrite existing)
+            if (-not $taskMapping.ContainsKey($at.tx_task_id)) {
+                $taskMapping[$at.tx_task_id] = $sub.task_type
+            }
+        }
+    }
+
+    # Save updated mapping
+    try {
+        [System.IO.Directory]::CreateDirectory((Split-Path $mappingFile)) | Out-Null
+        $taskMapping | ConvertTo-Json -Compress | Set-Content -Path $mappingFile -Encoding UTF8
+    }
+    catch {
+        Write-Host "WARNING: Failed to save task_mapping.json: $_" -ForegroundColor Yellow
+    }
+
+    # --- Print correlated task summary ---
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host " Task Correlation (tx_id → handler → score)" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    if ($correlated.Count -gt 0) {
+        foreach ($c in $correlated) {
+            $scoreDelta = [Math]::Round($c.new_score - $c.prev_score, 4)
+            $deltaStr = if ($scoreDelta -gt 0) { "+$scoreDelta * IMPROVED" } elseif ($scoreDelta -lt 0) { "$scoreDelta REGRESSED" } else { "= no change" }
+            $statusStr = if ($c.success) { "OK" } else { "FAIL" }
+            $errStr = if ($c.error) { "  err: $($c.error)" } else { "" }
+            $color = if ($scoreDelta -gt 0) { "Green" } elseif ($scoreDelta -lt 0) { "Red" } elseif (-not $c.success) { "Yellow" } else { "Gray" }
+            Write-Host ("  tx:{0} = {1,-26} | {2,-22} | {3,4} | {4} → {5} ({6}){7}" -f `
+                    $c.tx_task_id, $c.task_type, $c.handler, $statusStr, `
+                    $c.prev_score, $c.new_score, $deltaStr, $errStr) -ForegroundColor $color
+        }
+    }
+    else {
+        Write-Host "  No correlations (no new task attempts or no new submissions)." -ForegroundColor Gray
+    }
+
+    # Tasks attempted but not correlated (extra leaderboard attempts beyond what we logged)
+    if ($sortedAttempted -and $sortedAttempted.Count -gt $correlated.Count) {
+        Write-Host ""
+        Write-Host "  Uncorrelated attempts (leaderboard only):" -ForegroundColor Gray
+        for ($i = $correlated.Count; $i -lt $sortedAttempted.Count; $i++) {
+            $at = $sortedAttempted[$i]
+            $knownType = if ($taskMapping.ContainsKey($at.tx_task_id)) { $taskMapping[$at.tx_task_id] } else { "?" }
+            Write-Host ("    tx:{0} = {1,-26} | score: {2} → {3}" -f $at.tx_task_id, $knownType, $at.prev_score, $at.new_score) -ForegroundColor Gray
+        }
+    }
+
+    # --- Print annotated competition checks per correlated task ---
+    if ($correlated.Count -gt 0 -and $finalState -and $mySub -and $mySub.feedback -and $mySub.feedback.checks) {
+        $allChecks = @($mySub.feedback.checks)
+        $checkOffset = 0
+
+        Write-Host ""
+        Write-Host "Competition checks (annotated):" -ForegroundColor Cyan
+
+        foreach ($c in $correlated) {
+            $checkNames = if ($knownChecks.ContainsKey($c.task_type)) { $knownChecks[$c.task_type] } else { @() }
+            $nChecks = $checkNames.Count
+
+            if ($nChecks -eq 0 -or $checkOffset -ge $allChecks.Count) {
+                Write-Host "  tx:$($c.tx_task_id) $($c.task_type): (no check mapping)" -ForegroundColor Gray
+                continue
+            }
+
+            # Grab the next $nChecks from the competition check list
+            $taskChecks = $allChecks[$checkOffset .. ([Math]::Min($checkOffset + $nChecks - 1, $allChecks.Count - 1))]
+            $checkOffset += $nChecks
+
+            $passedN = ($taskChecks | Where-Object { $_ -match ': passed' }).Count
+            $totalN = $taskChecks.Count
+            $headerColor = if ($passedN -eq $totalN) { "Green" } elseif ($passedN -eq 0) { "Red" } else { "Yellow" }
+            Write-Host ("  tx:{0} {1}: {2}/{3} passed" -f $c.tx_task_id, $c.task_type, $passedN, $totalN) -ForegroundColor $headerColor
+
+            for ($ci = 0; $ci -lt $taskChecks.Count; $ci++) {
+                $chk = $taskChecks[$ci]
+                $name = if ($ci -lt $checkNames.Count) { $checkNames[$ci] } else { "check_$($ci+1)" }
+                $passed = $chk -match ': passed'
+                $icon = if ($passed) { "✓" } else { "✗" }
+                $chkColor = if ($passed) { "Green" } else { "Red" }
+                Write-Host "    $icon $name" -ForegroundColor $chkColor
+            }
+        }
+    }
+
+    # --- Full leaderboard with resolved task names ---
+    Write-Host ""
+    Write-Host "Leaderboard (all tasks):" -ForegroundColor Cyan
+    $sortedLb = $leaderboardData | Sort-Object tx_task_id
+    foreach ($t in $sortedLb) {
+        $name = if ($taskMapping.ContainsKey($t.tx_task_id)) { $taskMapping[$t.tx_task_id] } else { "?" }
+        $prevScore = if ($preScores.ContainsKey($t.tx_task_id)) { $preScores[$t.tx_task_id] } else { 0 }
+        $delta = [Math]::Round($t.best_score - $prevScore, 4)
+        $deltaStr = if ($delta -gt 0) { " +$delta" } elseif ($delta -lt 0) { " $delta" } else { "" }
+        $color = if ($delta -gt 0) { "Green" } elseif ($delta -lt 0) { "Red" } elseif ($t.best_score -eq 0) { "DarkGray" } else { "Gray" }
+        Write-Host ("  tx:{0} {1,-26} best:{2,7}  attempts:{3}{4}" -f `
+                $t.tx_task_id, $name, $t.best_score, $t.total_attempts, $deltaStr) -ForegroundColor $color
     }
 }
 catch {

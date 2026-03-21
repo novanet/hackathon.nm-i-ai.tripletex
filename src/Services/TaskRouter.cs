@@ -31,6 +31,8 @@ public class TaskRouter
             ["delete_entity"] = services.GetRequiredService<DeleteEntityHandler>(),
             ["enable_module"] = services.GetRequiredService<EnableModuleHandler>(),
             ["run_payroll"] = services.GetRequiredService<PayrollHandler>(),
+            ["bank_reconciliation"] = services.GetRequiredService<BankReconciliationHandler>(),
+            ["create_timesheet"] = services.GetRequiredService<TimesheetHandler>(),
         };
 
         var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")

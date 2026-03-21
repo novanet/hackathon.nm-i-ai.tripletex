@@ -108,3 +108,15 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **`fields=*` on GET /project does NOT return `preliminaryInvoice`** — must explicitly list it: `fields=id,name,...,preliminaryInvoice`. Always use explicit field list for project validation. _(2026-03-20)_
 - **GET /invoice?projectId=X requires `invoiceDateFrom` and `invoiceDateTo`** — these are mandatory date parameters. Use `invoiceDateFrom=2020-01-01&invoiceDateTo=2030-12-31` when checking. _(2026-03-20)_
 - **GET /order?projectId=X requires `orderDateFrom` and `orderDateTo`** — similar mandatory date range requirement. _(2026-03-20)_
+
+## SandboxValidator Check Updates (2026-03-20, session 2)
+
+- **Phase 1 — CreditNote**: Validator now does 5 checks / 8pts. CreditNoteHandler sets `EntityId = originalInvoiceId` (NOT the credit note ID). Validator searches invoices for isCreditNote=true or negative amount and validates: credit_note_found (2), has_customer (2), has_amount (1), correct_amount (2), has_linked_invoice (1).
+- **Phase 2 — Invoice**: Validator now does up to 6 checks / 7-8pts: invoice_found (2), has_customer (1), has_amount (1), has_order_lines (1), correct_amount (1 conditional), invoice_sent (1 conditional).
+- **Phase 3 — Voucher**: Validator now does up to 6 checks / 8-13pts: voucher_found (2), has_description (2), has_postings (2), postings_balanced (2), correct_accounts (2 conditional), correct_amount (3 conditional). Sums debit/credit from amountGross or amount fields.
+- **Phase 4 — TravelExpense**: Validator now does up to 6 checks / 8pts: travel_expense_found (1), has_title (1), has_employee (2), has_costs (1), correct_cost_count (1 conditional), has_dates (2 conditional). Fetches cost details via GET /travelExpense/cost.
+- **Phase 5 — Payment**: Validator now does 5 checks / 8pts: invoice_found (2), payment_registered (2), correct_paid_amount (2), has_customer (1), has_amount (1).
+- **Phase 6 — Point normalization**: employee_found=1 (was 2), admin_role=2 (was 5), dept name=3+number=2 (was 2+1), product_found=1+number=2+price=2 (was 2+1+1), customer_found=1 (was 2), project has_customer=2+has_PM=2 (was 1+1).
+- **Phase 7 — Delete validator**: Now async. Verifies deletion by GET → 404 (exception = confirmed). Falls back to metadata flag for unknown entity types.
+- **Program.cs bug**: `SaveReceivedFiles` had ambiguous `ILogger` parameter — resolved with fully qualified `Microsoft.Extensions.Logging.ILogger`. This was a pre-existing bug unrelated to validator changes. _(2026-03-20)_
+

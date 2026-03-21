@@ -24,7 +24,8 @@ public class LlmExtractor
             "create_invoice", "register_payment", "create_credit_note",
             "create_travel_expense", "delete_travel_expense",
             "create_project", "create_supplier", "create_voucher",
-            "delete_entity", "enable_module", "run_payroll", "unknown"],
+            "delete_entity", "enable_module", "run_payroll",
+            "bank_reconciliation", "create_timesheet", "create_contact", "unknown"],
           "entities": {
             "<entity_type>": {
               "<field>": "<value>"
@@ -60,6 +61,9 @@ public class LlmExtractor
         - For payroll/salary tasks (running payroll, creating salary slips, paying salary), use "run_payroll". Extract into entities: "employee": {"firstName", "lastName", "email"} and "payroll": {"baseSalary": <number>, "bonus": <number>}
         - For vouchers with custom accounting dimensions, extract the dimension in a separate "dimension" entity: {"name": "Region", "values": ["Vestlandet", "Sør-Norge"]}. In the voucher entity, include "dimensionValue": "Vestlandet" for the value to link to the posting, plus "account": "6300" and "amount": 35500. If the prompt specifies debit/credit accounts explicitly, use "debitAccount" and "creditAccount" in the voucher entity instead.
         - For supplier invoices (incoming invoices from suppliers), use task_type "create_voucher". In the voucher entity, include: "supplierName", "supplierOrgNumber", "invoiceNumber", "account" (expense account number), "amount" (gross amount incl. VAT), "date", and "vatRate" (e.g. "25") if specified.
+        - For bank reconciliation tasks (reconcile bank statement, close accounting period, bankavstемming, bankutskrift, reconciliar cuenta bancaria, rapprochement bancaire, Kontenabstimmung), use task_type "bank_reconciliation". Extract into a "reconciliation" entity: "accountNumber" (e.g. "1920" for main bank account), "closingBalance" (the bank statement closing balance as a number), "date" (YYYY-MM-DD — the statement date or period end). Also set "dates": [date] and "raw_amounts": [balance].
+        - For timesheet / hour logging tasks (registrere timer, log hours, timeregnstest, registrar horas, enregistrer heures, Stunden erfassen) that do NOT involve creating an invoice, use task_type "create_timesheet". Extract into a "timesheet" entity: "hours" (number), "activityName" (name of the activity), "date" (YYYY-MM-DD). Also extract "employee": {"firstName", "lastName", "email"} and "project": {"name"} if mentioned.
+        - For creating a contact person for an existing customer (kontaktperson, contact person, persona de contacto, personne de contact, Ansprechpartner), use task_type "create_contact". Extract into a "contact" entity: "firstName", "lastName", "email", "phoneNumberMobile". Also extract "customer": {"name"} in relationships.
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)
@@ -379,6 +383,33 @@ public class LlmExtractor
         else if (Regex.IsMatch(lower, @"\b(modul|module|módulo)\b"))
         {
             result.TaskType = "enable_module";
+        }
+        else if (Regex.IsMatch(lower, @"\b(bankavstemming|bankavstемming|bank\s*reconcili|reconciliar\s*cuenta|rapprochement\s*bancaire|kontenabstimmung|bankutskrift|bankbalanse)\b"))
+        {
+            result.TaskType = "bank_reconciliation";
+            var rec = new Dictionary<string, object>();
+            var balMatch = Regex.Match(prompt, @"(\d[\d\s]*[.,]\d{2})\b");
+            if (balMatch.Success && decimal.TryParse(balMatch.Groups[1].Value.Replace(" ", "").Replace(",", "."), out var bal))
+                rec["closingBalance"] = bal;
+            rec["accountNumber"] = "1920";
+            result.Entities["reconciliation"] = rec;
+        }
+        else if (Regex.IsMatch(lower, @"\b(timeregistrering|logge?\s*timer?|timer?\s*p[åa]\s*prosjekt|registrer\s*timer?|log\s*hours?|create_timesheet|stunden\s*erfassen|enregistrer\s*heures?|registrar\s*horas?)\b"))
+        {
+            result.TaskType = "create_timesheet";
+            var ts = new Dictionary<string, object>();
+            var hoursMatch = Regex.Match(prompt, @"(\d+(?:[.,]\d+)?)\s*(?:timer?|hours?|horas?|heures?|Stunden)", RegexOptions.IgnoreCase);
+            if (hoursMatch.Success && decimal.TryParse(hoursMatch.Groups[1].Value.Replace(",", "."), out var hours))
+                ts["hours"] = hours;
+            result.Entities["timesheet"] = ts;
+        }
+        else if (Regex.IsMatch(lower, @"\b(kontaktperson|contact\s*person|persona\s*de\s*contacto|personne\s*de\s*contact|ansprechpartner)\b"))
+        {
+            result.TaskType = "create_contact";
+            var contact = new Dictionary<string, object>();
+            var emailMatch2 = Regex.Match(prompt, @"[\w.-]+@[\w.-]+\.\w{2,}");
+            if (emailMatch2.Success) contact["email"] = emailMatch2.Value;
+            result.Entities["contact"] = contact;
         }
         else
         {

@@ -29,6 +29,8 @@ builder.Services.AddSingleton<VoucherHandler>();
 builder.Services.AddSingleton<DeleteEntityHandler>();
 builder.Services.AddSingleton<EnableModuleHandler>();
 builder.Services.AddSingleton<PayrollHandler>();
+builder.Services.AddSingleton<BankReconciliationHandler>();
+builder.Services.AddSingleton<TimesheetHandler>();
 builder.Services.AddSingleton<TaskRouter>();
 builder.Services.AddSingleton<SandboxValidator>();
 builder.Services.AddSingleton<TripletexKnowledgeService>();
@@ -259,7 +261,7 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
 
 app.Run();
 
-static void SaveReceivedFiles(List<SolveFile> files, string taskType, ILogger logger)
+static void SaveReceivedFiles(List<SolveFile> files, string taskType, Microsoft.Extensions.Logging.ILogger logger)
 {
     try
     {

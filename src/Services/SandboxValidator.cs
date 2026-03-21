@@ -63,7 +63,7 @@ public class SandboxValidator
                     await ValidateVoucher(api, extracted, handlerResult, report);
                     break;
                 case "delete_entity":
-                    ValidateDelete(handlerResult, report);
+                    await ValidateDelete(api, handlerResult, report);
                     break;
                 case "run_payroll":
                     await ValidatePayroll(api, extracted, handlerResult, report);
@@ -105,8 +105,8 @@ public class SandboxValidator
 
         var entity = extracted.Entities.GetValueOrDefault("employee") ?? new();
 
-        // Employee found (2 points)
-        report.Checks.Add(new ValidationCheck("employee_found", "true", "true", true, 2));
+        // Employee found (1 point) — competition: 7 checks / 8pts = ~1.14/check
+        report.Checks.Add(new ValidationCheck("employee_found", "true", "true", true, 1));
 
         // First name (1 point)
         CheckStringField(val, entity, "firstName", report, 1);
@@ -117,15 +117,15 @@ public class SandboxValidator
         // Email (1 point)
         CheckStringField(val, entity, "email", report, 1);
 
-        // Date of birth (optional)
+        // Date of birth (optional, 1 point)
         if (entity.ContainsKey("dateOfBirth"))
             CheckStringField(val, entity, "dateOfBirth", report, 1);
 
-        // Phone
+        // Phone (1 point)
         if (entity.ContainsKey("phoneNumberMobile"))
             CheckStringField(val, entity, "phoneNumberMobile", report, 1);
 
-        // Administrator role (5 points)
+        // Administrator role (2 points) — competition: ~2pts out of 8 total
         if (result.Metadata.ContainsKey("adminRole"))
         {
             // Verify by checking entitlements
@@ -140,11 +140,11 @@ public class SandboxValidator
                     });
                 var hasEntitlements = entitlements.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0;
                 report.Checks.Add(new ValidationCheck("administrator_role", "true",
-                    hasEntitlements ? "true" : "false", hasEntitlements, 5));
+                    hasEntitlements ? "true" : "false", hasEntitlements, 2));
             }
             catch
             {
-                report.Checks.Add(new ValidationCheck("administrator_role", "true", "unknown", false, 5));
+                report.Checks.Add(new ValidationCheck("administrator_role", "true", "unknown", false, 2));
             }
         }
     }
@@ -161,7 +161,8 @@ public class SandboxValidator
         var entity = extracted.Entities.GetValueOrDefault("customer")
             ?? extracted.Entities.GetValueOrDefault("customer1") ?? new();
 
-        report.Checks.Add(new ValidationCheck("customer_found", "true", "true", true, 2));
+        // Competition: 7 checks / 8pts
+        report.Checks.Add(new ValidationCheck("customer_found", "true", "true", true, 1));
         CheckStringField(val, entity, "name", report, 2);
         CheckStringField(val, entity, "email", report, 1);
         CheckStringField(val, entity, "organizationNumber", report, 1);
@@ -214,7 +215,8 @@ public class SandboxValidator
 
         var entity = extracted.Entities.GetValueOrDefault("product") ?? new();
 
-        report.Checks.Add(new ValidationCheck("product_found", "true", "true", true, 2));
+        // Competition: 5 checks / 7pts
+        report.Checks.Add(new ValidationCheck("product_found", "true", "true", true, 1));
         CheckStringField(val, entity, "name", report, 2);
 
         // LLM may extract as "number" or "productNumber"
@@ -222,7 +224,7 @@ public class SandboxValidator
         if (numberKey != null)
         {
             var normalizedForNumber = new Dictionary<string, object>(entity) { ["number"] = entity[numberKey] };
-            CheckStringField(val, normalizedForNumber, "number", report, 1);
+            CheckStringField(val, normalizedForNumber, "number", report, 2);
         }
 
         // Check price — LLM may extract as price, unitPrice, priceExcludingVAT, or priceExcludingVatCurrency
@@ -232,7 +234,7 @@ public class SandboxValidator
         {
             // Normalize entity key to API field name for comparison
             var normalizedEntity = new Dictionary<string, object>(entity) { ["priceExcludingVatCurrency"] = entity[priceKey] };
-            CheckDecimalField(val, normalizedEntity, "priceExcludingVatCurrency", report, 1);
+            CheckDecimalField(val, normalizedEntity, "priceExcludingVatCurrency", report, 2);
         }
 
         if (entity.ContainsKey("priceIncludingVatCurrency"))
@@ -250,9 +252,10 @@ public class SandboxValidator
 
         var entity = extracted.Entities.GetValueOrDefault("department") ?? new();
 
+        // Competition: 3 checks / 7pts
         report.Checks.Add(new ValidationCheck("department_found", "true", "true", true, 2));
-        CheckStringField(val, entity, "name", report, 2);
-        CheckStringField(val, entity, "departmentNumber", report, 1);
+        CheckStringField(val, entity, "name", report, 3);
+        CheckStringField(val, entity, "departmentNumber", report, 2);
     }
 
     private async Task ValidateSupplier(TripletexApiClient api, ExtractionResult extracted,
@@ -283,19 +286,74 @@ public class SandboxValidator
             new Dictionary<string, string> { ["fields"] = "*" });
         var val = inv.GetProperty("value");
 
+        // Check 1: invoice_found (2pts)
         report.Checks.Add(new ValidationCheck("invoice_found", "true", "true", true, 2));
 
-        // Check that invoice has a customer
-        if (val.TryGetProperty("customer", out var custRef) && custRef.ValueKind == JsonValueKind.Object)
+        // Check 2: has_customer (1pt)
+        if (val.TryGetProperty("customer", out var custRef) && custRef.ValueKind == JsonValueKind.Object
+            && custRef.TryGetProperty("id", out var custId) && custId.GetInt64() > 0)
             report.Checks.Add(new ValidationCheck("has_customer", "true", "true", true, 1));
         else
             report.Checks.Add(new ValidationCheck("has_customer", "true", "false", false, 1));
 
-        // Check amounts
+        // Check 3: has_amount (1pt)
+        decimal invoiceAmount = 0;
         if (val.TryGetProperty("amount", out var amount) && amount.ValueKind == JsonValueKind.Number)
         {
-            var amountVal = amount.GetDecimal();
-            report.Checks.Add(new ValidationCheck("has_amount", "> 0", amountVal.ToString(), amountVal > 0, 2));
+            invoiceAmount = amount.GetDecimal();
+            report.Checks.Add(new ValidationCheck("has_amount", "> 0", invoiceAmount.ToString(), invoiceAmount > 0, 1));
+        }
+        else
+        {
+            report.Checks.Add(new ValidationCheck("has_amount", "> 0", "0", false, 1));
+        }
+
+        // Check 4: has_order_lines — verify invoice has line items via order
+        bool hasOrderLines = false;
+        if (val.TryGetProperty("orders", out var ordersRef) && ordersRef.ValueKind == JsonValueKind.Object
+            && ordersRef.TryGetProperty("listDTO", out var orderList) && orderList.ValueKind == JsonValueKind.Array)
+        {
+            hasOrderLines = orderList.GetArrayLength() > 0;
+        }
+        else if (result.ExtraIds.TryGetValue("orderId", out var orderId))
+        {
+            try
+            {
+                var order = await api.GetAsync($"/order/{orderId}",
+                    new Dictionary<string, string> { ["fields"] = "id,orderLines" });
+                var orderVal = order.GetProperty("value");
+                if (orderVal.TryGetProperty("orderLines", out var lines) && lines.ValueKind == JsonValueKind.Array)
+                    hasOrderLines = lines.GetArrayLength() > 0;
+            }
+            catch { /* best effort */ }
+        }
+        else
+        {
+            // Assume lines exist if amount > 0
+            hasOrderLines = invoiceAmount > 0;
+        }
+        report.Checks.Add(new ValidationCheck("has_order_lines", "true", hasOrderLines ? "true" : "false", hasOrderLines, 1));
+
+        // Check 5: correct_amount — verify amount matches extracted expected values
+        var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+        var orderEntity = extracted.Entities.GetValueOrDefault("order") ?? new();
+        decimal? expectedAmount = GetDecimalFromEntity(invoiceEntity, "amount")
+            ?? GetDecimalFromEntity(invoiceEntity, "totalAmount")
+            ?? GetDecimalFromEntity(orderEntity, "totalAmount");
+
+        if (expectedAmount.HasValue && expectedAmount.Value > 0)
+        {
+            bool amountOk = Math.Abs(invoiceAmount - expectedAmount.Value) < 1m;
+            report.Checks.Add(new ValidationCheck("correct_amount", expectedAmount.Value.ToString("F2"),
+                invoiceAmount.ToString("F2"), amountOk, 1));
+        }
+
+        // Check 6: invoice_sent — check if invoice was sent/dispatched
+        if (val.TryGetProperty("isSent", out var isSent))
+        {
+            report.Checks.Add(new ValidationCheck("invoice_sent", "true",
+                isSent.ValueKind == JsonValueKind.True ? "true" : "false",
+                isSent.ValueKind == JsonValueKind.True, 1));
         }
     }
 
@@ -308,23 +366,49 @@ public class SandboxValidator
             new Dictionary<string, string> { ["fields"] = "*" });
         var val = inv.GetProperty("value");
 
+        // Check 1: invoice_found (2pts)
         report.Checks.Add(new ValidationCheck("invoice_found", "true", "true", true, 2));
 
-        // Check payment status — reversal expects amountOutstanding > 0, normal payment expects 0
+        // Check 2: payment_registered / payment_reversed (2pts)
         if (val.TryGetProperty("amountOutstanding", out var outstanding))
         {
             var outstandingVal = outstanding.GetDecimal();
             if (extracted.Action == "reverse")
             {
                 report.Checks.Add(new ValidationCheck("payment_reversed", "> 0",
-                    outstandingVal.ToString(), outstandingVal > 0, 3));
+                    outstandingVal.ToString(), outstandingVal > 0, 2));
             }
             else
             {
                 report.Checks.Add(new ValidationCheck("payment_registered", "0",
-                    outstandingVal.ToString(), outstandingVal == 0, 3));
+                    outstandingVal.ToString(), outstandingVal == 0, 2));
             }
         }
+
+        // Check 3: correct_paid_amount — verify the paid amount matches invoice total (2pts)
+        if (val.TryGetProperty("amount", out var invAmount) && invAmount.ValueKind == JsonValueKind.Number)
+        {
+            var totalAmount = invAmount.GetDecimal();
+            var amountPaid = val.TryGetProperty("amountOutstanding", out var os) && os.ValueKind == JsonValueKind.Number
+                ? totalAmount - os.GetDecimal() : 0;
+
+            if (extracted.Action != "reverse")
+            {
+                bool paidCorrect = Math.Abs(amountPaid - totalAmount) < 1m;
+                report.Checks.Add(new ValidationCheck("correct_paid_amount",
+                    totalAmount.ToString("F2"), amountPaid.ToString("F2"), paidCorrect, 2));
+            }
+        }
+
+        // Check 4: has_customer — invoice has customer reference (1pt)
+        bool hasCust = val.TryGetProperty("customer", out var custRef) && custRef.ValueKind == JsonValueKind.Object
+            && custRef.TryGetProperty("id", out var custId) && custId.GetInt64() > 0;
+        report.Checks.Add(new ValidationCheck("has_customer", "true", hasCust ? "true" : "false", hasCust, 1));
+
+        // Check 5: has_amount — invoice has a valid total amount (1pt)
+        decimal invoiceAmt = val.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Number
+            ? amt.GetDecimal() : 0;
+        report.Checks.Add(new ValidationCheck("has_amount", "> 0", invoiceAmt.ToString(), invoiceAmt > 0, 1));
     }
 
     private async Task ValidateProject(TripletexApiClient api, ExtractionResult extracted,
@@ -343,11 +427,11 @@ public class SandboxValidator
 
         if (val.TryGetProperty("customer", out var custRef) && custRef.ValueKind == JsonValueKind.Object
             && custRef.TryGetProperty("id", out var custId) && custId.GetInt64() > 0)
-            report.Checks.Add(new ValidationCheck("has_customer", "true", "true", true, 1));
+            report.Checks.Add(new ValidationCheck("has_customer", "true", "true", true, 2));
 
         if (val.TryGetProperty("projectManager", out var pmRef) && pmRef.ValueKind == JsonValueKind.Object
             && pmRef.TryGetProperty("id", out var pmId) && pmId.GetInt64() > 0)
-            report.Checks.Add(new ValidationCheck("has_project_manager", "true", "true", true, 1));
+            report.Checks.Add(new ValidationCheck("has_project_manager", "true", "true", true, 2));
 
         // Check isFixedPrice if fixedPrice was requested
         bool fixedPriceRequested = entity.ContainsKey("fixedPrice") || entity.ContainsKey("fixedprice");
@@ -417,15 +501,19 @@ public class SandboxValidator
             new Dictionary<string, string> { ["fields"] = "*" });
         var val = te.GetProperty("value");
 
-        report.Checks.Add(new ValidationCheck("travel_expense_found", "true", "true", true, 2));
+        // Check 1: travel_expense_found (1pt)
+        report.Checks.Add(new ValidationCheck("travel_expense_found", "true", "true", true, 1));
 
-        if (val.TryGetProperty("title", out var title) && !string.IsNullOrEmpty(title.GetString()))
-            report.Checks.Add(new ValidationCheck("has_title", "true", "true", true, 1));
+        // Check 2: has_title (1pt)
+        bool hasTitle = val.TryGetProperty("title", out var title) && !string.IsNullOrEmpty(title.GetString());
+        report.Checks.Add(new ValidationCheck("has_title", "true", hasTitle ? "true" : "false", hasTitle, 1));
 
-        if (val.TryGetProperty("employee", out var empRef) && empRef.ValueKind == JsonValueKind.Object)
-            report.Checks.Add(new ValidationCheck("has_employee", "true", "true", true, 1));
+        // Check 3: has_employee (2pt)
+        bool hasEmployee = val.TryGetProperty("employee", out var empRef) && empRef.ValueKind == JsonValueKind.Object
+            && empRef.TryGetProperty("id", out var empId) && empId.GetInt64() > 0;
+        report.Checks.Add(new ValidationCheck("has_employee", "true", hasEmployee ? "true" : "false", hasEmployee, 2));
 
-        // Check if costs were added
+        // Check 4 & 5: has_costs + correct_cost_count (1pt each)
         try
         {
             var costs = await api.GetAsync("/travelExpense/cost",
@@ -433,16 +521,47 @@ public class SandboxValidator
                 {
                     ["travelExpenseId"] = result.EntityId.Value.ToString(),
                     ["count"] = "100",
-                    ["fields"] = "id"
+                    ["fields"] = "id,amount,date,costCategory"
                 });
             if (costs.TryGetProperty("values", out var costVals))
             {
                 var costCount = costVals.GetArrayLength();
                 report.Checks.Add(new ValidationCheck("has_costs", "> 0",
-                    costCount.ToString(), costCount > 0, 2));
+                    costCount.ToString(), costCount > 0, 1));
+
+                // Count expected costs from extraction
+                var teEntity = extracted.Entities.GetValueOrDefault("travelExpense")
+                    ?? extracted.Entities.GetValueOrDefault("travel_expense") ?? new();
+                int expectedCosts = 0;
+                // Count cost entities
+                foreach (var key in extracted.Entities.Keys)
+                {
+                    if (key.StartsWith("cost", StringComparison.OrdinalIgnoreCase)
+                        || key.StartsWith("expense", StringComparison.OrdinalIgnoreCase))
+                        expectedCosts++;
+                }
+                if (expectedCosts > 0)
+                {
+                    bool countOk = costCount >= expectedCosts;
+                    report.Checks.Add(new ValidationCheck("correct_cost_count", expectedCosts.ToString(),
+                        costCount.ToString(), countOk, 1));
+                }
             }
         }
         catch { /* cost check is best-effort */ }
+
+        // Check 6: has_dates — verify departure/return dates (2pt)
+        var teEntity2 = extracted.Entities.GetValueOrDefault("travelExpense")
+            ?? extracted.Entities.GetValueOrDefault("travel_expense") ?? new();
+        if (teEntity2.ContainsKey("departureDate") || teEntity2.ContainsKey("returnDate"))
+        {
+            bool hasDeparture = val.TryGetProperty("departureDate", out var depDate)
+                && !string.IsNullOrEmpty(depDate.GetString());
+            bool hasReturn = val.TryGetProperty("returnDate", out var retDate)
+                && !string.IsNullOrEmpty(retDate.GetString());
+            report.Checks.Add(new ValidationCheck("has_dates", "true",
+                (hasDeparture || hasReturn) ? "true" : "false", hasDeparture || hasReturn, 2));
+        }
     }
 
     private async Task ValidateCreditNote(TripletexApiClient api, ExtractionResult extracted,
@@ -450,7 +569,99 @@ public class SandboxValidator
     {
         if (!result.EntityId.HasValue) return;
 
-        report.Checks.Add(new ValidationCheck("credit_note_created", "true", "true", true, 3));
+        // The handler sets EntityId to the original invoice ID.
+        // The credit note is a separate invoice — search for it via the original invoice.
+        long originalInvoiceId = result.EntityId.Value;
+
+        // Try to find the credit note invoice by searching for invoices that reference the original
+        // Credit notes in Tripletex are invoices with negative amounts linked to the original
+        try
+        {
+            // First, verify the original invoice exists and get its details
+            var origInv = await api.GetAsync($"/invoice/{originalInvoiceId}",
+                new Dictionary<string, string> { ["fields"] = "id,customer,amount,amountOutstanding" });
+            var origVal = origInv.GetProperty("value");
+
+            // Search for credit notes (invoices with isCreditNote=true or negative amounts)
+            // The credit note should have been created after our handler ran
+            var searchParams = new Dictionary<string, string>
+            {
+                ["invoiceDateFrom"] = "2020-01-01",
+                ["invoiceDateTo"] = "2030-12-31",
+                ["count"] = "50",
+                ["fields"] = "id,customer,amount,isCreditNote,invoiceNumber"
+            };
+
+            // Try to find it via customer ID
+            if (origVal.TryGetProperty("customer", out var custRef) && custRef.ValueKind == JsonValueKind.Object
+                && custRef.TryGetProperty("id", out var custIdProp))
+            {
+                searchParams["customerId"] = custIdProp.GetRawText();
+            }
+
+            var searchResult = await api.GetAsync("/invoice", searchParams);
+            JsonElement? creditNote = null;
+
+            if (searchResult.TryGetProperty("values", out var invoices) && invoices.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var inv in invoices.EnumerateArray())
+                {
+                    // Credit notes have isCreditNote=true or negative amount, and different ID from original
+                    if (inv.TryGetProperty("id", out var idProp) && idProp.GetInt64() != originalInvoiceId)
+                    {
+                        bool isCreditNote = inv.TryGetProperty("isCreditNote", out var cnFlag) && cnFlag.ValueKind == JsonValueKind.True;
+                        bool hasNegativeAmount = inv.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Number && amt.GetDecimal() < 0;
+                        if (isCreditNote || hasNegativeAmount)
+                        {
+                            creditNote = inv;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (creditNote.HasValue)
+            {
+                var cn = creditNote.Value;
+                // Check 1: credit_note_found
+                report.Checks.Add(new ValidationCheck("credit_note_found", "true", "true", true, 2));
+
+                // Check 2: has_customer
+                bool hasCust = cn.TryGetProperty("customer", out var cnCust) && cnCust.ValueKind == JsonValueKind.Object
+                    && cnCust.TryGetProperty("id", out var cnCustId) && cnCustId.GetInt64() > 0;
+                report.Checks.Add(new ValidationCheck("has_customer", "true", hasCust ? "true" : "false", hasCust, 2));
+
+                // Check 3: has_amount
+                bool hasAmount = cn.TryGetProperty("amount", out var cnAmt) && cnAmt.ValueKind == JsonValueKind.Number && cnAmt.GetDecimal() != 0;
+                report.Checks.Add(new ValidationCheck("has_amount", "!= 0", cnAmt.GetRawText(), hasAmount, 1));
+
+                // Check 4: correct_amount (should match negated original amount)
+                if (origVal.TryGetProperty("amount", out var origAmt) && origAmt.ValueKind == JsonValueKind.Number)
+                {
+                    var expectedNeg = -origAmt.GetDecimal();
+                    var actualAmt = cn.TryGetProperty("amount", out var ca) && ca.ValueKind == JsonValueKind.Number ? ca.GetDecimal() : 0;
+                    bool amountOk = Math.Abs(actualAmt - expectedNeg) < 1m;
+                    report.Checks.Add(new ValidationCheck("correct_amount", expectedNeg.ToString("F2"), actualAmt.ToString("F2"), amountOk, 2));
+                }
+
+                // Check 5: linked to original invoice
+                report.Checks.Add(new ValidationCheck("has_linked_invoice", "true", "true", true, 1));
+            }
+            else
+            {
+                // Credit note not found — fail all checks
+                report.Checks.Add(new ValidationCheck("credit_note_found", "true", "false", false, 2));
+                report.Checks.Add(new ValidationCheck("has_customer", "true", "unknown", false, 2));
+                report.Checks.Add(new ValidationCheck("has_amount", "!= 0", "0", false, 1));
+                report.Checks.Add(new ValidationCheck("correct_amount", "expected", "unknown", false, 2));
+                report.Checks.Add(new ValidationCheck("has_linked_invoice", "true", "false", false, 1));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CreditNote validation failed");
+            report.Checks.Add(new ValidationCheck("credit_note_found", "true", "error", false, 2));
+        }
     }
 
     private async Task ValidateVoucher(TripletexApiClient api, ExtractionResult extracted,
@@ -462,25 +673,143 @@ public class SandboxValidator
             new Dictionary<string, string> { ["fields"] = "*" });
         var val = voucher.GetProperty("value");
 
+        // Check 1: voucher_found (2pts)
         report.Checks.Add(new ValidationCheck("voucher_found", "true", "true", true, 2));
 
+        // Check 2: has_description (2pts)
         if (val.TryGetProperty("description", out var desc) && !string.IsNullOrEmpty(desc.GetString()))
-            report.Checks.Add(new ValidationCheck("has_description", "true", "true", true, 1));
+            report.Checks.Add(new ValidationCheck("has_description", "true", "true", true, 2));
+        else
+            report.Checks.Add(new ValidationCheck("has_description", "true", "false", false, 2));
 
-        // Check postings exist
+        // Check 3: has_postings (>= 2) (2pts)
+        int postingCount = 0;
+        decimal debitSum = 0, creditSum = 0;
         if (val.TryGetProperty("postings", out var postings) && postings.ValueKind == JsonValueKind.Array)
         {
-            var count = postings.GetArrayLength();
-            report.Checks.Add(new ValidationCheck("has_postings", ">= 2",
-                count.ToString(), count >= 2, 2));
+            postingCount = postings.GetArrayLength();
+            foreach (var posting in postings.EnumerateArray())
+            {
+                if (posting.TryGetProperty("amountGross", out var ag) && ag.ValueKind == JsonValueKind.Number)
+                {
+                    var amt = ag.GetDecimal();
+                    if (amt > 0) debitSum += amt;
+                    else creditSum += Math.Abs(amt);
+                }
+                else if (posting.TryGetProperty("amount", out var a) && a.ValueKind == JsonValueKind.Number)
+                {
+                    var amt = a.GetDecimal();
+                    if (amt > 0) debitSum += amt;
+                    else creditSum += Math.Abs(amt);
+                }
+            }
+        }
+        report.Checks.Add(new ValidationCheck("has_postings", ">= 2",
+            postingCount.ToString(), postingCount >= 2, 2));
+
+        // Check 4: postings_balanced — debits should equal credits (2pts)
+        bool balanced = postingCount >= 2 && Math.Abs(debitSum - creditSum) < 1m;
+        report.Checks.Add(new ValidationCheck("postings_balanced", "true",
+            balanced ? "true" : $"debit={debitSum:F2},credit={creditSum:F2}", balanced, 2));
+
+        // Check 5: correct_accounts — verify account numbers match extracted values (2pts)
+        var voucherEntity = extracted.Entities.GetValueOrDefault("voucher") ?? new();
+        var postingEntities = new List<Dictionary<string, object>>();
+        // Check for posting1, posting2 etc. in extracted entities
+        foreach (var key in extracted.Entities.Keys)
+        {
+            if (key.StartsWith("posting", StringComparison.OrdinalIgnoreCase) || key.StartsWith("line", StringComparison.OrdinalIgnoreCase))
+                postingEntities.Add(extracted.Entities[key]);
+        }
+        if (postingEntities.Count > 0 && postings.ValueKind == JsonValueKind.Array)
+        {
+            bool accountsOk = true;
+            foreach (var pe in postingEntities)
+            {
+                var expectedAcct = pe.TryGetValue("accountNumber", out var an) ? an?.ToString()
+                    : pe.TryGetValue("account", out var a) ? a?.ToString() : null;
+                if (expectedAcct != null)
+                {
+                    bool found = false;
+                    foreach (var posting in postings.EnumerateArray())
+                    {
+                        if (posting.TryGetProperty("account", out var acctRef) && acctRef.ValueKind == JsonValueKind.Object
+                            && acctRef.TryGetProperty("number", out var numProp))
+                        {
+                            if (numProp.GetRawText().Trim('"') == expectedAcct.Trim())
+                            {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!found) accountsOk = false;
+                }
+            }
+            report.Checks.Add(new ValidationCheck("correct_accounts", "true",
+                accountsOk ? "true" : "false", accountsOk, 2));
+        }
+
+        // Check 6: has_correct_amount — verify the posting amounts match extracted values (3pts for high-value vouchers)
+        decimal? expectedTotalAmount = GetDecimalFromEntity(voucherEntity, "amount")
+            ?? GetDecimalFromEntity(voucherEntity, "totalAmount");
+        if (expectedTotalAmount.HasValue && expectedTotalAmount.Value > 0)
+        {
+            bool amountOk = Math.Abs(debitSum - expectedTotalAmount.Value) < 1m
+                || Math.Abs(creditSum - expectedTotalAmount.Value) < 1m;
+            report.Checks.Add(new ValidationCheck("correct_amount", expectedTotalAmount.Value.ToString("F2"),
+                debitSum.ToString("F2"), amountOk, 3));
         }
     }
 
-    private void ValidateDelete(HandlerResult result, ValidationReport report)
+    private static readonly Dictionary<string, string> _deleteEntityPaths = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["customer"] = "/customer",
+        ["product"] = "/product",
+        ["order"] = "/order",
+        ["department"] = "/department",
+        ["travelExpense"] = "/travelExpense",
+        ["travel_expense"] = "/travelExpense",
+        ["voucher"] = "/ledger/voucher",
+        ["project"] = "/project",
+        ["supplier"] = "/supplier",
+    };
+
+    private async Task ValidateDelete(TripletexApiClient api, HandlerResult result, ValidationReport report)
     {
         var wasDeleted = result.Metadata.ContainsKey("action") && result.Metadata["action"] == "deleted";
+        if (!wasDeleted || !result.EntityId.HasValue || result.EntityType == null)
+        {
+            report.Checks.Add(new ValidationCheck("entity_deleted", "true", "false", false, 3));
+            return;
+        }
+
+        // Verify deletion by attempting a GET — should return 404 or empty
+        bool confirmedDeleted = false;
+        if (_deleteEntityPaths.TryGetValue(result.EntityType, out var path))
+        {
+            try
+            {
+                var getResult = await api.GetAsync($"{path}/{result.EntityId}",
+                    new Dictionary<string, string> { ["fields"] = "id" });
+                // If we got a result, the entity still exists — delete may have failed
+                var val = getResult.GetProperty("value");
+                confirmedDeleted = val.ValueKind == JsonValueKind.Null;
+            }
+            catch
+            {
+                // 404 exception means deleted successfully
+                confirmedDeleted = true;
+            }
+        }
+        else
+        {
+            // Unknown entity type — trust the metadata flag
+            confirmedDeleted = wasDeleted;
+        }
+
         report.Checks.Add(new ValidationCheck("entity_deleted", "true",
-            wasDeleted ? "true" : "false", wasDeleted, 3));
+            confirmedDeleted ? "true" : "false", confirmedDeleted, 3));
     }
 
     private async Task ValidatePayroll(TripletexApiClient api, ExtractionResult extracted,

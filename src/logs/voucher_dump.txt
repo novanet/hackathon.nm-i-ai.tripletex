@@ -1,0 +1,96 @@
+=== Entry 1 ===
+submission_id: 
+PROMPT: Create a custom accounting dimension "Region" with the values "Vestlandet" and "Sør-Norge". Then post a voucher on account 6300 for 35500 NOK, linked to the dimension value "Vestlandet".
+files_count: 0
+handler_result: null
+
+=== Entry 2 ===
+submission_id: 
+PROMPT: Wir haben die Rechnung INV-2026-8172 vom Lieferanten Nordlicht GmbH (Org.-Nr. 803273723) über 19100 NOK einschließlich MwSt. erhalten. Der Betrag betrifft Bürodienstleistungen (Konto 6500). Erfassen Sie die Lieferantenrechnung mit der korrekten Vorsteuer (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 3 ===
+submission_id: 
+PROMPT: Cree una dimensión contable personalizada "Produktlinje" con los valores "Standard" y "Basis". Luego registre un asiento en la cuenta 7100 por 43400 NOK, vinculado al valor de dimensión "Standard".
+files_count: 0
+handler_result: null
+
+=== Entry 4 ===
+submission_id: 
+PROMPT: Me har motteke faktura INV-2026-6998 frå leverandøren Sjøbris AS (org.nr 932482207) på 76850 kr inklusiv MVA. Beløpet gjeld kontortenester (konto 7140). Registrer leverandørfakturaen med korrekt inngåande MVA (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 5 ===
+submission_id: 
+PROMPT: Cree una dimensión contable personalizada "Produktlinje" con los valores "Basis" y "Standard". Luego registre un asiento en la cuenta 7100 por 36400 NOK, vinculado al valor de dimensión "Standard".
+files_count: 0
+handler_result: null
+
+=== Entry 6 ===
+submission_id: 
+PROMPT: Erstellen Sie eine benutzerdefinierte Buchhaltungsdimension "Kostsenter" mit den Werten "IT" und "Innkjøp". Buchen Sie dann einen Beleg auf Konto 7000 über 19450 NOK, verknüpft mit dem Dimensionswert "IT".
+files_count: 0
+handler_result: null
+
+=== Entry 7 ===
+submission_id: 
+PROMPT: Hemos recibido la factura INV-2026-9045 del proveedor Luna SL (org. nº 985211493) por 28100 NOK con IVA incluido. El importe corresponde a servicios de oficina (cuenta 7100). Registre la factura del proveedor con el IVA soportado correcto (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 8 ===
+submission_id: 
+PROMPT: Opprett en fri regnskapsdimensjon "Produktlinje" med verdiene "Standard" og "Avansert". Bokfør deretter et bilag på konto 7000 for 12700 kr, knyttet til dimensjonsverdien "Standard".
+files_count: 0
+handler_result: null
+
+=== Entry 9 ===
+submission_id: 
+PROMPT: Hemos recibido la factura INV-2026-4194 del proveedor Viento SL (org. nº 933672905) por 19350 NOK con IVA incluido. El importe corresponde a servicios de oficina (cuenta 6540). Registre la factura del proveedor con el IVA soportado correcto (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 10 ===
+submission_id: 
+PROMPT: Nous avons reçu la facture INV-2026-6571 du fournisseur Prairie SARL (nº org. 965215727) de 30100 NOK TTC. Le montant concerne des services de bureau (compte 6340). Enregistrez la facture fournisseur avec la TVA déductible correcte (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 11 ===
+submission_id: 
+PROMPT: Opprett ein fri rekneskapsdimensjon "Marked" med verdiane "Offentlig" og "Privat". Bokfør deretter eit bilag på konto 7300 for 49300 kr, knytt til dimensjonsverdien "Offentlig".
+files_count: 0
+handler_result: null
+
+=== Entry 12 ===
+submission_id: 
+PROMPT: Recebemos a fatura INV-2026-7230 do fornecedor Solmar Lda (org. nº 973188410) no valor de 7700 NOK com IVA incluído. O montante refere-se a serviços de escritório (conta 7140). Registe a fatura do fornecedor com o IVA dedutível correto (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 13 ===
+submission_id: 
+PROMPT: Créez une dimension comptable personnalisée "Kostsenter" avec les valeurs "Produktutvikling" et "Salg". Puis comptabilisez une pièce sur le compte 7300 pour 37450 NOK, liée à la valeur de dimension "Salg".
+files_count: 0
+handler_result: null
+
+=== Entry 14 ===
+submission_id: 
+PROMPT: Recebemos a fatura INV-2026-4855 do fornecedor Solmar Lda (org. nº 972752843) no valor de 62600 NOK com IVA incluído. O montante refere-se a serviços de escritório (conta 6860). Registe a fatura do fornecedor com o IVA dedutível correto (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 15 ===
+submission_id: 
+PROMPT: Nous avons reçu la facture INV-2026-8953 du fournisseur Colline SARL (nº org. 938165742) de 32650 NOK TTC. Le montant concerne des services de bureau (compte 7300). Enregistrez la facture fournisseur avec la TVA déductible correcte (25 %).
+files_count: 0
+handler_result: null
+
+=== Entry 16 ===
+submission_id: 
+PROMPT: Wir haben die Rechnung INV-2026-2118 vom Lieferanten Brückentor GmbH (Org.-Nr. 981448294) über 70400 NOK einschließlich MwSt. erhalten. Der Betrag betrifft Bürodienstleistungen (Konto 6590). Erfassen Sie die Lieferantenrechnung mit der korrekten Vorsteuer (25 %).
+files_count: 0
+handler_result: null
+

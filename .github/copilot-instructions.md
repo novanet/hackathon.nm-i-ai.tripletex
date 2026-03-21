@@ -81,6 +81,12 @@ Always return `{"status": "completed"}` after executing the task. The platform v
 - **Every 4xx error permanently reduces efficiency score** — validate before sending, don't retry blindly
 - **Fewer API calls = higher efficiency bonus** — see §8.2 in opening-strategy.md for minimum call counts per task
 
+## Development Priority (Follow This Order)
+
+1. **Correctness first** — Get all 30 task types passing all checks (correctness = 1.0). An extra API call that prevents a 4xx error is worth it. Don't skip validation steps to save calls.
+2. **Breadth second** — Cover all task types before optimizing any single one. A handler that scores 0.8 on a new task is worth more than squeezing 1.0→1.0+efficiency on an existing one.
+3. **Efficiency last** — Only optimize API call counts and eliminate 4xx errors AFTER all tasks pass at full correctness. Never sacrifice correctness for fewer calls.
+
 ## Key Dependency Chains
 
 These are the #1 source of failures. See `opening-strategy.md` §8 for the full graph.

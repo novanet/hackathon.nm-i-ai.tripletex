@@ -11,7 +11,7 @@ public class FallbackAgentHandler : ITaskHandler
 {
     private readonly ILogger<FallbackAgentHandler> _logger;
     private readonly ChatClient _chatClient;
-    private const int MaxIterations = 8;
+    private const int MaxIterations = 12;
 
     private static readonly ChatTool GetTool = ChatTool.CreateFunctionTool(
         "api_get",
@@ -122,6 +122,9 @@ public class FallbackAgentHandler : ITaskHandler
         - Lookup accounts: GET /ledger/account?number=XXXX&count=1&fields=id,number
         - Lookup VAT types: GET /ledger/vatType?count=100&fields=id,name,number,percentage
         - Delete entity: GET /entity?search → DELETE /entity/{id}
+        - Bank reconciliation: (1) GET /ledger/account?number=1920&count=1&fields=id to get account id, (2) POST /bank/reconciliation {account:{id}, bankAccountClosingBalanceCurrency: <balance>, isApproved:false, date:"YYYY-MM-DD"}
+        - Timesheet entry: (1) Check/enable SMART_TIME_TRACKING via GET/POST /company/salesmodules, (2) GET /employee?firstName=X&lastName=Y to resolve employee, (3) GET /activity?name=X or POST /activity to create, (4) POST /timesheet/entry {project:{id}, activity:{id}, employee:{id}, date, hours}
+        - Create contact person for customer: (1) GET /customer?name=X to get customerId, (2) POST /contact {firstName, lastName, email, customer:{id}}
         """;
 
     private readonly TripletexKnowledgeService _knowledge;
