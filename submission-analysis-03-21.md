@@ -2,53 +2,53 @@
 
 ## Overview
 
-| Metric | Value |
-|--------|-------|
-| **Date range** | 2026-03-21 02:12 – 09:55 UTC |
-| **Environment** | Competition |
-| **Success rate** | 6 / 20 (30%) |
-| **Nature** | Mostly Tier 2/3 complex tasks — FX payments, PDF-based employee onboarding, bank reconciliation, ledger corrections, annual closing, full project cycles |
+| Metric           | Value                                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Date range**   | 2026-03-21 02:12 – 09:55 UTC                                                                                                                             |
+| **Environment**  | Competition                                                                                                                                              |
+| **Success rate** | 6 / 20 (30%)                                                                                                                                             |
+| **Nature**       | Mostly Tier 2/3 complex tasks — FX payments, PDF-based employee onboarding, bank reconciliation, ledger corrections, annual closing, full project cycles |
 
 ---
 
 ## Entry-by-Entry Breakdown
 
-| # | Line | Timestamp | Lang | Detected Type | Handler | Result | Calls/Err | Root Cause |
-|---|------|-----------|------|---------------|---------|--------|-----------|------------|
-| 1 | 174 | 02:12:57 | fr | create_customer | CustomerHandler | **PASS** | 1/0 | — |
-| 2 | 175 | 09:43:08 | de | unknown (expense analysis → projects) | FallbackAgent | **PASS** | 8/1 | 1× 422 on wrong `from` param for voucher date range |
-| 3 | 176 | 09:43:24 | de | create_voucher (4 ledger corrections) | VoucherHandler | **FAIL** | 1/1 | Empty postings array sent |
-| 4 | 177 | 09:43:57 | nb | create_project (full cycle: budget+timesheets+invoice) | ProjectHandler | **PASS** | 8/0 | Project+invoice created, but timesheets/supplier costs skipped |
-| 5 | 178 | 09:44:31 | nb | create_project (full cycle) | ProjectHandler | **PASS** | 7/0 | Same — timesheets/supplier costs skipped |
-| 6 | 179 | 09:45:19 | de | create_voucher (headset receipt PDF) | VoucherHandler | **PASS** | 8/1 | 500 on supplierInvoice PUT, fell back to manual voucher |
-| 7 | 180 | 09:45:47 | es | create_voucher (supplier invoice PDF) | VoucherHandler | **PASS** | 8/1 | Same 500 fallback pattern |
-| 8 | 181 | 09:46:00 | es | bank_reconciliation (CSV) | BankReconciliationHandler | **FAIL** | 2/1 | `isApproved` field rejected |
-| 9 | 182 | 09:47:25 | en | create_employee (offer letter PDF) | EmployeeHandler | **FAIL** | 3/2 | Email missing from PDF, required for STANDARD userType |
-| 10 | 183 | 09:47:46 | fr | register_payment (FX disagio) | PaymentHandler | **FAIL** | 3/1 | 404 on `:payment` — stale paymentTypeId |
-| 11 | 184 | 09:52:23 | nn | create_voucher (annual closing) | VoucherHandler | **FAIL** | 1/1 | Empty postings array sent |
-| 12 | 185 | 09:52:48 | fr | register_payment (reminder fees) | PaymentHandler | **FAIL** | 5/1 | Created customer "unknown" + 404 on payment |
-| 13 | 186 | 09:53:08 | nn | create_project (cost analysis → 3 projects) | ProjectHandler | **FAIL** | 2/1 | Invalid date: 2026-02-29 (not a leap year) |
-| 14 | 187 | 09:53:22 | pt | create_employee (contract PDF) | EmployeeHandler | **PASS** | 2/0 | PDF had email, worked fine |
-| 15 | 188 | 09:53:40 | nb | register_payment (order→invoice→pay) | PaymentHandler | **FAIL** | 7/1 | 404 on `:payment` — stale paymentTypeId |
-| 16 | 189 | 09:53:59 | pt | create_employee (offer letter PDF) | EmployeeHandler | **FAIL** | 3/2 | Email missing from PDF |
-| 17 | 190 | 09:54:09 | nn | bank_reconciliation (CSV) | BankReconciliationHandler | **FAIL** | 2/1 | Same `isApproved` rejection |
-| 18 | 191 | 09:54:49 | es | register_payment (FX agio) | PaymentHandler | **FAIL** | 3/1 | 404 on `:payment` — stale paymentTypeId |
-| 19 | 192 | 09:55:10 | nb | register_payment (FX agio) | PaymentHandler | **FAIL** | 3/1 | 404 on `:payment` — stale paymentTypeId |
-| 20 | 193 | 09:55:37 | nn | bank_reconciliation (CSV) | BankReconciliationHandler | **FAIL** | 2/1 | Same `isApproved` rejection |
+| #   | Line | Timestamp | Lang | Detected Type                                          | Handler                   | Result   | Calls/Err | Root Cause                                                     |
+| --- | ---- | --------- | ---- | ------------------------------------------------------ | ------------------------- | -------- | --------- | -------------------------------------------------------------- |
+| 1   | 174  | 02:12:57  | fr   | create_customer                                        | CustomerHandler           | **PASS** | 1/0       | —                                                              |
+| 2   | 175  | 09:43:08  | de   | unknown (expense analysis → projects)                  | FallbackAgent             | **PASS** | 8/1       | 1× 422 on wrong `from` param for voucher date range            |
+| 3   | 176  | 09:43:24  | de   | create_voucher (4 ledger corrections)                  | VoucherHandler            | **FAIL** | 1/1       | Empty postings array sent                                      |
+| 4   | 177  | 09:43:57  | nb   | create_project (full cycle: budget+timesheets+invoice) | ProjectHandler            | **PASS** | 8/0       | Project+invoice created, but timesheets/supplier costs skipped |
+| 5   | 178  | 09:44:31  | nb   | create_project (full cycle)                            | ProjectHandler            | **PASS** | 7/0       | Same — timesheets/supplier costs skipped                       |
+| 6   | 179  | 09:45:19  | de   | create_voucher (headset receipt PDF)                   | VoucherHandler            | **PASS** | 8/1       | 500 on supplierInvoice PUT, fell back to manual voucher        |
+| 7   | 180  | 09:45:47  | es   | create_voucher (supplier invoice PDF)                  | VoucherHandler            | **PASS** | 8/1       | Same 500 fallback pattern                                      |
+| 8   | 181  | 09:46:00  | es   | bank_reconciliation (CSV)                              | BankReconciliationHandler | **FAIL** | 2/1       | `isApproved` field rejected                                    |
+| 9   | 182  | 09:47:25  | en   | create_employee (offer letter PDF)                     | EmployeeHandler           | **FAIL** | 3/2       | Email missing from PDF, required for STANDARD userType         |
+| 10  | 183  | 09:47:46  | fr   | register_payment (FX disagio)                          | PaymentHandler            | **FAIL** | 3/1       | 404 on `:payment` — stale paymentTypeId                        |
+| 11  | 184  | 09:52:23  | nn   | create_voucher (annual closing)                        | VoucherHandler            | **FAIL** | 1/1       | Empty postings array sent                                      |
+| 12  | 185  | 09:52:48  | fr   | register_payment (reminder fees)                       | PaymentHandler            | **FAIL** | 5/1       | Created customer "unknown" + 404 on payment                    |
+| 13  | 186  | 09:53:08  | nn   | create_project (cost analysis → 3 projects)            | ProjectHandler            | **FAIL** | 2/1       | Invalid date: 2026-02-29 (not a leap year)                     |
+| 14  | 187  | 09:53:22  | pt   | create_employee (contract PDF)                         | EmployeeHandler           | **PASS** | 2/0       | PDF had email, worked fine                                     |
+| 15  | 188  | 09:53:40  | nb   | register_payment (order→invoice→pay)                   | PaymentHandler            | **FAIL** | 7/1       | 404 on `:payment` — stale paymentTypeId                        |
+| 16  | 189  | 09:53:59  | pt   | create_employee (offer letter PDF)                     | EmployeeHandler           | **FAIL** | 3/2       | Email missing from PDF                                         |
+| 17  | 190  | 09:54:09  | nn   | bank_reconciliation (CSV)                              | BankReconciliationHandler | **FAIL** | 2/1       | Same `isApproved` rejection                                    |
+| 18  | 191  | 09:54:49  | es   | register_payment (FX agio)                             | PaymentHandler            | **FAIL** | 3/1       | 404 on `:payment` — stale paymentTypeId                        |
+| 19  | 192  | 09:55:10  | nb   | register_payment (FX agio)                             | PaymentHandler            | **FAIL** | 3/1       | 404 on `:payment` — stale paymentTypeId                        |
+| 20  | 193  | 09:55:37  | nn   | bank_reconciliation (CSV)                              | BankReconciliationHandler | **FAIL** | 2/1       | Same `isApproved` rejection                                    |
 
 ---
 
 ## Duplicate Type Analysis
 
-| Task Type | Count | Pass | Fail | Notes |
-|-----------|-------|------|------|-------|
-| **register_payment** | 6 | 0 | 6 | ALL fail — 5× due to 404 on `:payment` (paymentTypeId stale), 1× misidentified task |
-| **create_voucher** | 4 | 2 | 2 | Failures = empty postings for complex multi-voucher tasks; successes = PDF-based with fallback |
-| **bank_reconciliation** | 3 | 0 | 3 | ALL fail — identical `isApproved` field rejection |
-| **create_employee** | 3 | 1 | 2 | Failures = PDF missing email → 422 on STANDARD userType |
-| **create_project** | 3 | 2 | 1 | Success but incomplete (no timesheets); 1 fail from invalid date |
-| **create_customer** | 1 | 1 | 0 | Tier 1 — working fine |
-| **unknown (Fallback)** | 1 | 1 | 0 | Expense analysis via FallbackAgent — worked |
+| Task Type               | Count | Pass | Fail | Notes                                                                                          |
+| ----------------------- | ----- | ---- | ---- | ---------------------------------------------------------------------------------------------- |
+| **register_payment**    | 6     | 0    | 6    | ALL fail — 5× due to 404 on `:payment` (paymentTypeId stale), 1× misidentified task            |
+| **create_voucher**      | 4     | 2    | 2    | Failures = empty postings for complex multi-voucher tasks; successes = PDF-based with fallback |
+| **bank_reconciliation** | 3     | 0    | 3    | ALL fail — identical `isApproved` field rejection                                              |
+| **create_employee**     | 3     | 1    | 2    | Failures = PDF missing email → 422 on STANDARD userType                                        |
+| **create_project**      | 3     | 2    | 1    | Success but incomplete (no timesheets); 1 fail from invalid date                               |
+| **create_customer**     | 1     | 1    | 0    | Tier 1 — working fine                                                                          |
+| **unknown (Fallback)**  | 1     | 1    | 0    | Expense analysis via FallbackAgent — worked                                                    |
 
 ---
 
@@ -100,16 +100,16 @@
 
 ## New Tier 2/3 Task Types Observed
 
-| Task Type | Description | Current Support |
-|-----------|-------------|-----------------|
-| **FX Payment (agio/disagio)** | Register payment with exchange rate differences, book FX gain/loss | Not supported |
-| **Bank Reconciliation** | Match bank statement CSV against open invoices | Handler exists but broken (`isApproved` bug) |
-| **Ledger Error Correction** | Find and fix posting errors with correction vouchers | VoucherHandler can't build multi-voucher postings |
-| **Annual Closing** | Depreciation, prepaid expenses, tax calculation | VoucherHandler can't build multi-voucher postings |
-| **Full Project Cycle** | Budget, timesheets, supplier costs, project invoice | ProjectHandler does basic create+invoice only |
-| **Employee Onboarding from PDF** | Extract employment details from offer letters/contracts | Works when email present, fails otherwise |
-| **Reminder Fees + Partial Payment** | Find overdue invoices, post reminder fees, partial payment | PaymentHandler doesn't search for overdue invoices |
-| **Expense Analysis** | Analyze ledger for cost increases, create internal projects | FallbackAgent handled it — worked |
+| Task Type                           | Description                                                        | Current Support                                    |
+| ----------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------- |
+| **FX Payment (agio/disagio)**       | Register payment with exchange rate differences, book FX gain/loss | Not supported                                      |
+| **Bank Reconciliation**             | Match bank statement CSV against open invoices                     | Handler exists but broken (`isApproved` bug)       |
+| **Ledger Error Correction**         | Find and fix posting errors with correction vouchers               | VoucherHandler can't build multi-voucher postings  |
+| **Annual Closing**                  | Depreciation, prepaid expenses, tax calculation                    | VoucherHandler can't build multi-voucher postings  |
+| **Full Project Cycle**              | Budget, timesheets, supplier costs, project invoice                | ProjectHandler does basic create+invoice only      |
+| **Employee Onboarding from PDF**    | Extract employment details from offer letters/contracts            | Works when email present, fails otherwise          |
+| **Reminder Fees + Partial Payment** | Find overdue invoices, post reminder fees, partial payment         | PaymentHandler doesn't search for overdue invoices |
+| **Expense Analysis**                | Analyze ledger for cost increases, create internal projects        | FallbackAgent handled it — worked                  |
 
 ---
 
@@ -141,8 +141,8 @@
 
 ## Impact Estimate
 
-| Fix | Failures Fixed | Projected Success Rate |
-|-----|---------------|----------------------|
-| Phase 1 only | 10 | ~80% (16/20) |
-| Phase 1 + 2 | 12 | ~90% (18/20) |
-| Phase 1 + 2 + 3 | 14 | ~95%+ |
+| Fix             | Failures Fixed | Projected Success Rate |
+| --------------- | -------------- | ---------------------- |
+| Phase 1 only    | 10             | ~80% (16/20)           |
+| Phase 1 + 2     | 12             | ~90% (18/20)           |
+| Phase 1 + 2 + 3 | 14             | ~95%+                  |
