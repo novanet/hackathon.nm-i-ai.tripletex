@@ -715,7 +715,7 @@ public class PaymentHandler : ITaskHandler
             ["fields"] = "id,description"
         });
 
-        long typeId = 1;
+        long typeId = 0;
         if (result.TryGetProperty("values", out var types))
         {
             foreach (var t in types.EnumerateArray())
@@ -730,7 +730,7 @@ public class PaymentHandler : ITaskHandler
                     }
                 }
             }
-            if (typeId == 1)
+            if (typeId == 0)
             {
                 foreach (var t in types.EnumerateArray())
                 {
@@ -739,6 +739,14 @@ public class PaymentHandler : ITaskHandler
                 }
             }
         }
+
+        if (typeId == 0)
+        {
+            _logger.LogWarning("No payment types found via /invoice/paymentType — falling back to typeId=1");
+            typeId = 1;
+        }
+
+        _logger.LogInformation("Resolved paymentTypeId={Id} for session", typeId);
 
         lock (_paymentTypeLock)
         {

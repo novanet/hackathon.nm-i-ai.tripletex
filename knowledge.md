@@ -144,7 +144,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 ## Efficiency Optimizations (2026-03-21)
 
 - **POST-first customer strategy** — `ResolveOrCreateCustomer` now tries `POST /customer` first (saves 1 GET in competition where env is clean). On 422 (duplicate in sandbox), falls back to `GET /customer?organizationNumber=` / `?name=`. This eliminates the GET for all competition runs. _(2026-03-21)_
-- **Hardcoded paymentTypeId = 33295810** — constant across all clean Tripletex environments. `ResolvePaymentTypeId` returns immediately without an API call. On 422 in payment PUT, falls back to `ResolvePaymentTypeIdDynamic` (1 extra call). _(2026-03-21)_
+- **paymentTypeId resolved dynamically** — IDs vary per environment, never hardcode. `ResolvePaymentTypeId` does a single GET `/invoice/paymentType` (cached per session). Looks for description containing "bank" or "overf", falls back to first available type. _(2026-03-21)_
 - **VAT type fallback on 422** — `CreateInvoiceChainAsync` catches `TripletexApiException` with `StatusCode==422` and message containing "mva-kode" on `POST /order`. On catch: calls `ResolveVatTypesFull` (+1 GET), rebuilds lines, retries POST /order. In competition (IDs work), zero overhead. In sandbox, +2 calls but still succeeds. _(2026-03-21)_
 - **Estimated competition call counts after optimizations**:
   - `create_invoice` (fresh env): bank GET + customer POST + order POST + invoice POST + validator GET = **5 calls** (was 8)
