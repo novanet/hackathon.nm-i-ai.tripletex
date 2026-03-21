@@ -109,7 +109,7 @@ public class TripletexApiClient
         var boundary = Guid.NewGuid().ToString("N");
         var multipart = new MultipartFormDataContent(boundary);
         var fileContent = new ByteArrayContent(csvBytes);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/csv");
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/csv") { CharSet = "utf-8" };
         multipart.Add(fileContent, "file", fileName);
         request.Content = multipart;
 
