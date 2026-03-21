@@ -45,6 +45,7 @@ public class LlmExtractor
 
         Rules:
         - Copy field values VERBATIM from the prompt (names, emails, org numbers)
+        - For customer addresses, ALWAYS extract as separate fields: "addressLine1" (street + number), "postalCode" (zip/postal code), "city" (city name). NEVER combine them into a single "address" field. Example: "Storgata 97, 5003 Bergen" → "addressLine1": "Storgata 97", "postalCode": "5003", "city": "Bergen"
         - Parse monetary amounts as numbers (strip currency symbols)
         - Convert all dates to YYYY-MM-DD format
         - If the task type is ambiguous, use "unknown"

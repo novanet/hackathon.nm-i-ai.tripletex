@@ -745,15 +745,12 @@ public class InvoiceHandler : ITaskHandler
             else
             {
                 // Product doesn't exist — create it
-                var lineVatType = lines[i].GetValueOrDefault("vatType");
                 var productBody = new Dictionary<string, object>
                 {
                     ["name"] = lines[i].GetValueOrDefault("description")?.ToString() ?? "Produkt"
                 };
                 if (int.TryParse(productCode, out var pNum))
                     productBody["number"] = pNum;
-                if (lineVatType != null)
-                    productBody["vatType"] = lineVatType;
                 if (lines[i].TryGetValue("unitPriceExcludingVatCurrency", out var price))
                     productBody["priceExcludingVatCurrency"] = price;
 

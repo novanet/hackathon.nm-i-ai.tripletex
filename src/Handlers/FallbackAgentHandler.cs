@@ -332,7 +332,7 @@ public class FallbackAgentHandler : ITaskHandler
     private async Task<string> HandlePost(TripletexApiClient api, JsonElement args)
     {
         var path = args.GetProperty("path").GetString()!;
-        var body = args.GetProperty("body");
+        object body = args.TryGetProperty("body", out var b) ? (object)b : new Dictionary<string, object>();
         _logger.LogInformation("Fallback agent POST {Path}", path);
         var result = await api.PostAsync(path, body);
         return TruncateResult(result);

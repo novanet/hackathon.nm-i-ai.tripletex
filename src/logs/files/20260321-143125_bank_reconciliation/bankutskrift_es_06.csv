@@ -1,0 +1,12 @@
+Dato;Forklaring;Inn;Ut;Saldo
+2026-01-18;Innbetaling fra López SL / Faktura 1001;29437.50;;129437.50
+2026-01-19;Innbetaling fra Torres SL / Faktura 1002;16275.00;;145712.50
+2026-01-21;Innbetaling fra Torres SL / Faktura 1003;24000.00;;169712.50
+2026-01-23;Innbetaling fra Pérez SL / Faktura 1004;20000.00;;189712.50
+2026-01-25;Innbetaling fra Pérez SL / Faktura 1005;26437.50;;216150.00
+2026-01-28;Betaling Proveedor Pérez SL;;-19600.00;196550.00
+2026-01-29;Betaling Proveedor López SL;;-5900.00;190650.00
+2026-01-30;Betaling Proveedor Sánchez SL;;-19700.00;170950.00
+2026-02-01;Bankgebyr;;-1740.36;169209.64
+2026-02-02;Skattetrekk;410.83;;169620.47
+2026-02-03;Skattetrekk;1524.59;;171145.06

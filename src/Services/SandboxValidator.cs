@@ -155,7 +155,7 @@ public class SandboxValidator
         if (!result.EntityId.HasValue) return;
 
         var cust = await api.GetAsync($"/customer/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "*" });
+            new Dictionary<string, string> { ["fields"] = "id,name,email,organizationNumber,phoneNumber,physicalAddress(*),postalAddress(*)" });
         var val = cust.GetProperty("value");
 
         var entity = extracted.Entities.GetValueOrDefault("customer")

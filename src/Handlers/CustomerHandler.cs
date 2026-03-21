@@ -51,7 +51,10 @@ public class CustomerHandler : ITaskHandler
             SetIfPresent(body, cust, "orgNumber", "organizationNumber");
 
         // Parse combined address string into structured fields if needed
-        if (!cust.ContainsKey("addressLine1") && cust.TryGetValue("address", out var addrObj))
+        var hasStructuredAddress = cust.TryGetValue("addressLine1", out var addrLineVal)
+            && addrLineVal is not null
+            && !string.IsNullOrWhiteSpace(addrLineVal is JsonElement aje ? aje.GetString() : addrLineVal.ToString());
+        if (!hasStructuredAddress && cust.TryGetValue("address", out var addrObj))
         {
             var addrStr = (addrObj is JsonElement je ? je.GetString() : addrObj?.ToString()) ?? "";
             ParseAddressString(cust, addrStr);
