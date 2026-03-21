@@ -129,6 +129,8 @@ The script kills any existing `TripletexAgent` process, builds the project, wait
 
 Reads Tripletex credentials and API key from .NET user-secrets automatically. Prints the response and tails the latest log file.
 
+If the prompt originally came with file attachments (i.e. the `files` array in `submissions.jsonl` or `sandbox.jsonl` is non-empty), you **must** pass the saved files via `-FilePaths` — otherwise the handler will behave differently from the competition run. See **Replaying prompts with files** below for how to locate the saved files.
+
 **Starting a tunnel for competition submissions:**
 
 Two tunnel options are available. Prefer ngrok (cloudflared has TLS issues on some ISPs like Telenor):
@@ -157,6 +159,20 @@ The script:
 5. After completion, replays new requests from `submissions.jsonl` locally via `Test-Solve.ps1` and prints a summary
 
 **Competition constraints:** Max 32 submissions/day, max 3 concurrent (429 if exceeded).
+
+**Replaying prompts with files:** Whenever replaying a prompt — whether running `Test-Solve.ps1` directly or via the automated replay in `Submit-Run.ps1` — check if the original request had file attachments. If the `files` array in the `submissions.jsonl` (or `sandbox.jsonl`) entry is non-empty, the saved files must be passed to `Test-Solve.ps1` via `-FilePaths`. The agent saves received files to `src/logs/files/<yyyyMMdd-HHmmss>_<task_type>/` at request time. The `submissions.jsonl` entry logs a `files` array with `{Filename, MimeType}` (no content) and a `timestamp` field. To locate the saved files for a replay:
+
+1. Parse the `timestamp` from the `submissions.jsonl` entry (UTC ISO-8601).
+2. Convert to local time and format as `yyyyMMdd-HHmmss` (rounded to the nearest second).
+3. Find the matching directory under `src/logs/files/` whose name starts with that timestamp prefix and ends with the task type — e.g. `20260321-104557_bank_reconciliation`.
+4. Pass every file in that directory to `Test-Solve.ps1` with `-FilePaths`:
+
+```powershell
+$dir = "src/logs/files/20260321-104557_bank_reconciliation"
+& "$PSScriptRoot\Test-Solve.ps1" -Prompt $entry.prompt -FilePaths (Get-ChildItem $dir | Select-Object -ExpandProperty FullName)
+```
+
+If no matching directory is found (e.g. timestamp drift > 2s), skip file attachment and log a warning — the replay will still run, just without the files.
 
 **Competition vs local sandbox:** Competition submission runs use a **clean Tripletex environment** every time — no pre-existing customers, products, employees, etc. The local sandbox reuses state across test runs, so entities created in previous tests persist. Never assume entities exist in competition; always create them. Conversely, don't add "search before create" logic just because the local sandbox already has a duplicate — that wastes API calls in competition.
 

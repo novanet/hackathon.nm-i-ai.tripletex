@@ -80,6 +80,21 @@ public class FallbackAgentHandler : ITaskHandler
         }
         """));
 
+    private static readonly ChatTool SearchVouchersTool = ChatTool.CreateFunctionTool(
+        "search_vouchers",
+        "Search ledger vouchers by date range. Use this INSTEAD of api_get for /ledger/voucher — dateFrom and dateTo are mandatory and easy to get wrong.",
+        BinaryData.FromString("""
+        {
+            "type": "object",
+            "properties": {
+                "dateFrom": { "type": "string", "description": "Start date inclusive, YYYY-MM-DD" },
+                "dateTo":   { "type": "string", "description": "End date inclusive, YYYY-MM-DD" },
+                "fields":   { "type": "string", "description": "Optional field filter, e.g. id,date,description,amount" }
+            },
+            "required": ["dateFrom", "dateTo"]
+        }
+        """));
+
     private static readonly ChatTool DoneTool = ChatTool.CreateFunctionTool(
         "task_complete",
         "Call this when the task has been completed successfully.",
@@ -123,6 +138,7 @@ public class FallbackAgentHandler : ITaskHandler
         - Lookup VAT types: GET /ledger/vatType?count=100&fields=id,name,number,percentage
         - Delete entity: GET /entity?search → DELETE /entity/{id}
         - Bank reconciliation: (1) GET /ledger/account?number=1920&count=1&fields=id to get account id, (2) POST /bank/reconciliation {account:{id}, bankAccountClosingBalanceCurrency: <balance>, isApproved:false, date:"YYYY-MM-DD"}
+        - Voucher search: ALWAYS use the search_vouchers tool — NEVER call api_get on /ledger/voucher directly (dateFrom/dateTo are mandatory and from= is a pagination int, not a date)
         - Timesheet entry: (1) Check/enable SMART_TIME_TRACKING via GET/POST /company/salesmodules, (2) GET /employee?firstName=X&lastName=Y to resolve employee, (3) GET /activity?name=X or POST /activity to create, (4) POST /timesheet/entry {project:{id}, activity:{id}, employee:{id}, date, hours}
         - Create contact person for customer: (1) GET /customer?name=X to get customerId, (2) POST /contact {firstName, lastName, email, customer:{id}}
         """;
@@ -218,7 +234,7 @@ public class FallbackAgentHandler : ITaskHandler
         var chatOptions = new ChatCompletionOptions
         {
             Temperature = 0f,
-            Tools = { GetTool, PostTool, PutTool, DeleteTool, SearchHelpTool, DoneTool }
+            Tools = { GetTool, PostTool, PutTool, DeleteTool, SearchHelpTool, SearchVouchersTool, DoneTool }
         };
 
         for (int i = 0; i < MaxIterations; i++)
@@ -256,6 +272,7 @@ public class FallbackAgentHandler : ITaskHandler
                         "api_put" => await HandlePut(api, args),
                         "api_delete" => await HandleDelete(api, args),
                         "search_help" => await HandleSearchHelp(args),
+                        "search_vouchers" => await HandleSearchVouchers(api, args),
                         "task_complete" => HandleComplete(args),
                         _ => $"Unknown tool: {toolCall.FunctionName}"
                     };
@@ -289,6 +306,19 @@ public class FallbackAgentHandler : ITaskHandler
         var query = args.GetProperty("query").GetString()!;
         _logger.LogInformation("Fallback agent searching help: {Query}", query);
         return await _knowledge.SearchAsync(query);
+    }
+
+    private async Task<string> HandleSearchVouchers(TripletexApiClient api, JsonElement args)
+    {
+        var dateFrom = args.GetProperty("dateFrom").GetString()!;
+        var dateTo = args.GetProperty("dateTo").GetString()!;
+        var fields = args.TryGetProperty("fields", out var f) ? f.GetString() : null;
+        var path = $"/ledger/voucher?dateFrom={dateFrom}&dateTo={dateTo}&from=0&count=100";
+        if (!string.IsNullOrEmpty(fields))
+            path += $"&fields={Uri.EscapeDataString(fields)}";
+        _logger.LogInformation("Fallback agent search_vouchers {Path}", path);
+        var result = await api.GetAsync(path);
+        return TruncateResult(result);
     }
 
     private async Task<string> HandleGet(TripletexApiClient api, JsonElement args)

@@ -18,6 +18,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Project manager needs entitlements** — must call `PUT /employee/entitlement/:grantEntitlementsByTemplate?template=ALL_PRIVILEGES` before assigning as PM. Error: "Oppgitt prosjektleder har ikke fått tilgang som prosjektleder i kontoen". _(2026-03-20)_
 - **Invoice requires company bank account** — the company (not customer) must have a bank account registered. Error: "Faktura kan ikke opprettes før selskapet har registrert et bankkontonummer." Seen in competition but not sandbox. _(2026-03-20)_
 - **Voucher requires `postings` array** — cannot POST without it. Error: "Et bilag kan ikke registreres uten posteringer." _(2026-03-20)_
+- **Multi-voucher support** — When prompts request multiple vouchers (corrections, year-end closings), the LLM extracts `voucher1`, `voucher2`, etc. instead of a single `voucher` entity. VoucherHandler now detects keys matching `voucherN` (where N is a digit), iterates each, builds postings per-voucher, and POSTs separately. Two extraction formats observed: (1) `debitAccount`/`creditAccount`/`amount` pairs, (2) structured `postings[]` array with `debitCredit` field. `BuildPostingFromJson` now handles `debitCredit`: "credit" negates the amount. Non-numeric amounts (e.g. "calculated*tax_cost") are safely skipped. Per-voucher try/catch prevents one 422 from crashing the entire batch. *(2026-03-21)\_
 - **Department numbers collide** — pre-query existing departments with `GET /department?fields=departmentNumber,name`, then pick the next available number. _(2026-03-20)_
 - **Customer lookup by org number** — use `?organizationNumber=` param, NOT `?name=` with the org number as value. _(2026-03-20)_
 - **Timesheet entry requires `activity`, `date`, `employee`** — minimum fields. Also supports `project`, `hours`, `comment`. Only one entry per employee/date/activity/project combo. 38 hours on a single date works (no 24h cap on `hours` field). _(2026-03-20)_
@@ -62,20 +63,20 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 ## Efficiency Baselines (Observed Optimal)
 
-| Task                  | Optimal calls | Notes                                                             |
-| --------------------- | ------------- | ----------------------------------------------------------------- |
-| create_customer       | 1             | Just POST                                                         |
-| create_supplier       | 1             | Just POST                                                         |
-| create_product        | 2             | GET vatType + POST                                                |
-| create_employee       | 3–5           | dept + POST + employment + entitlements                           |
-| create_department     | 2+            | GET existing + POST (+ retries if collisions)                     |
-| create_invoice        | 4–6           | customer + vatType + order + invoice + optional send              |
-| register_payment      | 6–8           | Full invoice chain + GET invoice + GET paymentType + PUT :payment |
-| create_project        | 4–8           | customer lookup + employee lookup/create + entitlements + POST    |
-| create_travel_expense | 5–7           | employee lookup + POST expense + GET paymentType + POST cost(s)   |
-| create_voucher        | 9             | Dimension + values + voucher with postings                        |
-| create_credit_note    | 6             | Find invoice + create credit note                                 |
-| delete_entity         | 2             | Find entity + DELETE                                              |
+| Task                  | Optimal calls | Notes                                                                     |
+| --------------------- | ------------- | ------------------------------------------------------------------------- |
+| create_customer       | 1             | Just POST                                                                 |
+| create_supplier       | 1             | Just POST                                                                 |
+| create_product        | 2             | GET vatType + POST                                                        |
+| create_employee       | 3–5           | dept + POST + employment + entitlements                                   |
+| create_department     | 2+            | GET existing + POST (+ retries if collisions)                             |
+| create_invoice        | 4–6           | customer + vatType + order + invoice + optional send                      |
+| register_payment      | 6–8           | Full invoice chain + GET invoice + GET paymentType + PUT :payment         |
+| create_project        | 4–8           | customer lookup + employee lookup/create + entitlements + POST            |
+| create_travel_expense | 5–7           | employee lookup + POST expense + GET paymentType + POST cost(s)           |
+| create_voucher        | 6–9           | Supplier invoice: 6 calls (no importDocument). Dimension voucher: 9 calls |
+| create_credit_note    | 6             | Find invoice + create credit note                                         |
+| delete_entity         | 2             | Find entity + DELETE                                                      |
 
 ## Reference Documents
 
@@ -99,6 +100,9 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 - **CRITICAL: System.Text.Json drops properties from anonymous types inside `object[]`** — When serializing `new object[] { new { id = 1, employee = new { id = 2 } } }`, the array element type is `object`, so System.Text.Json can't discover anonymous type properties → they're silently dropped. This was the root cause of the voucher `employee` field being missing in competition submissions (Check 2 failure). Fix: use `Dictionary<string, object>` instead of anonymous types for any payload inside `object[]` or `List<object>`. _(2026-03-21)_
 - **Division creation: don't use parent company orgNumber** — The company's organization number is a "juridisk enhet" (legal entity), which Tripletex rejects for divisions/sub-units: "Juridisk enhet kan ikke registreres som virksomhet/underenhet". Fix: try creating division WITHOUT `organizationNumber` first. Only fall back to using org number if the first attempt fails. _(2026-03-21)_
+- **Sandbox chart of accounts is INCOMPLETE** — accounts 1209 (akkumulerte avskrivninger) and 8700 (skattekostnad) do NOT exist in the sandbox. Account 1200, 1210, 1230, 1250, 1700, 2920, 6010 DO exist. Competition may have different accounts. VoucherHandler now logs "Account {Number} not found in chart of accounts" and skips imbalanced vouchers instead of wasting API calls on 422 errors. _(2026-03-21)_
+- **Bank reconciliation period lookup: `sorting=end:desc` not supported** — returns 422 "sorting field 'end:desc' does not exist". Fix: fetch all 100 periods and pick the last one by comparing end dates. _(2026-03-21)_
+- **Bank reconciliation duplicate period check** — POST fails with 422 "Det eksisterer allerede en bankavstemming for denne kontoen i valgte periode" if a reconciliation already exists for the same account/period. Expected in sandbox (state persists). Fresh competition environments won't have this. _(2026-03-21)_
 - **Employment enrichment with full details** — set `taxDeductionCode = "loennFraHovedarbeidsgiver"`, `employmentDetails` with `employmentType=ORDINARY`, `employmentForm=PERMANENT`, `remunerationType=MONTHLY_WAGE`, `workingHoursScheme=NOT_SHIFT`, `percentageOfFullTimeEquivalent=100.0`. These are UPPERCASE enum values. _(2026-03-20)_
 
 ## Fixed-Price Project Invoicing (create_project with invoice)
@@ -118,6 +122,18 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 - **Phase 1 — CreditNote**: Validator now does 5 checks / 8pts. CreditNoteHandler sets `EntityId = originalInvoiceId` (NOT the credit note ID). Validator searches invoices for isCreditNote=true or negative amount and validates: credit_note_found (2), has_customer (2), has_amount (1), correct_amount (2), has_linked_invoice (1).
 - **Phase 2 — Invoice**: Validator now does up to 6 checks / 7-8pts: invoice_found (2), has_customer (1), has_amount (1), has_order_lines (1), correct_amount (1 conditional), invoice_sent (1 conditional).
+
+## Date Validation (2026-03-21)
+
+- **LLM generates invalid dates like `2026-02-29`** (non-leap year) — causes 422 on any API endpoint using that date. Fixed by adding `ValidateDates()` post-processing in LlmExtractor. Snaps invalid dates to last valid day of month (e.g. Feb 29 → Feb 28). Applies to both `ExtractionResult.Dates` list and date-named fields in entities. _(2026-03-21)_
+
+## FX Payments — Foreign Currency (2026-03-21)
+
+- **`PUT /invoice/{id}/:payment` supports `paidAmountCurrency`** query param — "Amount paid by customer in the invoice currency. Optional, but required for invoices in alternate currencies." Type: number. _(2026-03-21)_
+- **FX payment flow**: Create order with `currency: {id: X}` → create invoice → register payment with `paidAmount` (NOK = foreign × rateAtPayment) and `paidAmountCurrency` (foreign amount). Tripletex auto-handles agio/disagio. _(2026-03-21)_
+- **`GET /currency?code=EUR&count=1&fields=id`** resolves currency code to Tripletex ID. EUR = ID 5 in sandbox. _(2026-03-21)_
+- **LLM already extracts FX fields** (`currency`, `exchangeRateAtInvoice`, `exchangeRateAtPayment`) from prompts mentioning exchange rates — no system prompt changes needed. _(2026-03-21)_
+- **FX detection**: `IsFxPayment()` checks for `currency` or `exchangeRateAtPayment` in payment/invoice entities. Does NOT false-trigger on normal NOK payments. _(2026-03-21)_
 - **Phase 3 — Voucher**: Validator now does up to 6 checks / 8-13pts: voucher_found (2), has_description (2), has_postings (2), postings_balanced (2), correct_accounts (2 conditional), correct_amount (3 conditional). Sums debit/credit from amountGross or amount fields.
 
 ## Efficiency Optimizations (2026-03-21)
@@ -146,6 +162,11 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Employee: email required for STANDARD/EXTENDED userType** — PDF offer letters often lack email → 422. Generate synthetic email from `firstName.lastName@example.org` when not extracted. _(2026-03-21)_
 - **VoucherHandler: multi-voucher extraction format** — complex tasks (ledger corrections, annual closing) produce `voucher1`, `voucher2`, etc. entities in extraction. VoucherHandler must iterate these and build postings from their debitAccount/creditAccount/amount fields. _(2026-03-21)_
 - **Supplier invoice: `vendorInvoiceNumber` silently ignored** — Tripletex API accepts the field but always returns `null`. Use `externalVoucherNumber` instead — it IS persisted and queryable via `GET /ledger/voucher?typeId=<Leverandørfaktura id>`. _(2026-03-21)_
-- **Supplier invoice: `importDocument` required for competition Check 1** — task 11 submissions without importDocument scored 0.0/8.0; task 20 WITH importDocument scored 2.0/10.0. Always call `POST /ledger/voucher/importDocument` for supplier invoices, using the invoice number as filename (becomes voucher description). _(2026-03-21)_
-- **Supplier invoice: `PUT /supplierInvoice/voucher/{id}/postings` returns 500 on sandbox** — tested 15+ body formats including empty array, nested posting+orderLine, various field combos. Always 500. The `sendToLedger` param documentation says "requires setup done by Tripletex" — may work in competition environment. Keep trying with `sendToLedger=true`. _(2026-03-21)_
 - **Supplier invoice: `POST /supplierInvoice` not in OpenAPI spec** — the endpoint doesn't exist. `POST /incomingInvoice` returns 403 "Restricted API for pilot customers." No direct way to create supplierInvoice entities on sandbox. _(2026-03-21)_
+
+## Supplier Invoice Voucher — importDocument Path Removed (2026-03-21)
+
+- **`PUT /supplierInvoice/voucher/{id}/postings` always returns 500 (code 1000, null message)** on the competition proxy — 6/6 observations, zero successes ever. This endpoint is effectively broken via the proxy. _(2026-03-21)_
+- **importDocument + PUT path removed from VoucherHandler** — HandleSupplierInvoice() previously tried `POST /ledger/voucher/importDocument` then `PUT /supplierInvoice/voucher/{id}/postings`, caught the 500, and fell back to classic voucher. This wasted 2 API calls and logged 1 error per request. Fix: removed the try/catch block entirely; handler goes straight to the classic Leverandørfaktura voucher path. _(2026-03-21)_
+- **Classic supplier voucher path (now the ONLY path)**: POST /supplier → GET /ledger/account?number={expenseAcct} → GET /ledger/vatType → GET /ledger/voucherType?name=Leverandørfaktura → GET /ledger/account?number=2400 → POST /ledger/voucher?sendToLedger=true = **6 calls, 0 errors** (was 8 calls, 1 error). _(2026-03-21)_
+- **PDF content is still consumed** — even without importDocument, the LLM reads the PDF bytes via file attachment and extracts supplier name, amount, account, VAT from OCR. The importDocument call was purely for creating a voucher shell, not for PDF extraction. _(2026-03-21)_

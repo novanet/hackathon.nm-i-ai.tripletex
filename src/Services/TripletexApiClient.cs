@@ -98,6 +98,47 @@ public class TripletexApiClient
         return await SendAsync(HttpMethod.Put, url, body);
     }
 
+    public async Task<JsonElement> PostBankStatementImportAsync(long accountId, string fromDate, string toDate, string fileFormat, byte[] csvBytes, string fileName)
+    {
+        var path = $"/bank/statement/import?bankId=0&accountId={accountId}&fromDate={fromDate}&toDate={toDate}&fileFormat={fileFormat}";
+        Interlocked.Increment(ref _callCount);
+        var url = BuildUrl(path);
+        _logger.LogInformation("API POST {Path} (multipart bank import: {FileName}, format={Format})", path, fileName, fileFormat);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        var boundary = Guid.NewGuid().ToString("N");
+        var multipart = new MultipartFormDataContent(boundary);
+        var fileContent = new ByteArrayContent(csvBytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/csv");
+        multipart.Add(fileContent, "file", fileName);
+        request.Content = multipart;
+
+        var response = await _http.SendAsync(request);
+        var responseBody = await response.Content.ReadAsStringAsync();
+
+        var entry = new ApiCallEntry
+        {
+            Method = "POST",
+            Path = path,
+            Status = (int)response.StatusCode,
+            RequestBody = $"[multipart bank import: {fileName}, format={fileFormat}]",
+            ResponseSnippet = responseBody?.Length > 500 ? responseBody[..500] : responseBody
+        };
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Interlocked.Increment(ref _errorCount);
+            entry.Error = responseBody;
+            _callLog.Add(entry);
+            _logger.LogWarning("API POST bank import → {Status}: {Error}", (int)response.StatusCode, responseBody);
+            throw new TripletexApiException((int)response.StatusCode, responseBody, responseBody);
+        }
+
+        _callLog.Add(entry);
+        if (string.IsNullOrWhiteSpace(responseBody)) return default;
+        return JsonDocument.Parse(responseBody).RootElement;
+    }
+
     public async Task DeleteAsync(string path)
     {
         var url = BuildUrl(path);

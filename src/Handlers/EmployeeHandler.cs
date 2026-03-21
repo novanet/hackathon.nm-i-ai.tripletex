@@ -36,6 +36,18 @@ public class EmployeeHandler : ITaskHandler
         SetIfPresent(body, emp, "firstName");
         SetIfPresent(body, emp, "lastName");
         SetIfPresent(body, emp, "email");
+
+        // Generate synthetic email when missing (e.g. PDF offer letters rarely include one).
+        // STANDARD userType requires email — without it we get a 422.
+        if (!body.ContainsKey("email"))
+        {
+            var fn = (body.TryGetValue("firstName", out var fnv) ? fnv?.ToString() : null) ?? "employee";
+            var ln = (body.TryGetValue("lastName", out var lnv) ? lnv?.ToString() : null) ?? "noreply";
+            var syntheticEmail = $"{fn.ToLowerInvariant().Replace(" ", ".")}.{ln.ToLowerInvariant().Replace(" ", ".")}@example.org";
+            body["email"] = syntheticEmail;
+            _logger.LogInformation("No email extracted — using synthetic: {Email}", syntheticEmail);
+        }
+
         SetIfPresent(body, emp, "dateOfBirth");
         SetIfPresent(body, emp, "phoneNumberMobile");
         SetIfPresent(body, emp, "nationalIdentityNumber");

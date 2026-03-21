@@ -14,6 +14,10 @@ public class PaymentHandler : ITaskHandler
     private static readonly Dictionary<int, long> _paymentTypeCache = new();
     private static readonly object _paymentTypeLock = new();
 
+    // Cache currency IDs per code (e.g. "EUR" → 123)
+    private static readonly Dictionary<string, long> _currencyCache = new();
+    private static readonly object _currencyLock = new();
+
     public PaymentHandler(InvoiceHandler invoiceHandler, ILogger<PaymentHandler> logger)
     {
         _invoiceHandler = invoiceHandler;
@@ -24,13 +28,28 @@ public class PaymentHandler : ITaskHandler
     {
         // Detect which variant of register_payment this is:
         // 1. Reversal: action=reverse → find existing paid invoice, reverse payment
-        // 2. Full chain: has orderLines → create customer→order→invoice→pay (existing path)
-        // 3. Simple pay: no orderLines → find existing unpaid invoice, register payment
+        // 2. FX payment: has currency + exchange rates → create invoice in foreign currency, pay with FX
+        // 3. Full chain: has orderLines → create customer→order→invoice→pay (existing path)
+        // 4. Simple pay: no orderLines → find existing unpaid invoice, register payment
 
         if (extracted.Action == "reverse")
         {
             _logger.LogInformation("Payment variant: REVERSAL");
             return await HandleReversalAsync(api, extracted);
+        }
+
+        // Check for FX payment: look for currency, exchangeRateAtInvoice, exchangeRateAtPayment
+        if (IsFxPayment(extracted))
+        {
+            _logger.LogInformation("Payment variant: FX PAYMENT (foreign currency)");
+            return await HandleFxPaymentAsync(api, extracted);
+        }
+
+        // Check for reminder fees: composite task (find overdue invoice + voucher + invoice + partial payment)
+        if (IsReminderFeeTask(extracted))
+        {
+            _logger.LogInformation("Payment variant: REMINDER FEES (find overdue + voucher + invoice + partial payment)");
+            return await HandleReminderFeesAsync(api, extracted);
         }
 
         var hasOrderLines = HasOrderLines(extracted);
@@ -43,6 +62,315 @@ public class PaymentHandler : ITaskHandler
         // Simple pay: try to find existing invoice first, fall back to full chain
         _logger.LogInformation("Payment variant: SIMPLE PAY (find existing invoice)");
         return await HandleSimplePayAsync(api, extracted);
+    }
+
+    private static bool IsFxPayment(ExtractionResult extracted)
+    {
+        var payment = extracted.Entities.GetValueOrDefault("payment");
+        var invoice = extracted.Entities.GetValueOrDefault("invoice");
+        // Check payment entity for currency/exchange rate fields
+        if (payment != null && (payment.ContainsKey("currency") || payment.ContainsKey("exchangeRateAtPayment")))
+            return true;
+        // Check invoice entity for currency
+        if (invoice != null && (invoice.ContainsKey("currency") || invoice.ContainsKey("exchangeRateAtInvoice")))
+            return true;
+        return false;
+    }
+
+    /// <summary>Detect composite "reminder fees" task: voucher postings + payment + unknown customer</summary>
+    private static bool IsReminderFeeTask(ExtractionResult extracted)
+    {
+        // Must have voucher1 entity with debit/credit accounts (indicates accounting entry for fee)
+        var voucher1 = extracted.Entities.GetValueOrDefault("voucher1");
+        if (voucher1 == null) return false;
+        if (!voucher1.ContainsKey("debitAccount") || !voucher1.ContainsKey("creditAccount")) return false;
+
+        // Must have payment data (LLM may name it "payment" or "payment1")
+        if (!extracted.Entities.ContainsKey("payment") && !extracted.Entities.ContainsKey("payment1")) return false;
+
+        // Customer should be unknown/missing (need to discover from overdue invoice)
+        var customerName = extracted.Relationships.GetValueOrDefault("customer");
+        return string.IsNullOrEmpty(customerName)
+            || customerName.Equals("unknown", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Composite reminder fees flow:
+    /// 1. Find overdue invoice  2. Create voucher (debit receivables / credit reminder revenue)
+    /// 3. Create reminder fee invoice for the customer  4. Register partial payment on overdue invoice
+    /// </summary>
+    private async Task<HandlerResult> HandleReminderFeesAsync(TripletexApiClient api, ExtractionResult extracted)
+    {
+        var today = DateTime.Today.ToString("yyyy-MM-dd");
+
+        // Step 1: Find overdue invoice (amountOutstanding > 0)
+        var invoices = await api.GetAsync("/invoice", new Dictionary<string, string>
+        {
+            ["invoiceDateFrom"] = "2020-01-01",
+            ["invoiceDateTo"] = today,
+            ["from"] = "0",
+            ["count"] = "100",
+            ["fields"] = "id,customer(id),amount,amountOutstanding,invoiceDueDate"
+        });
+
+        long overdueInvoiceId = 0;
+        long customerId = 0;
+        decimal amountOutstanding = 0;
+
+        if (invoices.TryGetProperty("values", out var vals))
+        {
+            foreach (var inv in vals.EnumerateArray())
+            {
+                var outstanding = inv.TryGetProperty("amountOutstanding", out var ao)
+                    && ao.ValueKind == JsonValueKind.Number ? ao.GetDecimal() : 0m;
+                if (outstanding > 0)
+                {
+                    overdueInvoiceId = inv.GetProperty("id").GetInt64();
+                    amountOutstanding = outstanding;
+                    if (inv.TryGetProperty("customer", out var cust) && cust.ValueKind == JsonValueKind.Object
+                        && cust.TryGetProperty("id", out var custId) && custId.ValueKind == JsonValueKind.Number)
+                    {
+                        customerId = custId.GetInt64();
+                    }
+                    _logger.LogInformation("Found overdue invoice {Id}, customer {CustId}, outstanding={Outstanding}",
+                        overdueInvoiceId, customerId, amountOutstanding);
+                    break;
+                }
+            }
+        }
+
+        if (overdueInvoiceId == 0)
+        {
+            _logger.LogWarning("No overdue invoice found, falling back to full chain payment");
+            return await HandleFullChainPaymentAsync(api, extracted);
+        }
+
+        // Step 2: Extract voucher and payment details
+        var voucher1 = extracted.Entities.GetValueOrDefault("voucher1") ?? new();
+        var debitAccountNum = GetStringField(voucher1, "debitAccount") ?? "1500";
+        var creditAccountNum = GetStringField(voucher1, "creditAccount") ?? "3400";
+        var feeAmount = ParseDecimalField(voucher1, "amount") ?? 50m;
+        var feeDescription = GetStringField(voucher1, "description") ?? "Reminder fee";
+
+        // Step 3: Resolve accounts + payment type in parallel
+        var debitTask = api.GetAsync("/ledger/account", new Dictionary<string, string>
+        { ["number"] = debitAccountNum, ["count"] = "1", ["fields"] = "id" });
+        var creditTask = api.GetAsync("/ledger/account", new Dictionary<string, string>
+        { ["number"] = creditAccountNum, ["count"] = "1", ["fields"] = "id" });
+        var paymentTypeTask = ResolvePaymentTypeId(api);
+
+        await Task.WhenAll(debitTask, creditTask);
+        var debitResult = debitTask.Result;
+        var creditResult = creditTask.Result;
+
+        long debitAccountId = 0, creditAccountId = 0;
+        if (debitResult.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
+            debitAccountId = dv[0].GetProperty("id").GetInt64();
+        if (creditResult.TryGetProperty("values", out var cv) && cv.GetArrayLength() > 0)
+            creditAccountId = cv[0].GetProperty("id").GetInt64();
+
+        // Step 4: Create voucher for reminder fee (non-fatal — account 1500 may be system-managed)
+        if (debitAccountId > 0 && creditAccountId > 0)
+        {
+            try
+            {
+                var postings = new[]
+                {
+                    new Dictionary<string, object>
+                    {
+                        ["date"] = today,
+                        ["description"] = feeDescription,
+                        ["account"] = new { id = debitAccountId },
+                        ["amountGross"] = feeAmount,
+                        ["amountGrossCurrency"] = feeAmount
+                    },
+                    new Dictionary<string, object>
+                    {
+                        ["date"] = today,
+                        ["description"] = feeDescription,
+                        ["account"] = new { id = creditAccountId },
+                        ["amountGross"] = -feeAmount,
+                        ["amountGrossCurrency"] = -feeAmount
+                    }
+                };
+                var voucherBody = new Dictionary<string, object>
+                {
+                    ["date"] = today,
+                    ["description"] = feeDescription,
+                    ["postings"] = postings
+                };
+                await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+                _logger.LogInformation("Created reminder fee voucher: debit {Debit} / credit {Credit}, amount {Amount}",
+                    debitAccountNum, creditAccountNum, feeAmount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Voucher creation failed (control account restriction) — reminder fee invoice will handle accounting");
+            }
+        }
+
+        // Step 5: Create reminder fee invoice for the customer (order → invoice → send)
+        if (customerId > 0)
+        {
+            try
+            {
+                var vatTypeId = InvoiceHandler.DefaultOutputVatTypeId; // 25% standard
+                var orderBody = new Dictionary<string, object>
+                {
+                    ["customer"] = new { id = customerId },
+                    ["orderDate"] = today,
+                    ["deliveryDate"] = today,
+                    ["orderLines"] = new[]
+                    {
+                        new Dictionary<string, object>
+                        {
+                            ["description"] = feeDescription,
+                            ["count"] = 1,
+                            ["unitPriceIncludingVatCurrency"] = feeAmount,
+                            ["vatType"] = new { id = vatTypeId }
+                        }
+                    },
+                    ["isPrioritizeAmountsIncludingVat"] = true
+                };
+
+                JsonElement orderResult;
+                try
+                {
+                    orderResult = await api.PostAsync("/order", orderBody);
+                }
+                catch (TripletexApiException ex) when (ex.StatusCode == 422 && ex.Message.Contains("mva-kode", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Hardcoded VAT IDs invalid — resolve dynamically
+                    _logger.LogWarning("Hardcoded VAT rejected, resolving dynamically");
+                    var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
+                    { ["count"] = "100", ["fields"] = "id,number,percentage" });
+                    if (vatResult.TryGetProperty("values", out var vtVals))
+                    {
+                        foreach (var vt in vtVals.EnumerateArray())
+                        {
+                            var pct = vt.TryGetProperty("percentage", out var pp) && pp.ValueKind == JsonValueKind.Number ? pp.GetDecimal() : -1;
+                            if (pct == 25)
+                            {
+                                vatTypeId = vt.GetProperty("id").GetInt64();
+                                break;
+                            }
+                        }
+                    }
+                    ((Dictionary<string, object>)((object[])orderBody["orderLines"])[0])["vatType"] = new { id = vatTypeId };
+                    orderResult = await api.PostAsync("/order", orderBody);
+                }
+
+                var orderId = orderResult.GetProperty("value").GetProperty("id").GetInt64();
+
+                var invoiceBody = new Dictionary<string, object>
+                {
+                    ["invoiceDate"] = today,
+                    ["invoiceDueDate"] = DateTime.Today.AddDays(14).ToString("yyyy-MM-dd"),
+                    ["orders"] = new[] { new { id = orderId } }
+                };
+                var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
+                var reminderInvoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created reminder fee invoice {InvoiceId} for customer {CustId}", reminderInvoiceId, customerId);
+
+                // Send the invoice
+                try
+                {
+                    await api.PutAsync($"/invoice/{reminderInvoiceId}/:send", body: null,
+                        queryParams: new Dictionary<string, string> { ["sendType"] = "EMAIL" });
+                }
+                catch
+                {
+                    try
+                    {
+                        await api.PutAsync($"/invoice/{reminderInvoiceId}/:send", body: null,
+                            queryParams: new Dictionary<string, string> { ["sendType"] = "MANUAL" });
+                    }
+                    catch (Exception ex2)
+                    {
+                        _logger.LogWarning(ex2, "Failed to send reminder invoice (non-fatal)");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create reminder fee invoice (non-fatal)");
+            }
+        }
+
+        // Step 6: Register partial payment on the overdue invoice
+        var payment = extracted.Entities.GetValueOrDefault("payment")
+            ?? extracted.Entities.GetValueOrDefault("payment1") ?? new();
+        var partialAmount = ParseDecimalField(payment, "amount") ?? amountOutstanding;
+        var paymentTypeId = await paymentTypeTask;
+        var paymentDate = ResolvePaymentDate(extracted);
+
+        await RegisterPayment(api, overdueInvoiceId, paymentTypeId, partialAmount, paymentDate);
+        _logger.LogInformation("Registered partial payment of {Amount} on overdue invoice {Id}",
+            partialAmount, overdueInvoiceId);
+
+        return PaymentResult(overdueInvoiceId, partialAmount);
+    }
+
+    /// <summary>FX payment: create invoice in foreign currency, register payment with exchange rate diff (agio/disagio)</summary>
+    private async Task<HandlerResult> HandleFxPaymentAsync(TripletexApiClient api, ExtractionResult extracted)
+    {
+        var payment = extracted.Entities.GetValueOrDefault("payment") ?? new();
+        var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+
+        // Extract FX fields from either payment or invoice entity
+        var currencyCode = GetStringField(payment, "currency")
+            ?? GetStringField(invoice, "currency")
+            ?? "EUR";
+
+        var foreignAmount = ParseDecimalField(payment, "amount")
+            ?? ParseDecimalField(invoice, "amount")
+            ?? extracted.RawAmounts.Where(a => decimal.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out _))
+                .Select(a => decimal.Parse(a, NumberStyles.Any, CultureInfo.InvariantCulture))
+                .FirstOrDefault();
+
+        var rateAtInvoice = ParseDecimalField(payment, "exchangeRateAtInvoice")
+            ?? ParseDecimalField(invoice, "exchangeRateAtInvoice")
+            ?? 1m;
+        var rateAtPayment = ParseDecimalField(payment, "exchangeRateAtPayment")
+            ?? ParseDecimalField(invoice, "exchangeRateAtPayment")
+            ?? rateAtInvoice;
+
+        _logger.LogInformation("FX payment: {Amount} {Currency}, rate at invoice: {RateInv}, rate at payment: {RatePay}",
+            foreignAmount, currencyCode, rateAtInvoice, rateAtPayment);
+
+        // Resolve currency ID, payment type, and create invoice chain concurrently
+        var currencyTask = ResolveCurrencyId(api, currencyCode);
+        var paymentTypeTask = ResolvePaymentTypeId(api);
+
+        var currencyId = await currencyTask;
+
+        // Create invoice chain with foreign currency
+        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted, currencyId);
+        var paymentTypeId = await paymentTypeTask;
+
+        // paidAmount = NOK amount (foreign × rate at payment)
+        // paidAmountCurrency = foreign amount (what the customer actually paid in their currency)
+        var nokAmount = foreignAmount * rateAtPayment;
+        var paymentDate = ResolvePaymentDate(extracted);
+
+        _logger.LogInformation("FX payment: NOK amount = {Nok}, foreign amount = {Foreign} {Currency}", nokAmount, foreignAmount, currencyCode);
+
+        await RegisterPayment(api, invoiceId, paymentTypeId, nokAmount, paymentDate, paidAmountCurrency: foreignAmount);
+        return PaymentResult(invoiceId, nokAmount);
+    }
+
+    private static decimal? ParseDecimalField(Dictionary<string, object> dict, string key)
+    {
+        if (!dict.TryGetValue(key, out var val) || val is null) return null;
+        if (val is JsonElement je)
+        {
+            if (je.ValueKind == JsonValueKind.Number) return je.GetDecimal();
+            if (je.ValueKind == JsonValueKind.String && decimal.TryParse(je.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var d)) return d;
+        }
+        if (val is decimal dec) return dec;
+        if (val is double dbl) return (decimal)dbl;
+        if (decimal.TryParse(val.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)) return parsed;
+        return null;
     }
 
     /// <summary>Full chain: Customer → Order → Invoice → Payment (original path)</summary>
@@ -321,18 +649,23 @@ public class PaymentHandler : ITaskHandler
         return 0m;
     }
 
-    private async Task RegisterPayment(TripletexApiClient api, long invoiceId, long paymentTypeId, decimal paidAmount, string paymentDate)
+    private async Task RegisterPayment(TripletexApiClient api, long invoiceId, long paymentTypeId, decimal paidAmount, string paymentDate, decimal? paidAmountCurrency = null)
     {
+        var queryParams = new Dictionary<string, string>
+        {
+            ["paymentDate"] = paymentDate,
+            ["paymentTypeId"] = paymentTypeId.ToString(),
+            ["paidAmount"] = paidAmount.ToString("F2", CultureInfo.InvariantCulture)
+        };
+        if (paidAmountCurrency.HasValue)
+            queryParams["paidAmountCurrency"] = paidAmountCurrency.Value.ToString("F2", CultureInfo.InvariantCulture);
+
         await api.PutAsync(
             $"/invoice/{invoiceId}/:payment",
             body: null,
-            queryParams: new Dictionary<string, string>
-            {
-                ["paymentDate"] = paymentDate,
-                ["paymentTypeId"] = paymentTypeId.ToString(),
-                ["paidAmount"] = paidAmount.ToString("F2", CultureInfo.InvariantCulture)
-            });
-        _logger.LogInformation("Registered payment of {Amount} on invoice {InvoiceId}", paidAmount, invoiceId);
+            queryParams: queryParams);
+        _logger.LogInformation("Registered payment of {Amount} (currency: {CurrencyAmount}) on invoice {InvoiceId}",
+            paidAmount, paidAmountCurrency?.ToString("F2") ?? "N/A", invoiceId);
     }
 
     private string ResolvePaymentDate(ExtractionResult extracted)
@@ -374,14 +707,19 @@ public class PaymentHandler : ITaskHandler
 
     private async Task<long> ResolvePaymentTypeId(TripletexApiClient api)
     {
-        // Check cache first — same payment types per Tripletex session
+        // Check session cache first — payment types are constant within a clean environment
         lock (_paymentTypeLock)
         {
             if (_paymentTypeCache.TryGetValue(api.SessionHash, out var cached))
                 return cached;
         }
 
-        // Always resolve dynamically — hardcoded IDs cause 404 in competition environments
+        // Dynamic lookup — IDs vary per environment, never hardcode
+        return await ResolvePaymentTypeIdDynamic(api);
+    }
+
+    private async Task<long> ResolvePaymentTypeIdDynamic(TripletexApiClient api)
+    {
         var result = await api.GetAsync("/invoice/paymentType", new Dictionary<string, string>
         {
             ["count"] = "100",
@@ -428,6 +766,40 @@ public class PaymentHandler : ITaskHandler
             _paymentTypeCache[api.SessionHash] = typeId;
         }
         return typeId;
+    }
+
+    private async Task<long> ResolveCurrencyId(TripletexApiClient api, string currencyCode)
+    {
+        var key = currencyCode.ToUpperInvariant();
+        lock (_currencyLock)
+        {
+            if (_currencyCache.TryGetValue(key, out var cached))
+                return cached;
+        }
+
+        var result = await api.GetAsync("/currency", new Dictionary<string, string>
+        {
+            ["code"] = key,
+            ["count"] = "1",
+            ["fields"] = "id,code"
+        });
+
+        long currencyId = 0;
+        if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+        {
+            currencyId = vals[0].GetProperty("id").GetInt64();
+            _logger.LogInformation("Resolved currency {Code} → ID {Id}", key, currencyId);
+        }
+        else
+        {
+            _logger.LogWarning("Currency {Code} not found in Tripletex", key);
+        }
+
+        lock (_currencyLock)
+        {
+            _currencyCache[key] = currencyId;
+        }
+        return currencyId;
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)

@@ -193,6 +193,9 @@ app.MapPost("/solve", async (HttpContext httpContext, SolveRequest request, LlmE
         if (request.Files?.Count > 0)
             SaveReceivedFiles(request.Files, extracted.TaskType, logger);
 
+        // Attach files to extraction result for handler access
+        extracted.Files = request.Files;
+
         // Dry-run mode: log extraction, skip API calls, return bare 200
         if (isDryRun)
         {

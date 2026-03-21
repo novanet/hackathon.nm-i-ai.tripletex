@@ -111,6 +111,19 @@ public class TaskRouter
             return "create_project";
         }
 
+        // Reminder fees: voucher1 (with debit/credit accounts) + payment1 + unknown customer
+        // → infer register_payment so PaymentHandler's IsReminderFeeTask can handle it
+        var hasVoucher1 = extracted.Entities.ContainsKey("voucher1");
+        var hasPayment1 = extracted.Entities.ContainsKey("payment") || extracted.Entities.ContainsKey("payment1");
+        var customerUnknown = extracted.Relationships.TryGetValue("customer", out var custRel)
+            && (string.IsNullOrEmpty(custRel) || custRel.Equals("unknown", StringComparison.OrdinalIgnoreCase));
+        if (hasVoucher1 && hasPayment1 && customerUnknown)
+        {
+            _logger.LogInformation("Inferred task_type register_payment from reminder-fees pattern (voucher1+payment1+unknown customer) (was {Original})", tt);
+            extracted.TaskType = "register_payment";
+            return "register_payment";
+        }
+
         var hasVoucher = extracted.Entities.ContainsKey("voucher") && extracted.Entities["voucher"].Count > 0;
         if (hasVoucher)
         {
