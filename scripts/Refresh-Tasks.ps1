@@ -498,7 +498,7 @@ if ($leaderboard.Count -gt 0) {
     $ourTotal = [Math]::Round($latest.total_best_score, 2)
     $dateRaw = $latest.timestamp.ToString()
     # Parse ISO-8601 date regardless of locale
-    $date = try { ([datetime]::Parse($dateRaw)).ToString("yyyy-MM-dd") } catch { (Get-Date -Format "yyyy-MM-dd") }
+    $date = try { ([datetime]::Parse($dateRaw, [System.Globalization.CultureInfo]::InvariantCulture)).ToString("yyyy-MM-dd") } catch { (Get-Date -Format "yyyy-MM-dd") }
 
     # Build score lookup: tx_task_id → best_score
     $bestScores = @{}
@@ -507,37 +507,37 @@ if ($leaderboard.Count -gt 0) {
     }
 
     # Task metadata: id → { tier, type, variant, leaderMax }
-    # leaderMax = known leader best scores (manually maintained baseline)
+    # leaderMax = known leader best scores (manually maintained baseline — update from leaderboard screenshots)
     $taskMeta = @{
-        "01" = @{ tier = 1; type = "create_employee"; variant = "Basic"; leaderMax = 1.50 }
+        "01" = @{ tier = 1; type = "create_employee"; variant = "Basic"; leaderMax = 2.00 }
         "02" = @{ tier = 1; type = "create_customer"; variant = "Standard"; leaderMax = 2.00 }
         "03" = @{ tier = 1; type = "create_product"; variant = "Standard"; leaderMax = 2.00 }
         "04" = @{ tier = 1; type = "create_supplier"; variant = "Standard"; leaderMax = 2.00 }
-        "05" = @{ tier = 1; type = "create_department"; variant = "Multi"; leaderMax = 1.33 }
-        "06" = @{ tier = 2; type = "create_invoice"; variant = "Simple"; leaderMax = 1.50 }
+        "05" = @{ tier = 1; type = "create_department"; variant = "Multi"; leaderMax = 2.00 }
+        "06" = @{ tier = 2; type = "create_invoice"; variant = "Simple"; leaderMax = 1.67 }
         "07" = @{ tier = 2; type = "register_payment"; variant = "Simple existing"; leaderMax = 2.00 }
-        "08" = @{ tier = 2; type = "create_project"; variant = "Basic"; leaderMax = 1.50 }
-        "09" = @{ tier = 2; type = "create_invoice"; variant = "Multi-line"; leaderMax = 3.00 }
-        "10" = @{ tier = 2; type = "register_payment"; variant = "Create + pay"; leaderMax = 2.67 }
+        "08" = @{ tier = 2; type = "create_project"; variant = "Basic"; leaderMax = 2.00 }
+        "09" = @{ tier = 2; type = "create_invoice"; variant = "Multi-line"; leaderMax = 4.00 }
+        "10" = @{ tier = 2; type = "register_payment"; variant = "Create + pay"; leaderMax = 4.00 }
         "11" = @{ tier = 2; type = "create_voucher"; variant = "Supplier invoice"; leaderMax = 4.00 }
-        "12" = @{ tier = 2; type = "run_payroll"; variant = "Standard"; leaderMax = 0.00 }
-        "13" = @{ tier = 2; type = "create_travel_expense"; variant = "With costs"; leaderMax = 2.50 }
+        "12" = @{ tier = 2; type = "run_payroll"; variant = "Standard"; leaderMax = 4.00 }
+        "13" = @{ tier = 2; type = "create_travel_expense"; variant = "With costs"; leaderMax = 2.40 }
         "14" = @{ tier = 2; type = "create_credit_note"; variant = "Standard"; leaderMax = 4.00 }
-        "15" = @{ tier = 2; type = "create_project"; variant = "Fixed-price"; leaderMax = 2.80 }
+        "15" = @{ tier = 2; type = "create_project"; variant = "Fixed-price"; leaderMax = 3.33 }
         "16" = @{ tier = 2; type = "create_project"; variant = "Timesheet hours"; leaderMax = 3.00 }
         "17" = @{ tier = 2; type = "create_voucher"; variant = "Custom dimension"; leaderMax = 3.50 }
         "18" = @{ tier = 2; type = "register_payment"; variant = "Full chain"; leaderMax = 4.00 }
-        "19" = @{ tier = 3; type = "create_employee"; variant = "PDF contract (T3)"; leaderMax = 2.45 }
-        "20" = @{ tier = 3; type = "create_voucher"; variant = "PDF supplier inv (T3)"; leaderMax = 6.00 }
-        "21" = @{ tier = 3; type = "create_employee"; variant = "PDF offer letter (T3)"; leaderMax = 2.36 }
+        "19" = @{ tier = 3; type = "create_employee"; variant = "PDF contract (T3)"; leaderMax = 2.73 }
+        "20" = @{ tier = 3; type = "create_voucher"; variant = "PDF supplier inv (T3)"; leaderMax = 2.40 }
+        "21" = @{ tier = 3; type = "create_employee"; variant = "PDF offer letter (T3)"; leaderMax = 2.57 }
         "22" = @{ tier = 3; type = "create_voucher"; variant = "PDF receipt (T3)"; leaderMax = 0.00 }
         "23" = @{ tier = 3; type = "bank_reconciliation"; variant = "CSV (T3)"; leaderMax = 0.60 }
-        "24" = @{ tier = 3; type = "create_voucher"; variant = "Ledger correction (T3)"; leaderMax = 6.00 }
-        "25" = @{ tier = 3; type = "register_payment"; variant = "Overdue + reminder (T3)"; leaderMax = 5.25 }
-        "26" = @{ tier = 3; type = "???"; variant = "Unknown"; leaderMax = 3.75 }
+        "24" = @{ tier = 3; type = "create_voucher"; variant = "Ledger correction (T3)"; leaderMax = 2.25 }
+        "25" = @{ tier = 3; type = "register_payment"; variant = "Overdue + reminder (T3)"; leaderMax = 6.00 }
+        "26" = @{ tier = 3; type = "???"; variant = "Unknown"; leaderMax = 6.00 }
         "27" = @{ tier = 3; type = "register_payment"; variant = "FX/EUR (T3)"; leaderMax = 6.00 }
         "28" = @{ tier = 3; type = "create_project"; variant = "Cost analysis (T3)"; leaderMax = 1.50 }
-        "29" = @{ tier = 3; type = "create_project"; variant = "Full lifecycle (T3)"; leaderMax = 4.91 }
+        "29" = @{ tier = 3; type = "create_project"; variant = "Full lifecycle (T3)"; leaderMax = 2.73 }
         "30" = @{ tier = 3; type = "create_voucher"; variant = "Annual accounts (T3)"; leaderMax = 1.80 }
     }
 
