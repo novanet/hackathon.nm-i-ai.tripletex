@@ -63,9 +63,9 @@ Task 11 (payroll) is the hardest but highest-value fix. Task 12 (payment reversa
 
 **Step 1.1** Test locally with sandbox
 
-- Run: `.\scripts\Test-Solve.ps1 "Aktiver prosjektmodulen for selskapet"`
-- Run: `.\scripts\Test-Solve.ps1 "Enable the wage module for the company"`
-- Run: `.\scripts\Test-Solve.ps1 "Aktivieren Sie das Zeiterfassungsmodul"`
+- Run: `.\scripts\Test-Solve.ps1 "Aktiver prosjektmodulen for selskapet"` (Windows) / `./scripts/test-solve.sh "Aktiver prosjektmodulen for selskapet"` (macOS)
+- Run: `.\scripts\Test-Solve.ps1 "Enable the wage module for the company"` (Windows) / `./scripts/test-solve.sh "Enable the wage module for the company"` (macOS)
+- Run: `.\scripts\Test-Solve.ps1 "Aktivieren Sie das Zeiterfassungsmodul"` (Windows) / `./scripts/test-solve.sh "Aktivieren Sie das Zeiterfassungsmodul"` (macOS)
 - Verify handler is invoked (not fallback) and POST /company/salesmodules returns 201
 
 **Step 1.2** Debug extraction
@@ -175,9 +175,9 @@ Task 11 (payroll) is the hardest but highest-value fix. Task 12 (payment reversa
 
 ## Verification Plan
 
-1. After each fix, test locally: `.\scripts\Test-Solve.ps1 "<prompt>"`
+1. After each fix, test locally: `.\scripts\Test-Solve.ps1 "<prompt>"` (Windows) / `./scripts/test-solve.sh "<prompt>"` (macOS)
 2. Check logs/validations.jsonl for local validation scores
-3. When confident, submit: `.\scripts\Submit-Run.ps1`
+3. When confident, submit: `.\scripts\Submit-Run.ps1` (Windows) / `./scripts/submit-run.sh` (macOS)
 4. Compare competition scores vs local predictions
 5. Update SandboxValidator.cs if scores diverge
 
