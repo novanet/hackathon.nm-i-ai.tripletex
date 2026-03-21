@@ -66,6 +66,6 @@
 | has_postings | `>= 2` | `3` | ✅ | 2 |
 | postings_balanced | `true` | `true` | ✅ | 2 |
 | correct_accounts | `true` | `true` | ✅ | 2 |
-| has_department | `HR` | `HR` | ✅ | 2 |
-| correct_amount | `13600,00` | `13600,00` | ✅ | 3 |
+| has_department | `Kvalitetskontroll` | `Kvalitetskontroll` | ✅ | 2 |
+| correct_amount | `6250,00` | `6250,00` | ✅ | 3 |
 

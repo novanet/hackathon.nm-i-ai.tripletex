@@ -36,12 +36,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 20:09:00 |
+| Timestamp | 03/21/2026 22:21:28 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 3531 ms |
-| API Calls | 8 |
+| Elapsed | 8002 ms |
+| API Calls | 9 |
 | Errors | 0 |
 
 ### API Calls
@@ -50,10 +50,11 @@
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
 | 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=7140&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 8 | `GET` | `/ledger/voucher/609127581?fields=id%2Cdescription%2Cdate%2Cp...` | ✅  |  |
+| 3 | `POST` | `/department` | ✅  |  |
+| 4 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 7 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 8 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 9 | `GET` | `/ledger/voucher/609183824?fields=id%2Cdescription%2Cdate%2Cp...` | ✅  |  |
 

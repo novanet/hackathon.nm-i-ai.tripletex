@@ -1200,8 +1200,12 @@ public class SandboxValidator
         if (!result.EntityId.HasValue) return;
 
         var voucher = await api.GetAsync($"/ledger/voucher/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "id,description,date,postings(id,amountGross,amountCurrency,amount,account(id,number,name),department(id,name))" });
+            new Dictionary<string, string>
+            {
+                ["fields"] = "id,description,date,externalVoucherNumber,postings(id,amountGross,amountCurrency,amount,invoiceNumber,account(id,number,name),department(id,name),supplier(id,name,organizationNumber))"
+            });
         var val = voucher.GetProperty("value");
+        var voucherEntity = extracted.Entities.GetValueOrDefault("voucher") ?? new();
 
         // Check 1: voucher_found (2pts)
         report.Checks.Add(new ValidationCheck("voucher_found", "true", "true", true, 2));
@@ -1215,6 +1219,7 @@ public class SandboxValidator
         // Check 3: has_postings (>= 2) (2pts)
         int postingCount = 0;
         decimal debitSum = 0, creditSum = 0;
+        decimal debitGrossSum = 0, creditGrossSum = 0;
         if (val.TryGetProperty("postings", out var postings) && postings.ValueKind == JsonValueKind.Array)
         {
             postingCount = postings.GetArrayLength();
@@ -1232,6 +1237,13 @@ public class SandboxValidator
                     if (amt > 0) debitSum += amt;
                     else creditSum += Math.Abs(amt);
                 }
+
+                if (posting.TryGetProperty("amountGross", out var postingGross) && postingGross.ValueKind == JsonValueKind.Number)
+                {
+                    var grossAmt = postingGross.GetDecimal();
+                    if (grossAmt > 0) debitGrossSum += grossAmt;
+                    else creditGrossSum += Math.Abs(grossAmt);
+                }
             }
         }
         report.Checks.Add(new ValidationCheck("has_postings", ">= 2",
@@ -1243,7 +1255,6 @@ public class SandboxValidator
             balanced ? "true" : $"debit={debitSum:F2},credit={creditSum:F2}", balanced, 2));
 
         // Check 5: correct_accounts — verify account numbers match extracted values (2pts)
-        var voucherEntity = extracted.Entities.GetValueOrDefault("voucher") ?? new();
         var postingEntities = new List<Dictionary<string, object>>();
         // Check for posting1, posting2 etc. in extracted entities
         foreach (var key in extracted.Entities.Keys)
@@ -1306,12 +1317,112 @@ public class SandboxValidator
             }
         }
 
+        var expectedSupplierName = GetStringFromEntity(voucherEntity, "supplierName");
+        var expectedSupplierOrgNumber = GetStringFromEntity(voucherEntity, "supplierOrgNumber");
+        var expectedInvoiceNumber = GetStringFromEntity(voucherEntity, "invoiceNumber");
+        var expectedExpenseAccount = GetStringFromEntity(voucherEntity, "account")
+            ?? GetStringFromEntity(voucherEntity, "accountNumber");
+        var isReceiptVoucher = !string.IsNullOrWhiteSpace(expectedDepartment)
+            && (!string.IsNullOrWhiteSpace(expectedSupplierName)
+                || !string.IsNullOrWhiteSpace(expectedSupplierOrgNumber)
+                || !string.IsNullOrWhiteSpace(expectedInvoiceNumber));
+
+        if (isReceiptVoucher && postings.ValueKind == JsonValueKind.Array)
+        {
+            bool supplierMatched = false;
+            string actualSupplier = "missing";
+            bool invoiceMatched = false;
+            string actualInvoiceReference = val.TryGetProperty("externalVoucherNumber", out var externalVoucherNumberProp)
+                && externalVoucherNumberProp.ValueKind == JsonValueKind.String
+                    ? externalVoucherNumberProp.GetString() ?? ""
+                    : "missing";
+
+            foreach (var posting in postings.EnumerateArray())
+            {
+                if (posting.TryGetProperty("supplier", out var supplierRef) && supplierRef.ValueKind == JsonValueKind.Object)
+                {
+                    var supplierName = supplierRef.TryGetProperty("name", out var supplierNameProp)
+                        ? supplierNameProp.GetString() ?? ""
+                        : "";
+                    var supplierOrgNumber = supplierRef.TryGetProperty("organizationNumber", out var supplierOrgProp)
+                        ? supplierOrgProp.GetString() ?? ""
+                        : "";
+
+                    if (!string.IsNullOrWhiteSpace(supplierOrgNumber))
+                        actualSupplier = supplierOrgNumber;
+                    else if (!string.IsNullOrWhiteSpace(supplierName))
+                        actualSupplier = supplierName;
+
+                    var orgMatches = !string.IsNullOrWhiteSpace(expectedSupplierOrgNumber)
+                        && string.Equals(supplierOrgNumber, expectedSupplierOrgNumber, StringComparison.OrdinalIgnoreCase);
+                    var nameMatches = !string.IsNullOrWhiteSpace(expectedSupplierName)
+                        && string.Equals(supplierName, expectedSupplierName, StringComparison.OrdinalIgnoreCase);
+                    if (orgMatches || nameMatches)
+                    {
+                        supplierMatched = true;
+                    }
+                }
+
+                if (!invoiceMatched
+                    && posting.TryGetProperty("invoiceNumber", out var invoiceNumberProp)
+                    && invoiceNumberProp.ValueKind == JsonValueKind.String)
+                {
+                    var postingInvoiceNumber = invoiceNumberProp.GetString() ?? "";
+                    if (!string.IsNullOrWhiteSpace(postingInvoiceNumber))
+                        actualInvoiceReference = postingInvoiceNumber;
+
+                    if (!string.IsNullOrWhiteSpace(expectedInvoiceNumber)
+                        && string.Equals(postingInvoiceNumber, expectedInvoiceNumber, StringComparison.OrdinalIgnoreCase))
+                    {
+                        invoiceMatched = true;
+                    }
+                }
+            }
+
+            if (!invoiceMatched
+                && !string.IsNullOrWhiteSpace(expectedInvoiceNumber)
+                && val.TryGetProperty("externalVoucherNumber", out var externalVoucherReferenceProp)
+                && externalVoucherReferenceProp.ValueKind == JsonValueKind.String)
+            {
+                var externalVoucherReference = externalVoucherReferenceProp.GetString() ?? "";
+                if (!string.IsNullOrWhiteSpace(externalVoucherReference))
+                    actualInvoiceReference = externalVoucherReference;
+                invoiceMatched = string.Equals(externalVoucherReference, expectedInvoiceNumber, StringComparison.OrdinalIgnoreCase);
+            }
+
+            report.Checks.Add(new ValidationCheck("has_supplier_reference",
+                expectedSupplierOrgNumber ?? expectedSupplierName ?? "true",
+                actualSupplier, supplierMatched, 2));
+
+            report.Checks.Add(new ValidationCheck("has_invoice_reference",
+                expectedInvoiceNumber ?? "true",
+                actualInvoiceReference, invoiceMatched, 2));
+        }
+
         if (!string.IsNullOrWhiteSpace(expectedDepartment) && postings.ValueKind == JsonValueKind.Array)
         {
             bool departmentFound = false;
             string actualDepartment = "missing";
             foreach (var posting in postings.EnumerateArray())
             {
+                bool departmentCandidate = true;
+                if (isReceiptVoucher)
+                {
+                    departmentCandidate = false;
+                    if (posting.TryGetProperty("account", out var accountRef) && accountRef.ValueKind == JsonValueKind.Object
+                        && accountRef.TryGetProperty("number", out var accountNumberProp))
+                    {
+                        var accountNumber = accountNumberProp.GetRawText().Trim('"');
+                        if (!string.IsNullOrWhiteSpace(expectedExpenseAccount))
+                            departmentCandidate = string.Equals(accountNumber, expectedExpenseAccount, StringComparison.OrdinalIgnoreCase);
+                        else
+                            departmentCandidate = !string.Equals(accountNumber, "2400", StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+
+                if (!departmentCandidate)
+                    continue;
+
                 if (posting.TryGetProperty("department", out var departmentRef) && departmentRef.ValueKind == JsonValueKind.Object
                     && departmentRef.TryGetProperty("name", out var departmentNameProp))
                 {
@@ -1333,10 +1444,15 @@ public class SandboxValidator
             ?? GetDecimalFromEntity(voucherEntity, "totalAmount");
         if (expectedTotalAmount.HasValue && expectedTotalAmount.Value > 0)
         {
-            bool amountOk = Math.Abs(debitSum - expectedTotalAmount.Value) < 1m
-                || Math.Abs(creditSum - expectedTotalAmount.Value) < 1m;
+            var actualGrossAmount = Math.Max(debitGrossSum, creditGrossSum);
+            var actualNetAmount = Math.Max(debitSum, creditSum);
+            bool amountOk = Math.Abs(actualGrossAmount - expectedTotalAmount.Value) < 1m
+                || Math.Abs(actualNetAmount - expectedTotalAmount.Value) < 1m;
+            var actualAmount = Math.Abs(actualGrossAmount - expectedTotalAmount.Value) < 1m
+                ? actualGrossAmount
+                : actualNetAmount;
             report.Checks.Add(new ValidationCheck("correct_amount", expectedTotalAmount.Value.ToString("F2"),
-                debitSum.ToString("F2"), amountOk, 3));
+                actualAmount.ToString("F2"), amountOk, 3));
         }
     }
 

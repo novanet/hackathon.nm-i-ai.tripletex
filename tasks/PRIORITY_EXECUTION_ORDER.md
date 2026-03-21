@@ -11,7 +11,7 @@
 | 1 | 27 | `register_payment` | FX/EUR (T3) | 0.6 | 6 | -5.4 | ❌ Failing | [27-register-payment-fx-eur](27-register-payment-fx-eur/) |
 | 2 | 25 | `register_payment` | Overdue + reminder (T3) | 0.6 | 6 | -5.4 | ❌ Failing | [25-register-payment-overdue-reminder](25-register-payment-overdue-reminder/) |
 | 3 | 11 | `create_voucher` | Supplier invoice | 0 | 4 | -4 | ❌ Failing | [11-create-voucher-supplier-inv](11-create-voucher-supplier-inv/) |
-| 4 | 26 | `???` | Unknown | 2.55 | 6 | -3.45 | ❌ Failing | [26-unknown](26-unknown/) |
+| 4 | 26 | `annual_accounts` | Monthly close (T3) | 2.55 | 6 | -3.45 | ❌ Failing | [26-annual-accounts-monthly-close](26-annual-accounts-monthly-close/) |
 | 5 | 12 | `run_payroll` | Standard | 1 | 4 | -3 | ❌ Failing | [12-run-payroll](12-run-payroll/) |
 | 6 | 15 | `create_project` | Fixed-price | 1.5 | 3.33 | -1.83 | ❌ Failing | [15-create-project-fixed-price](15-create-project-fixed-price/) |
 | 7 | 20 | `create_voucher` | PDF supplier inv (T3) | 0.6 | 2.4 | -1.8 | ❌ Failing | [20-create-voucher-pdf-supplier](20-create-voucher-pdf-supplier/) |
@@ -87,7 +87,7 @@
 | 23 | `bank_reconciliation` | CSV (T3) | 3 | 0 | 0.6 | -0.6 | ❌ Failing | [23-bank-reconciliation-csv](23-bank-reconciliation-csv/) |
 | 24 | `create_voucher` | Ledger correction (T3) | 3 | 2.25 | 2.25 | 0 | ✅ Tied | [24-create-voucher-ledger-correction](24-create-voucher-ledger-correction/) |
 | 25 | `register_payment` | Overdue + reminder (T3) | 3 | 0.6 | 6 | -5.4 | ❌ Failing | [25-register-payment-overdue-reminder](25-register-payment-overdue-reminder/) |
-| 26 | `???` | Unknown | 3 | 2.55 | 6 | -3.45 | ❌ Failing | [26-unknown](26-unknown/) |
+| 26 | `annual_accounts` | Monthly close (T3) | 3 | 2.55 | 6 | -3.45 | ❌ Failing | [26-annual-accounts-monthly-close](26-annual-accounts-monthly-close/) |
 | 27 | `register_payment` | FX/EUR (T3) | 3 | 0.6 | 6 | -5.4 | ❌ Failing | [27-register-payment-fx-eur](27-register-payment-fx-eur/) |
 | 28 | `create_project` | Cost analysis (T3) | 3 | 1.5 | 1.5 | 0 | ✅ Tied | [28-create-project-cost-analysis](28-create-project-cost-analysis/) |
 | 29 | `create_project` | Full lifecycle (T3) | 3 | 1.09 | 2.73 | -1.64 | ❌ Failing | [29-create-project-lifecycle](29-create-project-lifecycle/) |

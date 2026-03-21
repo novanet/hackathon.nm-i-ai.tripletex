@@ -50,7 +50,7 @@ $taskFolders = @{
     "23" = "23-bank-reconciliation-csv"
     "24" = "24-create-voucher-ledger-correction"
     "25" = "25-register-payment-overdue-reminder"
-    "26" = "26-unknown"
+    "26" = "26-annual-accounts-monthly-close"
     "27" = "27-register-payment-fx-eur"
     "28" = "28-create-project-cost-analysis"
     "29" = "29-create-project-lifecycle"
@@ -92,6 +92,16 @@ function Get-TaskIdFromPrompt {
     # Task 25: overdue invoice + reminder fee + invoice/payment workflow.
     if ($Prompt -match "retard|overdue|forfalt|forfalte|überfällig|uberfallig|vencid|rappel|reminder|purring|purregebyr|mahngeb[uü]hr|recordatorio") {
         return "25"
+    }
+
+    # Task 26: monthly closing / month-end annual_accounts variant.
+    if ($Prompt -match "cierre mensual|monthly close|month-end|month end|månedsavslutning|månadsslutt|månedsslutt|cl[oô]ture mensuelle|fechamento mensal") {
+        return "26"
+    }
+
+    # Task 30: annual/year-end closing annual_accounts variant.
+    if ($Prompt -match "årsoppgjer|årsoppgjør|annual accounts|year-end|year end|cl[oô]ture annuelle|Jahresabschluss|fechamento contábil|cierre contable anual") {
+        return "30"
     }
 
     return $null
@@ -158,6 +168,10 @@ function Get-TaskId {
             if ($prompt -match "korriger|correct|corriger|korrigieren|corrigir|Hauptbuch|ledger|grand livre") { return "24" }
             if ($prompt -match "dimensjon|dimension|Dimension|dimensão") { return "17" }
             return "11"
+        }
+        "annual_accounts" {
+            if ($prompt -match "cierre mensual|monthly close|month-end|month end|månedsavslutning|månadsslutt|månedsslutt|cl[oô]ture mensuelle|fechamento mensal") { return "26" }
+            return "30"
         }
     }
     
@@ -228,7 +242,7 @@ foreach ($result in $results) {
             # Try to match task to an ID
             $fakeEntry = [pscustomobject]@{
                 task_type  = $task.task_type
-                prompt     = ""
+                prompt     = $task.prompt
                 files      = @()
                 extraction = $null
             }
@@ -538,7 +552,7 @@ if ($leaderboard.Count -gt 0) {
         "23" = @{ tier = 3; type = "bank_reconciliation"; variant = "CSV (T3)"; leaderMax = 0.60 }
         "24" = @{ tier = 3; type = "create_voucher"; variant = "Ledger correction (T3)"; leaderMax = 2.25 }
         "25" = @{ tier = 3; type = "register_payment"; variant = "Overdue + reminder (T3)"; leaderMax = 6.00 }
-        "26" = @{ tier = 3; type = "???"; variant = "Unknown"; leaderMax = 6.00 }
+        "26" = @{ tier = 3; type = "annual_accounts"; variant = "Monthly close (T3)"; leaderMax = 6.00 }
         "27" = @{ tier = 3; type = "register_payment"; variant = "FX/EUR (T3)"; leaderMax = 6.00 }
         "28" = @{ tier = 3; type = "create_project"; variant = "Cost analysis (T3)"; leaderMax = 1.50 }
         "29" = @{ tier = 3; type = "create_project"; variant = "Full lifecycle (T3)"; leaderMax = 2.73 }
