@@ -285,12 +285,14 @@ public class PayrollHandler : ITaskHandler
             var totalAmount = baseSalary + bonus;
             var employeeName = $"{firstName} {lastName}".Trim();
 
-            // Resolve salary expense account (5000) and bank account (1920)
+            // Resolve salary expense account (5000), bank account (1920), and Lønnsbilag voucher type
             var t5000 = api.GetAsync("/ledger/account", new Dictionary<string, string>
             { ["number"] = "5000", ["count"] = "1", ["fields"] = "id" });
             var t1920 = api.GetAsync("/ledger/account", new Dictionary<string, string>
             { ["number"] = "1920", ["count"] = "1", ["fields"] = "id" });
-            await Task.WhenAll(t5000, t1920);
+            var tVoucherType = api.GetAsync("/ledger/voucherType", new Dictionary<string, string>
+            { ["name"] = "Lønnsbilag", ["count"] = "1", ["fields"] = "id" });
+            await Task.WhenAll(t5000, t1920, tVoucherType);
             var acct5000 = await t5000;
             var acct1920 = await t1920;
 
@@ -299,6 +301,12 @@ public class PayrollHandler : ITaskHandler
                 salaryAccountId = a5[0].GetProperty("id").GetInt64();
             if (acct1920.TryGetProperty("values", out var a19) && a19.GetArrayLength() > 0)
                 bankAccountId = a19[0].GetProperty("id").GetInt64();
+
+            // Get Lønnsbilag voucher type ID
+            long? lonnbilagTypeId = null;
+            var voucherTypeResult = await tVoucherType;
+            if (voucherTypeResult.TryGetProperty("values", out var vtArr) && vtArr.GetArrayLength() > 0)
+                lonnbilagTypeId = vtArr[0].GetProperty("id").GetInt64();
 
             if (salaryAccountId != null && bankAccountId != null)
             {
@@ -321,7 +329,8 @@ public class PayrollHandler : ITaskHandler
                     ["account"] = new Dictionary<string, object> { ["id"] = bankAccountId.Value },
                     ["amountGross"] = -totalAmount,
                     ["amountGrossCurrency"] = -totalAmount,
-                    ["row"] = 2
+                    ["row"] = 2,
+                    ["employee"] = new Dictionary<string, object> { ["id"] = employeeId }
                 };
                 var voucherBody = new Dictionary<string, object>
                 {
@@ -329,6 +338,8 @@ public class PayrollHandler : ITaskHandler
                     ["description"] = $"Lønn {employeeName} {month:D2}/{year}",
                     ["postings"] = new List<Dictionary<string, object>> { posting1, posting2 }
                 };
+                if (lonnbilagTypeId != null)
+                    voucherBody["voucherType"] = new Dictionary<string, object> { ["id"] = lonnbilagTypeId.Value };
 
                 var voucherResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
                 voucherId = voucherResult.GetProperty("value").GetProperty("id").GetInt64();
