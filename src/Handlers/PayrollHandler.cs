@@ -275,16 +275,32 @@ public class PayrollHandler : ITaskHandler
 
             if (salaryAccountId != null && bankAccountId != null)
             {
-                var voucherBody = new
+                // Use Dictionary<string,object> instead of anonymous types to ensure
+                // System.Text.Json serializes ALL properties (including nested employee ref)
+                var posting1 = new Dictionary<string, object>
                 {
-                    date = voucherDate,
-                    description = $"Lønn {employeeName} {month:D2}/{year}",
-                    postings = new object[]
-                    {
-                        // Include employee ref on the salary posting so validators can find the employee link
-                        new { date = voucherDate, description = $"Lønn {employeeName}", account = new { id = salaryAccountId.Value }, amountGross = totalAmount, amountGrossCurrency = totalAmount, row = 1, employee = new { id = employeeId } },
-                        new { date = voucherDate, description = $"Lønn {employeeName}", account = new { id = bankAccountId.Value }, amountGross = -totalAmount, amountGrossCurrency = -totalAmount, row = 2 }
-                    }
+                    ["date"] = voucherDate,
+                    ["description"] = $"Lønn {employeeName}",
+                    ["account"] = new Dictionary<string, object> { ["id"] = salaryAccountId.Value },
+                    ["amountGross"] = totalAmount,
+                    ["amountGrossCurrency"] = totalAmount,
+                    ["row"] = 1,
+                    ["employee"] = new Dictionary<string, object> { ["id"] = employeeId }
+                };
+                var posting2 = new Dictionary<string, object>
+                {
+                    ["date"] = voucherDate,
+                    ["description"] = $"Lønn {employeeName}",
+                    ["account"] = new Dictionary<string, object> { ["id"] = bankAccountId.Value },
+                    ["amountGross"] = -totalAmount,
+                    ["amountGrossCurrency"] = -totalAmount,
+                    ["row"] = 2
+                };
+                var voucherBody = new Dictionary<string, object>
+                {
+                    ["date"] = voucherDate,
+                    ["description"] = $"Lønn {employeeName} {month:D2}/{year}",
+                    ["postings"] = new List<Dictionary<string, object>> { posting1, posting2 }
                 };
 
                 var voucherResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
@@ -351,52 +367,64 @@ public class PayrollHandler : ITaskHandler
             if (munis.TryGetProperty("values", out var muniValues) && muniValues.GetArrayLength() > 0)
                 muniId = muniValues[0].GetProperty("id").GetInt64();
 
-            // Get the company's org number — try whoAmI first, then deprecated company/divisions
-            string orgNumber = "999999999";
-            try
-            {
-                var whoAmI = await api.GetAsync("/token/session/>whoAmI", new Dictionary<string, string>
-                {
-                    ["fields"] = "company(id,organizationNumber)"
-                });
-                if (whoAmI.TryGetProperty("value", out var whoVal)
-                    && whoVal.TryGetProperty("company", out var companyInfo)
-                    && companyInfo.TryGetProperty("organizationNumber", out var onWho)
-                    && !string.IsNullOrWhiteSpace(onWho.GetString()))
-                {
-                    orgNumber = onWho.GetString()!;
-                    _logger.LogInformation("Got company orgNumber from whoAmI: {OrgNumber}", orgNumber);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("whoAmI failed for org number: {Msg}, falling back to company/divisions", ex.Message);
-                var companyDivs = await api.GetAsync("/company/divisions", new Dictionary<string, string>
-                {
-                    ["count"] = "1",
-                    ["fields"] = "id,organizationNumber,name"
-                });
-                if (companyDivs.TryGetProperty("values", out var compDivs) && compDivs.GetArrayLength() > 0)
-                {
-                    var orgProp = compDivs[0].TryGetProperty("organizationNumber", out var on) ? on.GetString() : null;
-                    if (!string.IsNullOrEmpty(orgProp)) orgNumber = orgProp;
-                }
-            }
-
             var today = $"{year}-{month:D2}-01";
+
+            // Strategy: try WITHOUT organizationNumber first (Tripletex rejects the parent
+            // company's org number for divisions — "Juridisk enhet kan ikke registreres
+            // som virksomhet/underenhet"). If that also fails, try with a dummy sub-unit number.
             var divBody = new Dictionary<string, object>
             {
                 ["name"] = "Hovedvirksomhet",
-                ["organizationNumber"] = orgNumber,
                 ["startDate"] = today,
                 ["municipalityDate"] = today
             };
             if (muniId != null)
-                divBody["municipality"] = new { id = muniId.Value };
+                divBody["municipality"] = new Dictionary<string, object> { ["id"] = muniId.Value };
 
-            var divResult = await api.PostAsync("/division", divBody);
-            divisionId = divResult.GetProperty("value").GetProperty("id").GetInt64();
-            _logger.LogInformation("Created division {Id}", divisionId);
+            try
+            {
+                var divResult = await api.PostAsync("/division", divBody);
+                divisionId = divResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created division {Id} (no orgNumber)", divisionId);
+            }
+            catch (Exception ex1)
+            {
+                _logger.LogWarning("Division creation without orgNumber failed: {Msg}, trying with orgNumber", ex1.Message);
+
+                // Fallback: try with the company org number anyway (some environments accept it)
+                try
+                {
+                    var whoAmI = await api.GetAsync("/token/session/>whoAmI", new Dictionary<string, string>
+                    {
+                        ["fields"] = "company(id,organizationNumber)"
+                    });
+                    string? orgNumber = null;
+                    if (whoAmI.TryGetProperty("value", out var whoVal)
+                        && whoVal.TryGetProperty("company", out var companyInfo)
+                        && companyInfo.TryGetProperty("organizationNumber", out var onWho))
+                    {
+                        orgNumber = onWho.GetString();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(orgNumber))
+                    {
+                        divBody["organizationNumber"] = orgNumber;
+                        var divResult2 = await api.PostAsync("/division", divBody);
+                        divisionId = divResult2.GetProperty("value").GetProperty("id").GetInt64();
+                        _logger.LogInformation("Created division {Id} with orgNumber {Org}", divisionId, orgNumber);
+                    }
+                    else
+                    {
+                        _logger.LogError("Cannot create division — no org number available");
+                        throw new Exception("Division creation failed: no org number");
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    _logger.LogError(ex2, "Division creation with orgNumber also failed — payroll may fail");
+                    throw;
+                }
+            }
         }
 
         // Check if employee has an employment (skip for newly created employees — guaranteed none)
