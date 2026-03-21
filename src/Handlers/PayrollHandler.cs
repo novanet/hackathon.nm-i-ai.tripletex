@@ -236,7 +236,6 @@ public class PayrollHandler : ITaskHandler
                 new Dictionary<string, object>
                 {
                     ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
-                    ["employment"] = new Dictionary<string, object> { ["id"] = employmentId },
                     ["date"] = voucherDate,
                     ["year"] = year,
                     ["month"] = month,
