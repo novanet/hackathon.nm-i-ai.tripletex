@@ -228,7 +228,9 @@ public class VoucherHandler : ITaskHandler
         // Fallback: single account + amount → auto-generate counter-posting
         if (postings.Count == 0)
         {
-            var account = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber");
+            var account = NormalizeAccountNumber(
+                GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber"),
+                GetStringField(voucher, "description") ?? description);
             decimal amount = ExtractAmount(voucher, extracted);
 
             if (account != null && amount != 0)
@@ -514,7 +516,9 @@ public class VoucherHandler : ITaskHandler
             // Path 3: single account + auto counter-posting
             if (postings.Count == 0)
             {
-                var account = GetStringField(voucherEntity, "account") ?? GetStringField(voucherEntity, "accountNumber");
+                var account = NormalizeAccountNumber(
+                    GetStringField(voucherEntity, "account") ?? GetStringField(voucherEntity, "accountNumber"),
+                    GetStringField(voucherEntity, "description") ?? description);
                 decimal amount = ExtractAmount(voucherEntity, extracted);
                 if (account != null && amount != 0)
                 {
@@ -590,10 +594,14 @@ public class VoucherHandler : ITaskHandler
         var supplierOrgNumber = GetStringField(voucher, "supplierOrgNumber");
         var invoiceNumber = GetStringField(voucher, "invoiceNumber");
         var description = GetStringField(voucher, "description") ?? invoiceNumber ?? "Leverandørfaktura";
-        var account = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber") ?? "6500";
+        var rawAccount = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber");
+        var account = NormalizeAccountNumber(rawAccount, $"{description} {supplierName} {invoiceNumber}") ?? "6500";
         decimal amount = ExtractAmount(voucher, extracted);
         var date = GetStringField(voucher, "date")
             ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd"));
+
+        if (!string.Equals(rawAccount, account, StringComparison.OrdinalIgnoreCase))
+            _logger.LogWarning("Normalized non-numeric supplier voucher account '{RawAccount}' to '{Account}'", rawAccount, account);
 
         // 1. Create supplier
         var supplierBody = new Dictionary<string, object> { ["name"] = supplierName! };
@@ -605,10 +613,22 @@ public class VoucherHandler : ITaskHandler
         var supplierId = supplierResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created supplier '{Name}' ID: {Id}", supplierName, supplierId);
 
-        // 2. Resolve expense account (with vatLocked check)
-        var (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
+        // 2. Resolve optional department for receipt-style vouchers.
+        var departmentId = await ResolveDepartmentIdAsync(api, extracted, voucher);
 
-        // 3. Resolve VAT type — respect account lock
+        // 3. Resolve expense account (with vatLocked check)
+        var (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
+        if (!accountId.HasValue && account != "6800")
+        {
+            _logger.LogWarning("Primary expense account {Account} was not found, falling back to 6800", account);
+            account = "6800";
+            (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
+        }
+
+        if (!accountId.HasValue)
+            throw new InvalidOperationException($"Unable to resolve expense account for supplier voucher (raw='{rawAccount ?? "<null>"}', normalized='{account}').");
+
+        // 4. Resolve VAT type — respect account lock
         long? inputVatId = null;
         if (acctVatLocked && lockedVatId.HasValue)
         {
@@ -637,7 +657,7 @@ public class VoucherHandler : ITaskHandler
                 }
         }
 
-        // 4. Classic Leverandørfaktura voucher (importDocument+PUT /supplierInvoice/voucher/{id}/postings always returns 500, skipped)
+        // 5. Classic Leverandørfaktura voucher (importDocument+PUT /supplierInvoice/voucher/{id}/postings always returns 500, skipped)
         var voucherTypes = await api.GetAsync("/ledger/voucherType",
             new Dictionary<string, string> { ["name"] = "Leverandørfaktura", ["count"] = "10", ["fields"] = "id,name" });
         long? voucherTypeId = null;
@@ -649,28 +669,31 @@ public class VoucherHandler : ITaskHandler
             }
 
         var (creditorId, _, _) = await ResolveAccountId(api, "2400");
+        if (!creditorId.HasValue)
+            throw new InvalidOperationException("Unable to resolve creditor account 2400 for supplier voucher.");
 
         var debitPosting = new Dictionary<string, object>
         {
             ["date"] = date,
             ["description"] = description,
-            ["account"] = new { id = accountId!.Value },
+            ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
             ["amountGross"] = amount,
             ["amountGrossCurrency"] = amount,
-            ["supplier"] = new { id = supplierId },
+            ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
             ["row"] = 1
         };
-        if (inputVatId.HasValue) debitPosting["vatType"] = new { id = inputVatId.Value };
+        if (inputVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
         if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
+        if (departmentId.HasValue) debitPosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
 
         var creditPosting = new Dictionary<string, object>
         {
             ["date"] = date,
             ["description"] = description,
-            ["account"] = new { id = creditorId!.Value },
+            ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
             ["amountGross"] = -amount,
             ["amountGrossCurrency"] = -amount,
-            ["supplier"] = new { id = supplierId },
+            ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
             ["row"] = 2
         };
         if (invoiceNumber != null) creditPosting["invoiceNumber"] = invoiceNumber;
@@ -742,5 +765,123 @@ public class VoucherHandler : ITaskHandler
             return val.ToString();
         }
         return null;
+    }
+
+    private async Task<long?> ResolveDepartmentIdAsync(TripletexApiClient api, ExtractionResult extracted, Dictionary<string, object> voucher)
+    {
+        var departmentName = GetStringField(extracted.Entities.GetValueOrDefault("department") ?? new(), "name");
+
+        if (departmentName == null)
+        {
+            var dimension = extracted.Entities.GetValueOrDefault("dimension") ?? new();
+            var dimensionName = GetStringField(dimension, "name");
+            if (dimensionName != null && dimensionName.Contains("department", StringComparison.OrdinalIgnoreCase))
+            {
+                departmentName = GetStringField(voucher, "dimensionValue");
+                if (departmentName == null)
+                {
+                    var values = ExtractStringList(dimension, "values");
+                    if (values.Count > 0)
+                        departmentName = values[0];
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(departmentName))
+            return null;
+
+        var result = await api.GetAsync("/department", new Dictionary<string, string>
+        {
+            ["from"] = "0",
+            ["count"] = "1000",
+            ["fields"] = "id,name,departmentNumber"
+        });
+
+        var nextDepartmentNumber = 1;
+        if (result.TryGetProperty("values", out var valuesElement))
+        {
+            foreach (var candidate in valuesElement.EnumerateArray())
+            {
+                if (candidate.TryGetProperty("departmentNumber", out var departmentNumberProp)
+                    && departmentNumberProp.ValueKind != JsonValueKind.Null)
+                {
+                    int parsedDepartmentNumber;
+                    var departmentNumberText = departmentNumberProp.ValueKind == JsonValueKind.Number
+                        ? departmentNumberProp.GetInt32().ToString()
+                        : departmentNumberProp.GetString();
+
+                    if (int.TryParse(departmentNumberText, out parsedDepartmentNumber))
+                        nextDepartmentNumber = Math.Max(nextDepartmentNumber, parsedDepartmentNumber + 1);
+                }
+
+                if (candidate.TryGetProperty("name", out var nameProp)
+                    && string.Equals(nameProp.GetString(), departmentName, StringComparison.OrdinalIgnoreCase)
+                    && candidate.TryGetProperty("id", out var idProp))
+                {
+                    var departmentId = idProp.GetInt64();
+                    _logger.LogInformation("Resolved department '{Department}' to ID {Id} for supplier voucher", departmentName, departmentId);
+                    return departmentId;
+                }
+            }
+        }
+
+        _logger.LogInformation("Department '{Department}' was extracted for supplier voucher but was not found; creating it with departmentNumber {Number}",
+            departmentName, nextDepartmentNumber);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                var createResult = await api.PostAsync("/department", new Dictionary<string, object>
+                {
+                    ["name"] = departmentName,
+                    ["departmentNumber"] = nextDepartmentNumber
+                });
+
+                var createdDepartmentId = createResult.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created department '{Department}' with ID {Id} for supplier voucher", departmentName, createdDepartmentId);
+                return createdDepartmentId;
+            }
+            catch (TripletexApiException ex) when (ex.Message.Contains("Nummeret er i bruk") || ex.Message.Contains("nummer") || ex.Message.Contains("duplicate"))
+            {
+                _logger.LogWarning("Department number {Number} was already in use while creating '{Department}', trying next", nextDepartmentNumber, departmentName);
+                nextDepartmentNumber++;
+            }
+        }
+
+        throw new InvalidOperationException($"Unable to create department '{departmentName}' for supplier voucher after multiple attempts.");
+    }
+
+    private static string? NormalizeAccountNumber(string? account, string? description)
+    {
+        if (string.IsNullOrWhiteSpace(account))
+            return null;
+
+        account = account.Trim();
+
+        if (account.All(char.IsDigit))
+            return account;
+
+        var text = $"{account} {description}";
+        if (text.Contains("headset", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("it-utstyr", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("office equipment", StringComparison.OrdinalIgnoreCase))
+            return "6800";
+
+        if (text.Contains("tog", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("train", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("transport", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("reise", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("travel", StringComparison.OrdinalIgnoreCase))
+            return "7140";
+
+        if (text.Contains("kaffe", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("coffee", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("møte", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("mote", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("meeting", StringComparison.OrdinalIgnoreCase))
+            return "7140";
+
+        return "6000";
     }
 }
