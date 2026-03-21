@@ -1,99 +1,123 @@
-# Leaderboard Task ID → Submission Task Type Mapping
+# Leaderboard Task ID -> Submission Task Type Mapping
 
-_Generated 2026-03-21 by correlating `last_attempt_at` timestamps from `leaderboard.jsonl` with `timestamp` from `submissions.jsonl`._
+_Updated 2026-03-21 from `tasks/PRIORITY_EXECUTION_ORDER.md`, `knowledge.md`, task folders, and current competition log artifacts._
 
 ## Summary
 
-- **30 task IDs** visible in leaderboard
-- **13 distinct task types** in our submission logs
-- Same task type appears under **multiple IDs** — these are different prompt variants (different complexity/language/requirements)
-- **Current total best score: 38.24**
+- **30 task IDs** are now mapped to the current competition task set
+- **14 distinct task types** are represented in our current runs
+- The same task type still appears under **multiple IDs** because the competition uses prompt variants with different difficulty and evidence requirements
+- **Current total best score: 53.6**
+- **Leader total: 86.48**
+- **Gap to leader: -32.88**
+- **Task 26 is `annual_accounts`**, specifically the monthly-close variant
 
 ## Complete Mapping
 
-| tx_task_id | task_type               | Variant Description                        | Best Score | Max Possible | Attempts |   Status   |
-| :--------: | ----------------------- | ------------------------------------------ | :--------: | :----------: | :------: | :--------: |
-|     01     | `create_employee`       | Basic employee creation                    |    1.50    |     ~3.0     |    11    | ⚠️ Partial |
-|     02     | `create_customer`       | Standard customer with address             |    2.00    |     2.0      |    12    |  ✅ Full   |
-|     03     | `create_product`        | Product with number + price + VAT          |    2.00    |     2.0      |    10    |  ✅ Full   |
-|     04     | `create_supplier`       | Supplier with org number + email           |    2.00    |     2.0      |    9     |  ✅ Full   |
-|     05     | `create_department`     | Multiple departments (3 at once)           |    1.33    |     2.0      |    10    | ⚠️ Partial |
-|     06     | `create_invoice`        | Simple single-line invoice                 |    1.33    |     ~2.0     |    10    | ⚠️ Partial |
-|     07     | `register_payment`      | Simple payment on existing invoice         |    2.00    |     2.0      |    11    |  ✅ Full   |
-|     08     | `create_project`        | Basic project with customer + PM           |    1.50    |     ~3.0     |    10    | ⚠️ Partial |
-|     09     | `create_invoice`        | Multi-line invoice (different VAT rates)   |    2.67    |     ~4.0     |    9     | ⚠️ Partial |
-|     10     | `register_payment`      | Create order + invoice + pay               |    2.67    |     ~4.0     |    13    | ⚠️ Partial |
-|     11     | `create_voucher`        | Supplier invoice voucher (incoming)        |  **0.00**  |     ~3.0     |    10    | ❌ Failing |
-|     12     | `run_payroll`           | Standard payroll run                       |    1.00    |     ~3.0     |    17    | ⚠️ Partial |
-|     13     | `create_travel_expense` | Travel expense with costs + per diem       |    2.50    |     ~3.0     |    11    | ⚠️ Partial |
-|     14     | `create_credit_note`    | Credit note on existing invoice            |    2.67    |     ~3.0     |    14    | ⚠️ Partial |
-|     15     | `create_project`        | Fixed-price project                        |    1.50    |     ~3.0     |    12    | ⚠️ Partial |
-|     16     | `create_project`        | Timesheet hours → project invoice          |    2.67    |     ~4.0     |    9     | ⚠️ Partial |
-|     17     | `create_voucher`        | Custom dimension + voucher posting         |    3.50    |     ~4.0     |    12    | ⚠️ Partial |
-|     18     | `register_payment`      | Full payment flow (high scorer)            |  **4.00**  |     4.0      |    12    |  ✅ Full   |
-|     19     | `create_employee`       | Employee from PDF contract (Tier 3)        |    1.77    |     ~4.0     |    1     | ⚠️ Partial |
-|     20     | `create_voucher`        | Supplier invoice from PDF (Tier 3)         |    0.60    |     ~4.0     |    1     | ⚠️ Partial |
-|     21     | `create_employee`       | Employee from PDF offer letter (Tier 3)    |  **0.00**  |     ~4.0     |    2     | ❌ Failing |
-|     22     | `create_voucher`        | Voucher from PDF receipt (Tier 3)          |  **0.00**  |     ~4.0     |    1     | ❌ Failing |
-|     23     | `bank_reconciliation`   | CSV bank statement matching (Tier 3)       |  **0.00**  |     ~4.0     |    3     | ❌ Failing |
-|     24     | `create_voucher`        | Ledger correction (Tier 3)                 |  **0.00**  |     ~4.0     |    1     | ❌ Failing |
-|     25     | `register_payment`      | Find overdue invoice + pay (Tier 3)        |  **0.00**  |     ~4.0     |    2     | ❌ Failing |
-|     26     | `annual_accounts`       | Monthly close / month-end closing (Tier 3) |  **2.55**  |     ~6.0     |    4     | ⚠️ Partial |
-|     27     | `register_payment`      | Foreign currency (EUR) invoice (Tier 3)    |    0.60    |     ~4.0     |    4     | ⚠️ Partial |
-|     28     | `create_project`        | Cost analysis from ledger (Tier 3)         |  **0.00**  |     ~4.0     |    2     | ❌ Failing |
-|     29     | `create_project`        | Full project lifecycle (Tier 3)            |    1.09    |     ~4.0     |    2     | ⚠️ Partial |
-|     30     | `create_voucher`        | Simplified annual accounts (Tier 3)        |  **0.00**  |     ~4.0     |    1     | ❌ Failing |
+| tx_task_id | task_type | Variant Description | Our Score | Leader | Gap | Status |
+| :--------: | --------- | ------------------- | :-------: | :----: | :-: | :----: |
+| 01 | `create_employee` | Basic employee creation | 2.00 | 2.00 | 0.00 | ✅ Tied |
+| 02 | `create_customer` | Standard customer with address | 2.00 | 2.00 | 0.00 | ✅ Tied |
+| 03 | `create_product` | Product with number and price | 2.00 | 2.00 | 0.00 | ✅ Tied |
+| 04 | `create_supplier` | Supplier with org number and email | 2.00 | 2.00 | 0.00 | ✅ Tied |
+| 05 | `create_department` | Multiple departments | 1.33 | 2.00 | -0.67 | ❌ Failing |
+| 06 | `create_invoice` | Simple single-line invoice | 1.67 | 1.67 | 0.00 | ✅ Tied |
+| 07 | `register_payment` | Simple payment on existing invoice | 2.00 | 2.00 | 0.00 | ✅ Tied |
+| 08 | `create_project` | Basic project with customer and PM | 1.50 | 2.00 | -0.50 | ⚠️ Behind |
+| 09 | `create_invoice` | Multi-line invoice | 2.67 | 4.00 | -1.33 | ❌ Failing |
+| 10 | `register_payment` | Create order, invoice, and pay | 2.67 | 4.00 | -1.33 | ❌ Failing |
+| 11 | `create_voucher` | Supplier invoice voucher | 0.00 | 4.00 | -4.00 | ❌ Failing |
+| 12 | `run_payroll` | Standard payroll run | 1.00 | 4.00 | -3.00 | ❌ Failing |
+| 13 | `create_travel_expense` | Travel expense with costs | 2.50 | 2.40 | +0.10 | ✅ Leading |
+| 14 | `create_credit_note` | Credit note on existing invoice | 2.67 | 4.00 | -1.33 | ❌ Failing |
+| 15 | `create_project` | Fixed-price project | 1.50 | 3.33 | -1.83 | ❌ Failing |
+| 16 | `create_project` | Timesheet hours to project invoice | 2.80 | 3.00 | -0.20 | ⚠️ Behind |
+| 17 | `create_voucher` | Custom dimension voucher | 3.50 | 3.50 | 0.00 | ✅ Tied |
+| 18 | `register_payment` | Full payment chain | 4.00 | 4.00 | 0.00 | ✅ Tied |
+| 19 | `create_employee` | Employee from PDF contract (Tier 3) | 2.45 | 2.73 | -0.28 | ⚠️ Behind |
+| 20 | `create_voucher` | Supplier invoice from PDF (Tier 3) | 0.60 | 2.40 | -1.80 | ❌ Failing |
+| 21 | `create_employee` | Employee from PDF offer letter (Tier 3) | 2.36 | 2.57 | -0.21 | ⚠️ Behind |
+| 22 | `create_voucher` | Voucher from PDF receipt (Tier 3) | 0.00 | 0.00 | 0.00 | ❌ Both fail |
+| 23 | `bank_reconciliation` | CSV bank statement matching (Tier 3) | 0.00 | 0.60 | -0.60 | ❌ Failing |
+| 24 | `create_voucher` | Ledger correction (Tier 3) | 2.25 | 2.25 | 0.00 | ✅ Tied |
+| 25 | `register_payment` | Find overdue invoice and pay (Tier 3) | 0.60 | 6.00 | -5.40 | ❌ Failing |
+| 26 | `annual_accounts` | Monthly close or month-end closing (Tier 3) | 2.55 | 6.00 | -3.45 | ❌ Failing |
+| 27 | `register_payment` | Foreign currency EUR payment (Tier 3) | 0.60 | 6.00 | -5.40 | ❌ Failing |
+| 28 | `create_project` | Cost analysis from ledger (Tier 3) | 1.50 | 1.50 | 0.00 | ✅ Tied |
+| 29 | `create_project` | Full project lifecycle (Tier 3) | 1.09 | 2.73 | -1.64 | ❌ Failing |
+| 30 | `create_voucher` | Annual accounts voucher flow (Tier 3) | 1.80 | 1.80 | 0.00 | ✅ Tied |
 
-## Task Types with Multiple IDs (Prompt Variants)
+## Task Types with Multiple IDs
 
-Each task type has multiple variants of increasing complexity:
+Each task type still has multiple variants of increasing complexity:
 
-| Task Type               | IDs                    | Count | Combined Score |
-| ----------------------- | ---------------------- | :---: | :------------: |
-| `create_employee`       | 01, 19, 21             |   3   |      3.27      |
-| `create_customer`       | 02                     |   1   |      2.00      |
-| `create_product`        | 03                     |   1   |      2.00      |
-| `create_supplier`       | 04                     |   1   |      2.00      |
-| `create_department`     | 05                     |   1   |      1.33      |
-| `create_invoice`        | 06, 09                 |   2   |      4.00      |
-| `register_payment`      | 07, 10, 18, 25, 27     |   5   |      9.27      |
-| `create_project`        | 08, 15, 16, 28, 29     |   5   |      5.76      |
-| `create_voucher`        | 11, 17, 20, 22, 24, 30 |   6   |      4.10      |
-| `run_payroll`           | 12                     |   1   |      1.00      |
-| `create_travel_expense` | 13                     |   1   |      2.50      |
-| `create_credit_note`    | 14                     |   1   |      2.67      |
-| `bank_reconciliation`   | 23                     |   1   |      0.00      |
+| Task Type | IDs | Count | Combined Score |
+| --------- | --- | :---: | :------------: |
+| `create_employee` | 01, 19, 21 | 3 | 6.81 |
+| `create_customer` | 02 | 1 | 2.00 |
+| `create_product` | 03 | 1 | 2.00 |
+| `create_supplier` | 04 | 1 | 2.00 |
+| `create_department` | 05 | 1 | 1.33 |
+| `create_invoice` | 06, 09 | 2 | 4.34 |
+| `register_payment` | 07, 10, 18, 25, 27 | 5 | 9.87 |
+| `create_project` | 08, 15, 16, 28, 29 | 5 | 8.39 |
+| `create_voucher` | 11, 17, 20, 22, 24, 30 | 6 | 8.15 |
+| `run_payroll` | 12 | 1 | 1.00 |
+| `create_travel_expense` | 13 | 1 | 2.50 |
+| `create_credit_note` | 14 | 1 | 2.67 |
+| `bank_reconciliation` | 23 | 1 | 0.00 |
+| `annual_accounts` | 26 | 1 | 2.55 |
 
-## Zero-Score Tasks (Priority Fixes)
+## Current Zero-Score Tasks
 
-These 8 tasks score 0.00 and represent the biggest opportunity for improvement:
+Only **three** tasks are currently at 0.00. The previous zero-score list in this file was outdated.
 
-| ID  | Type                  | Variant            | Prompt Preview                                               | Issue                                                   |
-| :-: | --------------------- | ------------------ | ------------------------------------------------------------ | ------------------------------------------------------- |
-| 11  | `create_voucher`      | Supplier invoice   | "Nous avons reçu la facture INV-2026-5683 du fournisseur..." | Voucher postings failing — supplier invoice flow broken |
-| 21  | `create_employee`     | PDF offer letter   | "Voce recebeu uma carta de oferta (ver PDF anexo)..."        | PDF extraction not working for this variant             |
-| 22  | `create_voucher`      | PDF receipt        | "Wir benotigen die Headset-Ausgabe aus dieser Quittung..."   | PDF extraction not extracting voucher data              |
-| 23  | `bank_reconciliation` | CSV bank statement | "Avstem bankutskrifta (vedlagt CSV) mot opne fakturaer..."   | Bank reconciliation handler not working                 |
-| 24  | `create_voucher`      | Ledger correction  | "Wir haben Fehler im Hauptbuch für Januar und Februar..."    | Requires reading existing ledger + correcting           |
-| 25  | `register_payment`    | Find overdue       | "L'un de vos clients a une facture en retard. Trouvez..."    | Needs to search for overdue invoice first               |
-| 28  | `create_project`      | Cost analysis      | "Totalkostnadene auka monaleg frå januar til februar..."     | Requires ledger analysis, not simple creation           |
-| 30  | `create_voucher`      | Annual accounts    | "Gjer forenkla årsoppgjer for 2025: 1) Rekn ut og..."        | Complex multi-step accounting workflow                  |
+| ID | Type | Variant | Current State |
+| :-: | ---- | ------- | ------------- |
+| 11 | `create_voucher` | Supplier invoice voucher | Still fully failing |
+| 22 | `create_voucher` | Voucher from PDF receipt | Both teams currently score 0 |
+| 23 | `bank_reconciliation` | CSV bank reconciliation | Still fully failing |
+
+## Largest Remaining Gaps
+
+These are the highest-value tasks to improve next based on the latest generated ranking:
+
+| Priority | ID | Type | Variant | Us | Leader | Gap |
+| :------: | :-: | ---- | ------- | :-: | :----: | :-: |
+| 1 | 27 | `register_payment` | FX/EUR (T3) | 0.6 | 6.0 | -5.4 |
+| 2 | 25 | `register_payment` | Overdue + reminder (T3) | 0.6 | 6.0 | -5.4 |
+| 3 | 11 | `create_voucher` | Supplier invoice | 0.0 | 4.0 | -4.0 |
+| 4 | 26 | `annual_accounts` | Monthly close (T3) | 2.55 | 6.0 | -3.45 |
+| 5 | 12 | `run_payroll` | Standard | 1.0 | 4.0 | -3.0 |
+| 6 | 15 | `create_project` | Fixed-price | 1.5 | 3.33 | -1.83 |
+| 7 | 20 | `create_voucher` | PDF supplier invoice (T3) | 0.6 | 2.4 | -1.8 |
+| 8 | 29 | `create_project` | Full lifecycle (T3) | 1.09 | 2.73 | -1.64 |
 
 ## Tier Analysis
 
-| Tier                      | IDs   | Total Score | Max Possible (est.) | Coverage |
-| ------------------------- | ----- | :---------: | :-----------------: | :------: |
-| **Tier 1** (basic)        | 01–05 |    8.17     |        ~11.0        |   74%    |
-| **Tier 2** (multi-step)   | 06–18 |    25.84    |        ~43.0        |   60%    |
-| **Tier 3** (advanced/PDF) | 19–30 |    4.06     |        ~44.0        |    9%    |
+| Tier | IDs | Our Total | Leader Total | Gap |
+| ---- | --- | :-------: | :----------: | :-: |
+| **Tier 1** (basic CRUD) | 01-05 | 9.33 | 10.00 | -0.67 |
+| **Tier 2** (multi-step) | 06-18 | 28.48 | 41.90 | -13.42 |
+| **Tier 3** (advanced/PDF) | 19-30 | 15.80 | 34.58 | -18.78 |
 
 ## Methodology
 
-Mapping was determined by correlating `last_attempt_at` timestamps in leaderboard snapshots (UTC+1) with `timestamp` values in submissions.jsonl (UTC). Matches within 30 seconds of each other are considered confirmed. Tasks 12, 14, and 18 were identified by tracking when their attempt counts changed across leaderboard snapshots and finding the corresponding submission at that exact time.
+This file now uses a more reliable source stack than the original version:
 
-### Confidence Levels
+- **Current scores, gap, and statuses** come from `tasks/PRIORITY_EXECUTION_ORDER.md`, which reflects the latest generated competition summary in this repository.
+- **Task names and variants** are aligned with the task folder set under `tasks/`.
+- **Task 26 mapping** is corrected from `knowledge.md`, which explicitly records that Task 26 is `annual_accounts` and not unknown.
+- **Historical timestamp correlation** from `leaderboard.jsonl`, `results.jsonl`, and `submissions.jsonl` still supports the ID-to-task-type mapping, especially for the earlier task set.
 
-- **Confirmed** (< 5s timestamp diff): 01, 02, 03, 04, 05, 07, 08, 09, 10, 11, 13, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 27, 28, 29, 30
-- **Confirmed by progression** (score changed at matching timestamp): 12 (run_payroll), 14 (create_credit_note)
-- **Probable** (< 15s diff, matches context): 06 (create_invoice), 18 (register_payment)
-- **Unknown**: 26 (not in leaderboard)
+### Important Note About Attempts
+
+The earlier version of this file showed an `Attempts` column derived from older leaderboard snapshots. Those snapshots lag behind the latest generated 53.6-point table, so the attempt counts were removed rather than keeping numbers that would now be misleading.
+
+If we want to restore `Attempts`, they should be rebuilt from the newest full JSONL set rather than copied forward from the older 38.24-point snapshot.
+
+## Confidence
+
+- **High confidence**: All 30 ID-to-task mappings match the current task folders and latest generated priority table.
+- **Explicitly verified special case**: Task 26 = `annual_accounts`, monthly-close variant.
+- **Retired claim**: Task 26 is no longer unknown, and the previous Tier 3 zero-score block is no longer valid.
