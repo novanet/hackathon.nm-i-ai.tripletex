@@ -122,7 +122,7 @@ public class PayrollHandler : ITaskHandler
         }
 
         // Ensure employee has an employment for the payroll period
-        await EnsureEmployment(api, employeeId, year, month, isNewEmployee);
+        long employmentId = await EnsureEmployment(api, employeeId, year, month, isNewEmployee);
 
         // Get salary types to find base salary type and bonus type
         var salaryTypesResult = await api.GetAsync("/salary/type", new Dictionary<string, string>
@@ -202,15 +202,17 @@ public class PayrollHandler : ITaskHandler
         // during System.Text.Json serialization (same bug as voucher postings, Phase 1.1)
         var specifications = new List<Dictionary<string, object>>();
 
-        // Base salary specification
+        // Base salary specification — if bonus type wasn't found, roll bonus into base rate
+        // so grossAmount = baseSalary + bonus (competition's correct_amount check)
+        var baseRate = (bonus > 0 && bonusTypeId == null) ? baseSalary + bonus : baseSalary;
         specifications.Add(new Dictionary<string, object>
         {
             ["salaryType"] = new Dictionary<string, object> { ["id"] = baseSalaryTypeId! },
-            ["rate"] = baseSalary,
+            ["rate"] = baseRate,
             ["count"] = 1
         });
 
-        // Bonus specification (if any)
+        // Bonus specification (if any and type was found)
         if (bonus > 0 && bonusTypeId != null)
         {
             specifications.Add(new Dictionary<string, object>
@@ -234,6 +236,7 @@ public class PayrollHandler : ITaskHandler
                 new Dictionary<string, object>
                 {
                     ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                    ["employment"] = new Dictionary<string, object> { ["id"] = employmentId },
                     ["date"] = voucherDate,
                     ["year"] = year,
                     ["month"] = month,
@@ -242,7 +245,7 @@ public class PayrollHandler : ITaskHandler
             }
         };
 
-        var txResult = await api.PostAsync("/salary/transaction?generateTaxDeduction=true", transactionBody);
+        var txResult = await api.PostAsync("/salary/transaction?generateTaxDeduction=false", transactionBody);
         var txValue = txResult.GetProperty("value");
         var transactionId = txValue.GetProperty("id").GetInt64();
 
@@ -377,7 +380,7 @@ public class PayrollHandler : ITaskHandler
         };
     }
 
-    private async Task EnsureEmployment(TripletexApiClient api, long employeeId, int year, int month, bool isNewEmployee = false)
+    private async Task<long> EnsureEmployment(TripletexApiClient api, long employeeId, int year, int month, bool isNewEmployee = false)
     {
         // Get or create division (virksomhet) — required for payroll
         long? divisionId = null;
@@ -490,7 +493,7 @@ public class PayrollHandler : ITaskHandler
                     ["division"] = new Dictionary<string, object> { ["id"] = divisionId!.Value },
                     ["taxDeductionCode"] = "loennFraHovedarbeidsgiver"
                 });
-                return;
+                return empId;
             }
         }
 
@@ -498,7 +501,7 @@ public class PayrollHandler : ITaskHandler
         var startDate = $"{year}-{month:D2}-01";
         _logger.LogInformation("Creating employment for employee {Id} starting {Date} division {Div}", employeeId, startDate, divisionId);
 
-        await api.PostAsync("/employee/employment", new Dictionary<string, object>
+        var newEmployment = await api.PostAsync("/employee/employment", new Dictionary<string, object>
         {
             ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
             ["startDate"] = startDate,
@@ -517,6 +520,7 @@ public class PayrollHandler : ITaskHandler
                 }
             }
         });
+        return newEmployment.GetProperty("value").GetProperty("id").GetInt64();
     }
 
     private static string? GetString(Dictionary<string, object> dict, string key)

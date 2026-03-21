@@ -25,7 +25,8 @@ public class LlmExtractor
             "create_travel_expense", "delete_travel_expense",
             "create_project", "create_supplier", "create_voucher",
             "delete_entity", "enable_module", "run_payroll",
-            "bank_reconciliation", "create_timesheet", "create_contact", "unknown"],
+            "bank_reconciliation", "create_timesheet", "create_contact",
+            "set_fixed_price", "unknown"],
           "entities": {
             "<entity_type>": {
               "<field>": "<value>"
@@ -64,6 +65,7 @@ public class LlmExtractor
         - For bank reconciliation tasks (reconcile bank statement, close accounting period, bankavstемming, bankutskrift, reconciliar cuenta bancaria, rapprochement bancaire, Kontenabstimmung), use task_type "bank_reconciliation". Extract into a "reconciliation" entity: "accountNumber" (e.g. "1920" for main bank account), "closingBalance" (the bank statement closing balance as a number), "date" (YYYY-MM-DD — the statement date or period end). Also set "dates": [date] and "raw_amounts": [balance].
         - For timesheet / hour logging tasks (registrere timer, log hours, timeregnstest, registrar horas, enregistrer heures, Stunden erfassen) that do NOT involve creating an invoice, use task_type "create_timesheet". Extract into a "timesheet" entity: "hours" (number), "activityName" (name of the activity), "date" (YYYY-MM-DD). Also extract "employee": {"firstName", "lastName", "email"} and "project": {"name"} if mentioned.
         - For creating a contact person for an existing customer (kontaktperson, contact person, persona de contacto, personne de contact, Ansprechpartner), use task_type "create_contact". Extract into a "contact" entity: "firstName", "lastName", "email", "phoneNumberMobile". Also extract "customer": {"name"} in relationships.
+        - For tasks that set a fixed price on an existing project (sett fastpris, set fixed price, fijar precio fijo, prix fixe, Festpreis, definir preco fixo), use task_type "set_fixed_price". Extract into a "project" entity: "name" (project name), "fixedPrice" (amount as number). Also extract "customer" entity if mentioned.
         """;
 
     public LlmExtractor(string apiKey, ILogger<LlmExtractor> logger)

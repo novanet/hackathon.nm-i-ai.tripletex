@@ -33,6 +33,8 @@ public class TaskRouter
             ["run_payroll"] = services.GetRequiredService<PayrollHandler>(),
             ["bank_reconciliation"] = services.GetRequiredService<BankReconciliationHandler>(),
             ["create_timesheet"] = services.GetRequiredService<TimesheetHandler>(),
+            ["set_fixed_price"] = services.GetRequiredService<FixedPriceProjectHandler>(),
+            ["update_project"] = services.GetRequiredService<FixedPriceProjectHandler>(),
         };
 
         var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
@@ -73,6 +75,22 @@ public class TaskRouter
         // Check for project+invoice combo — should always go to ProjectHandler
         var hasProject = extracted.Entities.ContainsKey("project") && extracted.Entities["project"].Count > 0;
         var hasInvoice = extracted.Entities.ContainsKey("invoice") && extracted.Entities["invoice"].Count > 0;
+
+        // set_fixed_price: project entity with fixedPrice or fixedprice field → route to FixedPriceProjectHandler
+        if (hasProject && (tt == "set_fixed_price" || tt == "update_project"))
+            return tt;
+
+        // If project entity has a fixedPrice field AND task type is unknown → infer set_fixed_price
+        if (hasProject && (tt == "unknown" || !_handlers.ContainsKey(tt)))
+        {
+            var projEntity = extracted.Entities["project"];
+            if (projEntity.ContainsKey("fixedPrice") || projEntity.ContainsKey("fixedprice") || projEntity.ContainsKey("price"))
+            {
+                _logger.LogInformation("Inferred task_type set_fixed_price from project entity with fixedPrice (was {Original})", tt);
+                extracted.TaskType = "set_fixed_price";
+                return "set_fixed_price";
+            }
+        }
 
         if (hasProject && (tt == "create_invoice" || !_handlers.ContainsKey(tt)))
         {

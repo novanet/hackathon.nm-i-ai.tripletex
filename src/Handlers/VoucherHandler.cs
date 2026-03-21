@@ -352,7 +352,11 @@ public class VoucherHandler : ITaskHandler
                         int vatNumber = 0;
                         if (vt.TryGetProperty("number", out var vtNum) && vtNum.ValueKind == JsonValueKind.Number)
                             vatNumber = vtNum.GetInt32();
-                        if (vatNumber != 0 && rawId > 0)
+                        // Only inherit VAT type when account is LOCKED to it.
+                        // vatLocked=false means flexible/exempt VAT — don't force a default rate.
+                        // Accounts like 7100 (Bilgodtgjørelse) reject vatType even when their
+                        // default vatType is non-zero ("ikke aktivert for moms" 422 error).
+                        if (locked && vatNumber != 0 && rawId > 0)
                             vatId = rawId;
                     }
                 }

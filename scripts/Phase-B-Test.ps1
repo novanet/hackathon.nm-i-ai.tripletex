@@ -87,7 +87,8 @@ $acct6500Id = $null
 try {
     $accts = ($r6500.B | ConvertFrom-Json).values
     $acct6500Id = ($accts | Where-Object { $_.number -eq 6500 } | Select-Object -First 1).id
-} catch {}
+}
+catch {}
 Write-Host "  HTTP=$($r6500.S) account6500.id=$acct6500Id"
 
 Write-Host "[SETUP] Looking up account 2400 (Leverandørgjeld/accounts payable)..."
@@ -96,7 +97,8 @@ $acct2400Id = $null
 try {
     $accts2 = ($r2400.B | ConvertFrom-Json).values
     $acct2400Id = ($accts2 | Where-Object { $_.number -eq 2400 } | Select-Object -First 1).id
-} catch {}
+}
+catch {}
 Write-Host "  HTTP=$($r2400.S) account2400.id=$acct2400Id"
 
 # Also try 2900 (Gjeld) if 2400 not found
@@ -106,7 +108,8 @@ if (-not $acct2400Id) {
         $accts2900 = ($r2900.B | ConvertFrom-Json).values
         $acct2400Id = ($accts2900 | Where-Object { $_.number -eq 2900 } | Select-Object -First 1).id
         Write-Host "  Using account 2900 instead. id=$acct2400Id"
-    } catch {}
+    }
+    catch {}
 }
 
 Write-Host "[SETUP] Looking up input VAT type (25% ingoing)..."
@@ -121,7 +124,8 @@ try {
     }
     $vatTypeId = $vatType.id
     Write-Host "  HTTP=$($rVat.S) vatType.id=$vatTypeId name=$($vatType.name) pct=$($vatType.percentage)"
-} catch {}
+}
+catch {}
 
 Write-Host "[SETUP] Creating a test supplier..."
 $supplierBody = @"
@@ -171,7 +175,8 @@ if ($rVB.S -ne 201 -and $rVB.S -ne 200) {
     try { $msgs = (($rVB.B | ConvertFrom-Json).validationMessages | ForEach-Object { $_.message }) -join "; " } catch {}
     Write-Host "  ERROR: $msgs"
     Write-Host "  BODY: $($rVB.B)"
-} else {
+}
+else {
     Write-Host "  voucher.id=$voucherIdB"
 }
 
@@ -185,7 +190,8 @@ if ($voucherIdB) {
     try {
         $vObj = ($rVI.B | ConvertFrom-Json).value
         Write-Host "  Voucher voucherType=$($vObj.voucherType | ConvertTo-Json -Compress) postings=$($vObj.postings.Count)"
-    } catch { Write-Host "  Could not parse voucher" }
+    }
+    catch { Write-Host "  Could not parse voucher" }
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -217,7 +223,8 @@ if ($rMod.S -eq 200) {
         foreach ($m in $modules) {
             Write-Host "    id=$($m.id) name=$($m.name) isActive=$($m.isActive)"
         }
-    } catch { Write-Host "  Could not parse modules: $($rMod.B.Substring(0, [Math]::Min(200, $rMod.B.Length)))" }
+    }
+    catch { Write-Host "  Could not parse modules: $($rMod.B.Substring(0, [Math]::Min(200, $rMod.B.Length)))" }
 }
 
 if ($incomingModuleId) {
@@ -245,7 +252,8 @@ if ($rCS.S -eq 200) {
         $cs.PSObject.Properties | Where-Object { $_.Name -like "*invoice*" -or $_.Name -like "*faktura*" -or $_.Name -like "*incoming*" -or $_.Name -like "*supplier*" } | ForEach-Object {
             Write-Host "    $($_.Name) = $($_.Value)"
         }
-    } catch {}
+    }
+    catch {}
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -262,7 +270,8 @@ $impVoucherId = $null
 if ($rImp.S -eq 201 -or $rImp.S -eq 200) {
     try { $impVoucherId = ($rImp.B | ConvertFrom-Json).values[0].id } catch {}
     Write-Host "  HTTP=$($rImp.S) voucherId=$impVoucherId"
-} else {
+}
+else {
     Write-Host "  HTTP=$($rImp.S) BODY=$($rImp.B.Substring(0, [Math]::Min(200, $rImp.B.Length)))"
 }
 
@@ -348,7 +357,8 @@ if ($rVF.S -ne 201 -and $rVF.S -ne 200) {
     $msgs3 = ""
     try { $msgs3 = (($rVF.B | ConvertFrom-Json).validationMessages | ForEach-Object { $_.message }) -join "; " } catch {}
     Write-Host "  ERROR: $msgs3"
-} else {
+}
+else {
     Write-Host "  voucher.id=$voucherIdF"
     Start-Sleep -Milliseconds 500
     CheckSI "Phase F" $voucherIdF | Out-Null
@@ -381,7 +391,8 @@ if ($rVF2.S -eq 201 -or $rVF2.S -eq 200) {
         try {
             $vObjF2 = ($rVF2Get.B | ConvertFrom-Json).value
             Write-Host "  vendorInvoiceNumber=$($vObjF2.vendorInvoiceNumber) voucherType=$($vObjF2.voucherType | ConvertTo-Json -Compress)"
-        } catch {}
+        }
+        catch {}
         CheckSI "Phase F2" $voucherIdF2 | Out-Null
     }
 }
@@ -410,7 +421,8 @@ try {
     $vObjG = ($rVG.B | ConvertFrom-Json).value
     $voucherIdG = $vObjG.id
     $versionG = $vObjG.version
-} catch {}
+}
+catch {}
 
 if ($voucherIdG) {
     Write-Host "  plain voucher.id=$voucherIdG version=$versionG"
@@ -451,7 +463,8 @@ try {
     foreach ($si in $finalObj.values) {
         Write-Host "  FOUND SI: id=$($si.id) voucherId=$($si.voucher.id) supplier=$($si.supplier.name)"
     }
-} catch { Write-Host "  Parse error: $($rFinal.B.Substring(0, [Math]::Min(300, $rFinal.B.Length)))" }
+}
+catch { Write-Host "  Parse error: $($rFinal.B.Substring(0, [Math]::Min(300, $rFinal.B.Length)))" }
 
 Write-Host ""
 Write-Host "=================================================================="
