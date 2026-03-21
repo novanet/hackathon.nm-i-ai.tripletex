@@ -241,6 +241,71 @@ public class VoucherHandler : ITaskHandler
             }
         }
 
+        // Fallback: multi-voucher format — LLM may extract as voucher1, voucher2, etc.
+        // Each sub-voucher has debitAccount/creditAccount/amount pairs → build postings from all of them
+        if (postings.Count == 0)
+        {
+            _logger.LogInformation("No postings extracted from main voucher entity, checking for multi-voucher format (voucher1, voucher2, ...)");
+            for (int n = 1; n <= 10; n++)
+            {
+                var subVoucher = extracted.Entities.GetValueOrDefault($"voucher{n}");
+                if (subVoucher == null) break;
+
+                var subDesc = GetStringField(subVoucher, "description") ?? description;
+                var subDate = GetStringField(subVoucher, "date") ?? date;
+                var subDebit = GetStringField(subVoucher, "debitAccount") ?? GetStringField(subVoucher, "debit_account")
+                    ?? GetStringField(subVoucher, "account") ?? GetStringField(subVoucher, "accountNumber");
+                var subCredit = GetStringField(subVoucher, "creditAccount") ?? GetStringField(subVoucher, "credit_account");
+                decimal subAmount = 0m;
+                var subAmountStr = GetStringField(subVoucher, "amount") ?? GetStringField(subVoucher, "amountGross");
+                if (subAmountStr != null)
+                    decimal.TryParse(subAmountStr, NumberStyles.Any, CultureInfo.InvariantCulture, out subAmount);
+
+                if (subDebit != null && subAmount != 0)
+                {
+                    var (debitId, debitVatId, _) = await ResolveAccountId(api, subDebit);
+                    if (debitId.HasValue)
+                    {
+                        var p = new Dictionary<string, object>
+                        {
+                            ["date"] = subDate,
+                            ["description"] = subDesc,
+                            ["account"] = new { id = debitId.Value },
+                            ["amountGross"] = subAmount,
+                            ["amountGrossCurrency"] = subAmount
+                        };
+                        if (debitVatId.HasValue) p["vatType"] = new { id = debitVatId.Value };
+                        postings.Add(p);
+                    }
+                }
+                if (subCredit != null && subAmount != 0)
+                {
+                    var (creditId, creditVatId, _) = await ResolveAccountId(api, subCredit);
+                    if (creditId.HasValue)
+                    {
+                        postings.Add(new Dictionary<string, object>
+                        {
+                            ["date"] = subDate,
+                            ["description"] = subDesc,
+                            ["account"] = new { id = creditId.Value },
+                            ["amountGross"] = -subAmount,
+                            ["amountGrossCurrency"] = -subAmount
+                        });
+                    }
+                }
+                // Also check for nested postings array in sub-voucher
+                if (subVoucher.TryGetValue("postings", out var subPVal) && subPVal is JsonElement subPArr
+                    && subPArr.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in subPArr.EnumerateArray())
+                        postings.Add(await BuildPostingFromJson(api, item, subDate));
+                }
+
+                _logger.LogInformation("Processed sub-voucher voucher{N}: debit={Debit}, credit={Credit}, amount={Amount}",
+                    n, subDebit, subCredit, subAmount);
+            }
+        }
+
         // Assign row numbers and link dimension values to first (debit) posting
         for (int i = 0; i < postings.Count; i++)
         {

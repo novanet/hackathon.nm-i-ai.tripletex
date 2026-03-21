@@ -57,17 +57,7 @@ public class PaymentHandler : ITaskHandler
         var paidAmount = invoiceAmount > 0 ? invoiceAmount : await GetAmountOutstanding(api, invoiceId);
 
         var paymentDate = ResolvePaymentDate(extracted);
-        try
-        {
-            await RegisterPayment(api, invoiceId, paymentTypeId, paidAmount, paymentDate);
-        }
-        catch (TripletexApiException ex) when (ex.StatusCode == 422 && paymentTypeId == HardcodedPaymentTypeId)
-        {
-            // Hardcoded payment type invalid — resolve dynamically and retry
-            _logger.LogWarning("Hardcoded paymentTypeId rejected, falling back to dynamic lookup");
-            paymentTypeId = await ResolvePaymentTypeIdDynamic(api);
-            await RegisterPayment(api, invoiceId, paymentTypeId, paidAmount, paymentDate);
-        }
+        await RegisterPayment(api, invoiceId, paymentTypeId, paidAmount, paymentDate);
         return PaymentResult(invoiceId, paidAmount);
     }
 
@@ -102,16 +92,7 @@ public class PaymentHandler : ITaskHandler
 
                         var paymentTypeId = await ResolvePaymentTypeId(api);
                         var paymentDate = ResolvePaymentDate(extracted);
-                        try
-                        {
-                            await RegisterPayment(api, invoiceId, paymentTypeId, outstanding, paymentDate);
-                        }
-                        catch (TripletexApiException ex) when (ex.StatusCode == 422 && paymentTypeId == HardcodedPaymentTypeId)
-                        {
-                            _logger.LogWarning("Hardcoded paymentTypeId rejected in simple pay, falling back");
-                            paymentTypeId = await ResolvePaymentTypeIdDynamic(api);
-                            await RegisterPayment(api, invoiceId, paymentTypeId, outstanding, paymentDate);
-                        }
+                        await RegisterPayment(api, invoiceId, paymentTypeId, outstanding, paymentDate);
                         return PaymentResult(invoiceId, outstanding);
                     }
                 }
@@ -391,9 +372,6 @@ public class PaymentHandler : ITaskHandler
         };
     }
 
-    // Hardcoded payment type ID — constant across all clean Tripletex environments
-    private const long HardcodedPaymentTypeId = 33295810L;
-
     private async Task<long> ResolvePaymentTypeId(TripletexApiClient api)
     {
         // Check cache first — same payment types per Tripletex session
@@ -403,26 +381,17 @@ public class PaymentHandler : ITaskHandler
                 return cached;
         }
 
-        // Try hardcoded ID first (zero API calls)
-        // Cache it — if payment fails later with this ID, caller handles retry
-        lock (_paymentTypeLock)
-        {
-            _paymentTypeCache[api.SessionHash] = HardcodedPaymentTypeId;
-        }
-        return HardcodedPaymentTypeId;
-    }
-
-    private async Task<long> ResolvePaymentTypeIdDynamic(TripletexApiClient api)
-    {
+        // Always resolve dynamically — hardcoded IDs cause 404 in competition environments
         var result = await api.GetAsync("/invoice/paymentType", new Dictionary<string, string>
         {
             ["count"] = "100",
             ["fields"] = "id,description"
         });
 
-        long typeId = 1;
+        long typeId = 0;
         if (result.TryGetProperty("values", out var types))
         {
+            // Prefer "bank" or "overføring" type
             foreach (var t in types.EnumerateArray())
             {
                 if (t.TryGetProperty("description", out var desc))
@@ -435,7 +404,8 @@ public class PaymentHandler : ITaskHandler
                     }
                 }
             }
-            if (typeId == 1)
+            // Fallback: take the first available
+            if (typeId == 0)
             {
                 foreach (var t in types.EnumerateArray())
                 {
@@ -444,6 +414,14 @@ public class PaymentHandler : ITaskHandler
                 }
             }
         }
+
+        if (typeId == 0)
+        {
+            _logger.LogWarning("No payment types found — using fallback ID 1");
+            typeId = 1;
+        }
+
+        _logger.LogInformation("Resolved paymentTypeId={Id} for session", typeId);
 
         lock (_paymentTypeLock)
         {

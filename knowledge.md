@@ -123,7 +123,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 ## Efficiency Optimizations (2026-03-21)
 
 - **POST-first customer strategy** — `ResolveOrCreateCustomer` now tries `POST /customer` first (saves 1 GET in competition where env is clean). On 422 (duplicate in sandbox), falls back to `GET /customer?organizationNumber=` / `?name=`. This eliminates the GET for all competition runs. _(2026-03-21)_
-- **Hardcoded paymentTypeId = 33295810** — constant across all clean Tripletex environments. `ResolvePaymentTypeId` returns immediately without an API call. On 422 in payment PUT, falls back to `ResolvePaymentTypeIdDynamic` (1 extra call). _(2026-03-21)_
+- **paymentTypeId resolved dynamically** — `ResolvePaymentTypeId` calls `GET /invoice/paymentType` on first call per session, caches result. Prefers types with "bank" or "overf" in description. No hardcoded fallback — hardcoded IDs cause 404 in fresh competition envs. _(2026-03-21)_
 - **VAT type fallback on 422** — `CreateInvoiceChainAsync` catches `TripletexApiException` with `StatusCode==422` and message containing "mva-kode" on `POST /order`. On catch: calls `ResolveVatTypesFull` (+1 GET), rebuilds lines, retries POST /order. In competition (IDs work), zero overhead. In sandbox, +2 calls but still succeeds. _(2026-03-21)_
 - **Estimated competition call counts after optimizations**:
   - `create_invoice` (fresh env): bank GET + customer POST + order POST + invoice POST + validator GET = **5 calls** (was 8)
@@ -141,3 +141,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Payroll: `isHistorical=true` + `generateTaxDeduction=true` is invalid** — produces 422 "Skatt kan ikke genereres for historiske lønnsbilag". Use `isHistorical=true` without generateTaxDeduction, or `isHistorical=false` with it. _(2026-03-21)_
 - **Payroll: voucherType must be set to "Lønnsbilag"** — without it, the voucher has `voucherType: null`. Look up the type ID dynamically via `GET /ledger/voucherType?name=Lønnsbilag&count=1&fields=id`. _(2026-03-21)_
 - **Payroll: employee must be on BOTH voucher posting rows** — debit (5000) AND credit (1920). Previously only row 1 had employee, row 2 was null. This may affect `has_employee_link` competition check. _(2026-03-21)_
+- **paymentTypeId is NOT constant across competition envs** — hardcoded `33295810` causes 404 on `:payment` endpoint in competition (fresh env has different IDs). The catch only handled 422, not 404 — so fallback never triggered. Fixed: always resolve dynamically via `GET /invoice/paymentType` on first call per session (cached). _(2026-03-21)_
+- **BankReconciliation: `isApproved` field rejected** — `POST /bank/reconciliation` with `isApproved: false` returns 422 "Feltet eksisterer ikke i objektet". Remove it from the request body. _(2026-03-21)_
+- **Employee: email required for STANDARD/EXTENDED userType** — PDF offer letters often lack email → 422. Generate synthetic email from `firstName.lastName@example.org` when not extracted. _(2026-03-21)_
+- **VoucherHandler: multi-voucher extraction format** — complex tasks (ledger corrections, annual closing) produce `voucher1`, `voucher2`, etc. entities in extraction. VoucherHandler must iterate these and build postings from their debitAccount/creditAccount/amount fields. _(2026-03-21)_
