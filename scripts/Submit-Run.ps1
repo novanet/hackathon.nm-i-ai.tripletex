@@ -150,6 +150,7 @@ if (Test-Path $leaderboardFile) {
     if ($lastLine) {
         $prevEntry = $lastLine | ConvertFrom-Json
         foreach ($t in $prevEntry.tasks) {
+            if ($null -eq $t.tx_task_id) { continue }
             $preCounts[$t.tx_task_id] = $t.total_attempts
             $preScores[$t.tx_task_id] = $t.best_score
         }
@@ -356,6 +357,7 @@ try {
     $scoreChanges = @()
     foreach ($t in $leaderboardData) {
         $tid = $t.tx_task_id
+        if ($null -eq $tid) { continue }
         $prevAttempts = if ($preCounts.ContainsKey($tid)) { $preCounts[$tid] } else { 0 }
         $prevScore = if ($preScores.ContainsKey($tid)) { $preScores[$tid] } else { 0 }
         if ($t.total_attempts -gt $prevAttempts) {
@@ -476,7 +478,7 @@ try {
                 timestamp   = $sub.timestamp
             }
             # Update persistent mapping (append-only — never overwrite existing)
-            if (-not $taskMapping.ContainsKey($at.tx_task_id)) {
+            if ($null -ne $at.tx_task_id -and -not $taskMapping.ContainsKey($at.tx_task_id)) {
                 $taskMapping[$at.tx_task_id] = $sub.task_type
             }
         }
@@ -519,7 +521,7 @@ try {
         Write-Host "  Uncorrelated attempts (leaderboard only):" -ForegroundColor Gray
         for ($i = $correlated.Count; $i -lt $sortedAttempted.Count; $i++) {
             $at = $sortedAttempted[$i]
-            $knownType = if ($taskMapping.ContainsKey($at.tx_task_id)) { $taskMapping[$at.tx_task_id] } else { "?" }
+            $knownType = if ($null -ne $at.tx_task_id -and $taskMapping.ContainsKey($at.tx_task_id)) { $taskMapping[$at.tx_task_id] } else { "?" }
             Write-Host ("    tx:{0} = {1,-26} | score: {2} → {3}" -f $at.tx_task_id, $knownType, $at.prev_score, $at.new_score) -ForegroundColor Gray
         }
     }
@@ -566,8 +568,8 @@ try {
     Write-Host "Leaderboard (all tasks):" -ForegroundColor Cyan
     $sortedLb = $leaderboardData | Sort-Object tx_task_id
     foreach ($t in $sortedLb) {
-        $name = if ($taskMapping.ContainsKey($t.tx_task_id)) { $taskMapping[$t.tx_task_id] } else { "?" }
-        $prevScore = if ($preScores.ContainsKey($t.tx_task_id)) { $preScores[$t.tx_task_id] } else { 0 }
+        $name = if ($null -ne $t.tx_task_id -and $taskMapping.ContainsKey($t.tx_task_id)) { $taskMapping[$t.tx_task_id] } else { "?" }
+        $prevScore = if ($null -ne $t.tx_task_id -and $preScores.ContainsKey($t.tx_task_id)) { $preScores[$t.tx_task_id] } else { 0 }
         $delta = [Math]::Round($t.best_score - $prevScore, 4)
         $deltaStr = if ($delta -gt 0) { " +$delta" } elseif ($delta -lt 0) { " $delta" } else { "" }
         $color = if ($delta -gt 0) { "Green" } elseif ($delta -lt 0) { "Red" } elseif ($t.best_score -eq 0) { "DarkGray" } else { "Gray" }
@@ -584,7 +586,8 @@ Write-Host ""
 Write-Host "Refreshing task documentation..." -ForegroundColor Cyan
 try {
     & "$PSScriptRoot\Refresh-Tasks.ps1"
-} catch {
+}
+catch {
     Write-Host "WARNING: Refresh-Tasks.ps1 failed: $_" -ForegroundColor Yellow
 }
 
