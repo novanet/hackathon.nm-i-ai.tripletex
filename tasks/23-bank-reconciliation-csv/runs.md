@@ -6,28 +6,30 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:53:14 |
+| Timestamp | 03/21/2026 23:08:45 |
 | Task Type | `bank_reconciliation` |
 | Handler | `BankReconciliationHandler` |
 | Success | True |
-| Elapsed | 4446 ms |
-| API Calls | 5 |
-| Errors | 2 |
+| Elapsed | 4708 ms |
+| API Calls | 7 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber` | ✅  |  |
-| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-02-03&endFrom=2026-02-...` | ✅  |  |
-| 3 | `POST` | `/bank/reconciliation` | ✅  |  |
-| 4 | `POST` | `/bank/statement/import?bankId=0&accountId=466958041&fromDate...` | ✅  |  |
-| 5 | `PUT` | `/bank/reconciliation/12705413/:adjustment` | ✅  |  |
+| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-02-04&endFrom=2026-02-...` | ✅  |  |
+| 3 | `GET` | `/bank/reconciliation?accountId=477072661&accountingPeriodId=...` | ✅  |  |
+| 4 | `POST` | `/bank/reconciliation` | ✅  |  |
+| 5 | `GET` | `/bank/statement?accountId=477072661&count=100&fields=id` | ✅  |  |
+| 6 | `POST` | `/bank/statement/import?bankId=0&accountId=477072661&fromDate...` | ✅  |  |
+| 7 | `PUT` | `/bank/reconciliation/match/:suggest?bankReconciliationId=127...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"bank_reconciliation","action":"update","language":"de","entities":{"reconciliation":{"accountNumber":"1920","closingBalance":135548.98,"date":"2026-02-03"}},"relationships":{},"raw_amounts":["18437.50","9218.75","10687.50","24187.50","12812.50","-19350.00","-12750.00","-6600.00","1143.16","-1991.86","-246.07"],"dates":["2026-01-17","2026-01-18","2026-01-21","2026-01-23","2026-01-24","2026-01-26","2026-01-28","2026-01-29","2026-01-31","2026-02-01","2026-02-03"],"files_needed":true}
+{"task_type":"bank_reconciliation","action":"create","language":"es","entities":{"reconciliation":{"accountNumber":"1920","closingBalance":139130.06,"date":"2026-02-04"}},"relationships":{},"raw_amounts":["139130.06"],"dates":["2026-02-04"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

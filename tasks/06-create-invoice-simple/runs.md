@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:03:23 |
+| Timestamp | 03/21/2026 23:16:39 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 4263 ms |
-| API Calls | 5 |
+| Elapsed | 64956 ms |
+| API Calls | 8 |
 | Errors | 0 |
 
 ### API Calls
@@ -20,14 +20,17 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
 | 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `PUT` | `/ledger/account/476814492` | ✅  |  |
-| 4 | `POST` | `/order` | ✅  |  |
-| 5 | `POST` | `/invoice` | ✅  |  |
+| 3 | `PUT` | `/ledger/account/477440350` | ✅  |  |
+| 4 | `GET` | `/product?number=6475&count=1&fields=id` | ✅  |  |
+| 5 | `GET` | `/product?number=3355&count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/product?number=3067&count=1&fields=id` | ✅  |  |
+| 7 | `POST` | `/order` | ✅  |  |
+| 8 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"nb","entities":{"customer":{"name":"Havbris AS","orgNumber":"977448239"},"invoice":{"orderLines":[{"description":"Konsulenttimer","account":"6390","unitPrice":2850,"vatRate":25},{"description":"Systemutvikling","account":"1652","unitPrice":2650,"vatRate":15},{"description":"Webdesign","account":"3273","unitPrice":7400,"vatRate":0}]}},"relationships":{"customer":"Havbris AS"},"raw_amounts":["2850.00","2650.00","7400.00"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"de","entities":{"customer":{"name":"Grünfeld GmbH","orgNumber":"913178823"},"invoice":{"orderLines":[{"description":"Netzwerkdienst","productNumber":"6475","unitPrice":6400,"vatRate":25},{"description":"Softwarelizenz","productNumber":"3355","unitPrice":2450,"vatRate":15},{"description":"Webdesign","productNumber":"3067","unitPrice":12300,"vatRate":0}]}},"relationships":{"customer":"Grünfeld GmbH"},"raw_amounts":["6400","2450","12300"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

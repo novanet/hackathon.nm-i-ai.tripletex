@@ -6,31 +6,33 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:44:06 |
+| Timestamp | 03/21/2026 23:17:36 |
 | Task Type | `run_payroll` |
 | Handler | `PayrollHandler` |
 | Success | False |
-| Elapsed | 19237 ms |
-| API Calls | 7 |
+| Elapsed | 5499 ms |
+| API Calls | 9 |
 | Errors | 2 |
-| Error | `organizationNumber: Juridisk enhet kan ikke registreres som virksomhet/underenhet.` |
+| Error | `employee: Arbeidsforholdet er ikke knyttet mot en virksomhet.` |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=em...` | ✅  |  |
-| 2 | `PUT` | `/employee/18610960` | ✅  |  |
+| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=wi...` | ✅  |  |
+| 2 | `PUT` | `/employee/18690630` | ✅  |  |
 | 3 | `GET` | `/division?count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/municipality?count=1&fields=id` | ✅  |  |
 | 5 | `POST` | `/division` | ✅  |  |
-| 6 | `GET` | `/token/session/>whoAmI?fields=company%28id%2CorganizationNum...` | ✅  |  |
-| 7 | `POST` | `/division` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18690630&count=1&fields=id%2...` | ✅  |  |
+| 7 | `POST` | `/employee/employment` | ✅  |  |
+| 8 | `GET` | `/salary/type?count=100&fields=id%2Cnumber%2Cname` | ✅  |  |
+| 9 | `POST` | `/salary/transaction?generateTaxDeduction=false` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"run_payroll","entities":{"employee":{"firstName":"Emma","lastName":"Becker","email":"emma.becker@example.org"},"payroll":{"baseSalary":55600,"bonus":19000}},"relationships":{},"action":"create","raw_amounts":["55600","19000"],"dates":[],"files_needed":false,"language":"de"}
+{"task_type":"run_payroll","action":"create","language":"en","entities":{"employee":{"firstName":"William","lastName":"Taylor","email":"william.taylor@example.org"},"payroll":{"baseSalary":39400,"bonus":11800}},"relationships":{},"raw_amounts":["39400","11800"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 18:22:29 |
+| Timestamp | 03/21/2026 23:17:20 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 19688 ms |
+| Elapsed | 4737 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -19,7 +19,7 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6540&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6860&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
@@ -28,7 +28,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"nb","entities":{"voucher":{"supplierName":"Brattli AS","supplierOrgNumber":"877841456","invoiceNumber":"INV-2026-2388","account":"6540","amount":25650,"date":null,"vatRate":"25"}},"relationships":{},"raw_amounts":["25650"],"dates":[],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"pt","entities":{"voucher":{"supplierName":"Solmar Lda","supplierOrgNumber":"972752843","invoiceNumber":"INV-2026-4855","account":"6860","amount":62600,"date":null,"vatRate":"25","vatIncluded":true}},"relationships":{},"raw_amounts":["62600"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

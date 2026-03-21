@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:38:10 |
+| Timestamp | 03/21/2026 23:09:13 |
 | Task Type | `set_fixed_price` |
 | Handler | `FixedPriceProjectHandler` |
 | Success | True |
-| Elapsed | 8775 ms |
+| Elapsed | 3822 ms |
 | API Calls | 2 |
 | Errors | 0 |
 
@@ -18,13 +18,13 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/project?name=Desenvolvimento%20e-commerce&count=10&fields=i...` | ✅  |  |
-| 2 | `PUT` | `/project/401987749` | ✅  |  |
+| 1 | `GET` | `/project?name=Infrastructure%20Upgrade&count=10&fields=id%2C...` | ✅  |  |
+| 2 | `PUT` | `/project/402044998` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"set_fixed_price","entities":{"project":{"name":"Desenvolvimento e-commerce","fixedPrice":240750,"customerName":"Cascata Lda","customerOrgNumber":"908648579","projectManager":{"firstName":"João","lastName":"Almeida","email":"joao.almeida@example.org"}},"invoice":{"customerName":"Cascata Lda","customerOrgNumber":"908648579","orderLines":[{"description":"Pagamento por etapa (33% do preço fixo)","count":1,"unitPrice":79447.5}]}},"relationships":{"customer":"Cascata Lda"},"action":"update","raw_amounts":["240750","79447.5"],"dates":[],"files_needed":false,"language":"pt"}
+{"task_type":"set_fixed_price","action":"update","language":"en","entities":{"project":{"name":"Infrastructure Upgrade","fixedPrice":170500},"invoice":{"customerName":"Brightstone Ltd","customerOrgNumber":"850116091","orderLines":[{"description":"Milestone payment for project 'Infrastructure Upgrade'","quantity":1,"unitPrice":56365}]},"projectManager":{"firstName":"Charlotte","lastName":"Walker","email":"charlotte.walker@example.org"}},"relationships":{"customer":"Brightstone Ltd"},"raw_amounts":["170500","56365"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

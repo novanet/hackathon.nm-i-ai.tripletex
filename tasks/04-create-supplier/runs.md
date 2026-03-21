@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:02:42 |
+| Timestamp | 03/21/2026 23:15:05 |
 | Task Type | `create_supplier` |
 | Handler | `SupplierHandler` |
 | Success | True |
-| Elapsed | 2449 ms |
+| Elapsed | 2508 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_supplier","action":"create","language":"es","entities":{"supplier":{"name":"Dorada SL","orgNumber":"958363060","email":"faktura@doradasl.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_supplier","action":"create","language":"nb","entities":{"supplier":{"name":"Tindra AS","orgNumber":"888286195","email":"faktura@tindra.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

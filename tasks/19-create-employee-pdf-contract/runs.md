@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:57:49 |
+| Timestamp | 03/21/2026 23:14:39 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 39807 ms |
-| API Calls | 15 |
+| Elapsed | 5065 ms |
+| API Calls | 8 |
 | Errors | 0 |
 
 ### API Calls
@@ -19,25 +19,18 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
-| 2 | `POST` | `/employee` | ✅  |  |
-| 3 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 4 | `GET` | `/employee/employment?employeeId=18644320&count=1&fields=id%2...` | ✅  |  |
-| 5 | `GET` | `/employee/employment/occupationCode?from=0&count=1000&fields...` | ✅  |  |
-| 6 | `GET` | `/employee/employment/occupationCode?from=0&count=1000&fields...` | ✅  |  |
-| 7 | `GET` | `/employee/employment/occupationCode?from=1000&count=1000&fie...` | ✅  |  |
-| 8 | `GET` | `/employee/employment/occupationCode?from=2000&count=1000&fie...` | ✅  |  |
-| 9 | `GET` | `/employee/employment/occupationCode?from=3000&count=1000&fie...` | ✅  |  |
-| 10 | `GET` | `/employee/employment/occupationCode?from=4000&count=1000&fie...` | ✅  |  |
-| 11 | `GET` | `/employee/employment/occupationCode?from=5000&count=1000&fie...` | ✅  |  |
-| 12 | `GET` | `/employee/employment/occupationCode?from=6000&count=1000&fie...` | ✅  |  |
-| 13 | `GET` | `/employee/employment/occupationCode?from=7000&count=1000&fie...` | ✅  |  |
-| 14 | `GET` | `/employee/employment/2825049?fields=id%2CemploymentDetails%2...` | ✅  |  |
-| 15 | `POST` | `/employee/employment/details` | ✅  |  |
+| 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 3 | `GET` | `/employee?email=brita.vik%40example.org&count=10&fields=id%2...` | ✅  |  |
+| 4 | `POST` | `/employee` | ✅  |  |
+| 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18689823&count=1&fields=id%2...` | ✅  |  |
+| 7 | `GET` | `/employee/employment/2847332?fields=id%2CemploymentDetails%2...` | ✅  |  |
+| 8 | `POST` | `/employee/employment/details` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"fr","entities":{"employee":{"firstName":"Camille","lastName":"Thomas","dateOfBirth":"1981-06-23","nationalIdentityNumber":"23068198992","email":"camille.thomas@example.org","bankAccountNumber":"44508517723","startDate":"2026-09-11","occupationCode":"4110","employmentPercentage":80.0,"annualSalary":950000,"employmentType":"permanent","salaryType":"monthly salary"},"department":{"name":"Regnskap"}},"relationships":{},"raw_amounts":["950000"],"dates":["2026-09-11","1981-06-23"],"files_needed":false}
+{"task_type":"create_employee","action":"create","language":"nn","entities":{"employee":{"firstName":"Brita","lastName":"Vik","dateOfBirth":"1985-01-15","startDate":"2026-09-12","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":820000,"workingHoursPerDay":7.5,"department":"Økonomi"},"department":{"name":"Økonomi"}},"relationships":{},"raw_amounts":["820000"],"dates":["2026-09-12","1985-01-15"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run
@@ -77,5 +70,4 @@
 | 19 | `PUT` | `/employee/employment/details/3721624` | ✅  |  |
 | 20 | `GET` | `/employee/18626148?fields=id%2CfirstName%2ClastName%2Cemail%...` | ✅  |  |
 | 21 | `GET` | `/employee/employment?employeeId=18626148&count=20&fields=id%...` | ✅  |  |
-
 

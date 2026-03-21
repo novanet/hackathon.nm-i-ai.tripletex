@@ -6,25 +6,31 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:45:27 |
+| Timestamp | 03/21/2026 23:15:23 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 5674 ms |
-| API Calls | 2 |
+| Elapsed | 5209 ms |
+| API Calls | 8 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/department?count=1&fields=id` | ✅  |  |
-| 2 | `POST` | `/employee` | ✅  |  |
+| 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
+| 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 3 | `GET` | `/employee?email=catarina.oliveira%40example.org&count=10&fie...` | ✅  |  |
+| 4 | `POST` | `/employee` | ✅  |  |
+| 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18690036&count=1&fields=id%2...` | ✅  |  |
+| 7 | `GET` | `/employee/employment/2847427?fields=id%2CemploymentDetails%2...` | ✅  |  |
+| 8 | `POST` | `/employee/employment/details` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","entities":{"employee":{"firstName":"Grace","lastName":"Lewis","dateOfBirth":"1986-08-03","startDate":"2026-04-01","employmentType":"Fast stilling","employmentPercentage":80.0,"annualSalary":640000,"dailyWorkingHours":6.0},"department":{"name":"Drift"}},"relationships":{},"action":"create","raw_amounts":["640000"],"dates":["2026-04-01","1986-08-03"],"files_needed":true,"language":"nb"}
+{"task_type":"create_employee","action":"create","language":"pt","entities":{"employee":{"firstName":"Catarina","lastName":"Oliveira","dateOfBirth":"1990-02-26","startDate":"2026-06-26","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":610000,"workingHoursPerDay":7.5,"occupationName":"HR-rådgiver"},"department":{"name":"Økonomi"}},"relationships":{},"raw_amounts":["610000"],"dates":["2026-06-26","1990-02-26"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
@@ -55,5 +61,4 @@
 | 10 | `PUT` | `/employee/employment/details/3721622` | ✅  |  |
 | 11 | `GET` | `/employee/18626083?fields=id%2CfirstName%2ClastName%2Cemail%...` | ✅  |  |
 | 12 | `GET` | `/employee/employment?employeeId=18626083&count=20&fields=id%...` | ✅  |  |
-
 

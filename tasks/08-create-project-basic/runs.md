@@ -6,32 +6,28 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/20/2026 20:53:05 |
+| Timestamp | 03/21/2026 23:14:54 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 110500 ms |
-| API Calls | 14 |
-| Errors | 2 |
+| Elapsed | 3540 ms |
+| API Calls | 4 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=950103175&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/employee?count=1&fields=id` | ✅  |  |
-| 3 | `POST` | `/project` | ✅  |  |
-| 4 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅  |  |
-| 5 | `GET` | `/employee?count=1&fields=id&firstName=Randi&lastName=Lunde` | ✅  |  |
-| 6 | `POST` | `/project/projectActivity` | ✅  |  |
-| 7 | `POST` | `/activity` | ✅  |  |
-| 8 | `GET` | `/activity?name=Analyse&count=1&fields=id` | ✅  |  |
-| 9 | `POST` | `/timesheet/entry` | ✅  |  |
-| 10 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 11 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage` | ✅  |  |
-| 12 | `PUT` | `/ledger/account/357246795` | ✅  |  |
-| 13 | `POST` | `/order` | ✅  |  |
-| 14 | `POST` | `/invoice` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=849572458&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=Nathan&lastName=Dubois` | ✅  |  |
+| 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
+| 4 | `POST` | `/project` | ✅  |  |
+
+### LLM Extraction
+
+```json
+{"task_type":"create_project","action":"create","language":"fr","entities":{"project":{"name":"Migration Lumière","customerName":"Lumière SARL","customerOrgNumber":"849572458","projectManager":{"firstName":"Nathan","lastName":"Dubois","email":"nathan.dubois@example.org"}}},"relationships":{"customer":"Lumière SARL"},"raw_amounts":[],"dates":[],"files_needed":false}
+```
 
 ## Latest Sandbox Run
 
@@ -71,5 +67,4 @@
 | name | `Nettbutikk` | `Nettbutikk` | ✅ | 2 |
 | has_customer | `true` | `true` | ✅ | 2 |
 | has_project_manager | `true` | `true` | ✅ | 2 |
-
 
