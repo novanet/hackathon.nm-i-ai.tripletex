@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:47:30 |
+| Timestamp | 03/21/2026 23:54:39 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 4020 ms |
+| Elapsed | 3994 ms |
 | API Calls | 4 |
 | Errors | 0 |
 
@@ -18,15 +18,15 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=975389642&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/invoice?customerId=108466089&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=830362894&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/invoice?customerId=108469049&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
 | 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 4 | `PUT` | `/invoice/2147653594/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 4 | `PUT` | `/invoice/2147654677/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"pt","entities":{"customer":{"name":"Estrela Lda","orgNumber":"975389642"},"payment":{"amount":47200}},"relationships":{"invoice":"Serviço de rede"},"raw_amounts":["47200"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"en","entities":{"customer":{"name":"Windmill Ltd","orgNumber":"830362894"},"invoice":{"amount":32200,"description":"System Development"}},"relationships":{"customer":"Windmill Ltd"},"raw_amounts":["32200.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

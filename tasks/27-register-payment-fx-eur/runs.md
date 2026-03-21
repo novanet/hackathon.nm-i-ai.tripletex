@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:51:07 |
+| Timestamp | 03/21/2026 23:56:18 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 5438 ms |
+| Elapsed | 4902 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -18,17 +18,17 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 2 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 1 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
 | 3 | `POST` | `/customer` | ✅  |  |
 | 4 | `POST` | `/order` | ✅  |  |
 | 5 | `POST` | `/invoice` | ✅  |  |
-| 6 | `PUT` | `/invoice/2147654088/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 6 | `PUT` | `/invoice/2147654913/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"pt","entities":{"customer":{"name":"Porto Alegre Lda","orgNumber":"868620390"},"payment":{"amount":226800.28,"currency":"NOK","exchangeRate":12.72},"exchangeDifference":{"amount":16443.21,"account":"8070"}},"relationships":{"invoice":"17799 EUR at 11.79 NOK/EUR"},"raw_amounts":["17799","11.79","12.72"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"es","entities":{"payment":{"amount":155000.21,"currency":"NOK","exchangeRate":11.13,"agioAccount":"8070"},"customer":{"name":"Montaña SL","orgNumber":"960849922"}},"relationships":{},"raw_amounts":["13917","10.70","11.13"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

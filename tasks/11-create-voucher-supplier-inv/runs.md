@@ -6,31 +6,29 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:49:44 |
+| Timestamp | 03/21/2026 23:56:36 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 6291 ms |
-| API Calls | 8 |
+| Elapsed | 5221 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/ledger/accountingDimensionName/search?count=10&fields=id%2C...` | ✅  |  |
-| 2 | `POST` | `/ledger/accountingDimensionName` | ✅  |  |
-| 3 | `GET` | `/ledger/accountingDimensionValue/search?dimensionIndex=1&cou...` | ✅  |  |
-| 4 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
-| 5 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=7140&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 7 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 8 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 1 | `POST` | `/supplier` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6590&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
+| 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"es","entities":{"dimension":{"name":"Produktlinje","values":["Avansert","Premium"]},"voucher":{"account":"7140","amount":16800,"dimensionValue":"Premium"}},"relationships":{},"raw_amounts":["16800"],"dates":[],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"de","entities":{"voucher":{"supplierName":"Brückentor GmbH","supplierOrgNumber":"981448294","invoiceNumber":"INV-2026-2118","account":"6590","amount":70400,"date":null,"vatRate":"25"}},"relationships":{},"raw_amounts":["70400"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

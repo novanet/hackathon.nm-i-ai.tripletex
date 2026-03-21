@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:46:18 |
+| Timestamp | 03/21/2026 23:57:27 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 9133 ms |
+| Elapsed | 10441 ms |
 | API Calls | 4 |
 | Errors | 0 |
 
@@ -18,15 +18,15 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=993125393&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/invoice?customerId=108329275&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=893396128&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/invoice?customerId=108329743&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
 | 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 4 | `PUT` | `/invoice/2147575353/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 4 | `PUT` | `/invoice/2147575637/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"reverse","language":"en","entities":{"payment":{"amount":27100},"invoice":{"description":"Data Advisory","amount":27100,"vatIncluded":false},"customer":{"name":"Brightstone Ltd","orgNumber":"993125393"}},"relationships":{"customer":"Brightstone Ltd","invoice":"Data Advisory"},"raw_amounts":["27100"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"reverse","language":"fr","entities":{"customer":{"name":"Forêt SARL","orgNumber":"893396128"},"invoice":{"description":"Maintenance","amount":44250}},"relationships":{"customer":"Forêt SARL","invoice":"Maintenance"},"raw_amounts":["44250.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

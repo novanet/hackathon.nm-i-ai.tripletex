@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:40:20 |
+| Timestamp | 03/21/2026 23:56:59 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 4501 ms |
-| API Calls | 5 |
+| Elapsed | 5190 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
@@ -19,14 +19,16 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/customer` | ✅  |  |
-| 2 | `PUT` | `/ledger/account/478887284` | ✅  |  |
-| 3 | `POST` | `/order` | ✅  |  |
-| 4 | `POST` | `/invoice` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 3 | `PUT` | `/ledger/account/479989806` | ✅  |  |
+| 4 | `POST` | `/order` | ✅  |  |
+| 5 | `POST` | `/invoice` | ✅  |  |
+| 6 | `PUT` | `/invoice/2147655018/:send?sendType=EMAIL` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"de","entities":{"customer":{"name":"Nordlicht GmbH","orgNumber":"855854171"},"invoice":{"orderLines":[{"description":"Netzwerkdienst","account":"2450","unitPrice":28650,"vatRate":25},{"description":"Cloud-Speicher","account":"6871","unitPrice":13750,"vatRate":15},{"description":"Wartung","account":"2881","unitPrice":18000,"vatRate":0}]}},"relationships":{"customer":"Nordlicht GmbH"},"raw_amounts":["28650","13750","18000"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"en","entities":{"customer":{"name":"Ridgepoint Ltd","orgNumber":"985190631"},"invoice":{"orderLines":[{"description":"Analysis Report","count":1,"unitPrice":32650}],"send":true}},"relationships":{"customer":"Ridgepoint Ltd"},"raw_amounts":["32650"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
