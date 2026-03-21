@@ -579,6 +579,15 @@ catch {
     Write-Host "WARNING: Failed to fetch leaderboard: $_" -ForegroundColor Yellow
 }
 
+# --- Refresh task documentation ---
+Write-Host ""
+Write-Host "Refreshing task documentation..." -ForegroundColor Cyan
+try {
+    & "$PSScriptRoot\Refresh-Tasks.ps1"
+} catch {
+    Write-Host "WARNING: Refresh-Tasks.ps1 failed: $_" -ForegroundColor Yellow
+}
+
 # --- Replay new competition requests locally ---
 if ($NoReplay -or -not (Test-Path $submissionsFile)) { return }
 

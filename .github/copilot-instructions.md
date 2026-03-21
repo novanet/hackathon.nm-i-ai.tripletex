@@ -188,6 +188,36 @@ If no matching directory is found (e.g. timestamp drift > 2s), skip file attachm
 
 `SandboxValidator.cs` is our local mirror of the competition validator. It runs after every local `Test-Solve.ps1` call and logs scores to `logs/validations.jsonl`. **The sole purpose is to predict competition scores accurately so we know when a fix is real before spending a submission.**
 
+## Task Documentation (Auto-Updated)
+
+**Read `tasks/PRIORITY_EXECUTION_ORDER.md` before deciding what to work on.** It shows current scores, gaps vs the leader, and the optimal execution order. It is auto-generated from leaderboard data.
+
+Each task has a folder under `tasks/` with:
+
+| File | Source | Purpose |
+|---|---|---|
+| `strategy.md` | **Hand-written** | Root cause analysis, fix plan, implementation notes. Edit manually. |
+| `prompts.md` | Auto-generated | All unique prompts seen in competition + sandbox runs |
+| `runs.md` | Auto-generated | Latest run: API calls, errors, extraction, validation checks |
+| `history.md` | Auto-generated | Chronological run history across all submissions |
+
+**When to read task files:**
+- Before working on a task → read its `strategy.md` for context and plan
+- When debugging a failure → read its `runs.md` for API calls and error details
+- When checking prompt variations → read its `prompts.md`
+
+**Auto-refresh:** `Refresh-Tasks.ps1` regenerates all auto-generated files + `PRIORITY_EXECUTION_ORDER.md`.
+- **After `Submit-Run.ps1`** — called automatically at the end of every submission
+- **After `Test-Solve.ps1`** — run manually: `.\scripts\Refresh-Tasks.ps1`
+- **Anytime** — safe to run repeatedly, always reads from latest JSONL data
+
+**After fixing a handler or adding a new one:**
+1. Test locally with `Test-Solve.ps1`
+2. Run `.\scripts\Refresh-Tasks.ps1` to update task docs
+3. Check updated `runs.md` for the task to verify correctness
+4. Check `PRIORITY_EXECUTION_ORDER.md` to confirm score improvement
+5. Submit with `Submit-Run.ps1` (which auto-refreshes after completion)
+
 ## Logging & Diagnostics
 
 ### Log Files — What Each Contains
@@ -276,8 +306,9 @@ Start-Agent.ps1 — Kill + restart agent (supports -Background)
 Start-Tunnel.ps1 — Start ngrok HTTPS tunnel
 Start-Cloudflared.ps1 — Start cloudflare quick tunnel (supports -Kill)
 Test-Solve.ps1 — Send test prompt to agent, tail logs
-Submit-Run.ps1 — Full submission flow: auto-start, submit, poll, replay
+Submit-Run.ps1 — Full submission flow: auto-start, submit, poll, replay, refresh tasks
 Analyze-Run.ps1 — Analyze a run: prompts, extraction, API calls, checks (see Logging & Diagnostics)
+Refresh-Tasks.ps1 — Regenerate task docs (prompts.md, runs.md, history.md) + PRIORITY_EXECUTION_ORDER.md
 src/
 Program.cs — Minimal API setup, /solve endpoint, ping fast-path
 Models/
