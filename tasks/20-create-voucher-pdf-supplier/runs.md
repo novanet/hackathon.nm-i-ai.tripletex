@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:59:08 |
+| Timestamp | 03/21/2026 23:03:02 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 14524 ms |
+| Elapsed | 4705 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -19,7 +19,7 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6300&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6540&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
@@ -28,7 +28,6 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Rivière SARL","supplierOrgNumber":"924082747","invoiceNumber":"INV-2026-1096","account":"6300","amount":81062,"date":"2026-01-03","vatRate":"25"}},"relationships":{},"raw_amounts":["64850","16212","81062"],"dates":["2026-01-03","2026-02-02"],"files_needed":true}
+{"task_type":"create_voucher","action":"create","language":"en","entities":{"voucher":{"supplierName":"Blueshore Ltd","supplierOrgNumber":"844164459","invoiceNumber":"INV-2026-9784","account":"6540","amount":97062,"date":"2026-01-06","vatRate":"25"}},"relationships":{},"raw_amounts":["77650","19412","97062"],"dates":["2026-01-06","2026-02-05"],"files_needed":true}
 ```
-
 

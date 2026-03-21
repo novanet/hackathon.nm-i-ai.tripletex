@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 21:09:43 |
+| Timestamp | 03/21/2026 23:02:42 |
 | Task Type | `create_supplier` |
 | Handler | `SupplierHandler` |
 | Success | True |
-| Elapsed | 4254 ms |
+| Elapsed | 2449 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_supplier","action":"create","language":"en","entities":{"supplier":{"name":"Brightstone Ltd","orgNumber":"849923331","email":"faktura@brightstoneltd.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_supplier","action":"create","language":"es","entities":{"supplier":{"name":"Dorada SL","orgNumber":"958363060","email":"faktura@doradasl.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

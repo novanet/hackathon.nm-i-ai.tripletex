@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:53:56 |
+| Timestamp | 03/21/2026 22:56:48 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 5670 ms |
+| Elapsed | 6750 ms |
 | API Calls | 7 |
 | Errors | 0 |
 
@@ -20,16 +20,16 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
 | 2 | `GET` | `/currency?code=EUR&count=1&fields=id%2Ccode` | ✅  |  |
-| 3 | `POST` | `/customer` | ✅  |  |
-| 4 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 4 | `POST` | `/customer` | ✅  |  |
 | 5 | `POST` | `/order` | ✅  |  |
 | 6 | `POST` | `/invoice` | ✅  |  |
-| 7 | `PUT` | `/invoice/2147619186/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
+| 7 | `PUT` | `/invoice/2147648308/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"en","entities":{"invoice":{"customerName":"Ironbridge Ltd","customerOrgNumber":"915238106","amount":11671,"currency":"EUR","exchangeRateAtInvoicing":11.22,"exchangeRateAtPayment":11.71},"exchangeRateDifference":{"amount":5707.79,"account":"8070"}},"relationships":{"customer":"Ironbridge Ltd"},"raw_amounts":["11671","11.22","11.71","5707.79"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"update","language":"nn","entities":{"invoice":{"amount":11219,"currency":"EUR","exchangeRateAtInvoice":10.02,"exchangeRateAtPayment":10.29},"customer":{"name":"Bølgekraft AS","orgNumber":"825006206"},"exchangeRateDifference":{"amount":3030.57,"account":"8070"}},"relationships":{"customer":"Bølgekraft AS"},"raw_amounts":["11219","10.02","10.29","3030.57"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

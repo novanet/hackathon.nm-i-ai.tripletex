@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 21:08:21 |
+| Timestamp | 03/21/2026 22:58:23 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 6799 ms |
+| Elapsed | 8906 ms |
 | API Calls | 8 |
 | Errors | 0 |
 
@@ -18,19 +18,19 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=808812096&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/employee?count=1&fields=id&firstName=Daniel&lastName=Harris` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=978714609&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=Grace&lastName=Walker` | ✅  |  |
 | 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
 | 4 | `POST` | `/project` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 6 | `PUT` | `/ledger/account/472725234` | ✅  |  |
+| 6 | `PUT` | `/ledger/account/476510278` | ✅  |  |
 | 7 | `POST` | `/order` | ✅  |  |
 | 8 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"en","entities":{"project":{"name":"Data Platform Ridgepoint","customerName":"Ridgepoint Ltd","customerOrgNumber":"808812096","budget":316550,"projectManager":{"firstName":"Daniel","lastName":"Harris","email":"daniel.harris@example.org"}},"timesheet1":{"employee":{"firstName":"Daniel","lastName":"Harris","email":"daniel.harris@example.org"},"hours":54,"activityName":"Project Management"},"timesheet2":{"employee":{"firstName":"Grace","lastName":"Johnson","email":"grace.johnson@example.org"},"hours":78,"activityName":"Consulting"},"voucher":{"supplierName":"Ironbridge Ltd","supplierOrgNumber":"814796019","invoiceNumber":null,"account":"6000","amount":58200,"date":null},"invoice":{"customerName":"Ridgepoint Ltd","customerOrgNumber":"808812096","projectName":"Data Platform Ridgepoint","orderLines":[{"description":"Project work for Data Platform Ridgepoint","quantity":1,"unitPrice":316550}]}},"relationships":{"customer":"Ridgepoint Ltd"},"raw_amounts":["316550","58200"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"en","entities":{"project":{"name":"System Upgrade Windmill","customerName":"Windmill Ltd","customerOrgNumber":"978714609","budget":336750,"projectManager":{"firstName":"Grace","lastName":"Walker","email":"grace.walker@example.org"}},"timesheet1":{"employee":{"firstName":"Grace","lastName":"Walker","email":"grace.walker@example.org"},"hours":46,"activityName":"Project Management"},"timesheet2":{"employee":{"firstName":"Edward","lastName":"Smith","email":"edward.smith@example.org"},"hours":90,"activityName":"Consulting"},"voucher":{"supplierName":"Greenfield Ltd","supplierOrgNumber":"975733173","invoiceNumber":null,"account":"6000","amount":60750},"invoice":{"customerName":"Windmill Ltd","customerOrgNumber":"978714609","orderLines":[{"description":"System Upgrade Windmill Project","count":1,"unitPrice":336750}]}},"relationships":{"customer":"Windmill Ltd"},"raw_amounts":["336750","60750"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

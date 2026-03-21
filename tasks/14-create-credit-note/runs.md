@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/20/2026 23:07:45 |
+| Timestamp | 03/21/2026 23:03:51 |
 | Task Type | `create_credit_note` |
 | Handler | `CreditNoteHandler` |
 | Success | True |
-| Elapsed | 14829 ms |
+| Elapsed | 4094 ms |
 | API Calls | 5 |
 | Errors | 0 |
 
@@ -18,11 +18,17 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?count=1&fields=id%2Cname&name=Tindra%20AS` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 2 | `POST` | `/customer` | ✅  |  |
 | 3 | `POST` | `/order` | ✅  |  |
 | 4 | `POST` | `/invoice` | ✅  |  |
-| 5 | `PUT` | `/invoice/2147554056/:createCreditNote?date=2026-03-21&sendTo...` | ✅  |  |
+| 5 | `PUT` | `/invoice/2147649162/:createCreditNote?date=2026-03-22&sendTo...` | ✅  |  |
+
+### LLM Extraction
+
+```json
+{"task_type":"create_credit_note","action":"reverse","language":"nn","entities":{"creditNote":{"customerName":"Nordlys AS","customerOrgNumber":"829535181","description":"Nettverksteneste","amount":15550.0,"vatIncluded":false}},"relationships":{"customer":"Nordlys AS"},"raw_amounts":["15550.00"],"dates":[],"files_needed":false}
+```
 
 ## Latest Sandbox Run
 
@@ -59,5 +65,4 @@
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
 | credit_note_created | `true` | `true` | ✅ | 3 |
-
 

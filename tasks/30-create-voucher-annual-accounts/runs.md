@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 18:01:13 |
+| Timestamp | 03/21/2026 23:01:34 |
 | Task Type | `annual_accounts` |
 | Handler | `AnnualAccountsHandler` |
 | Success | True |
-| Elapsed | 10321 ms |
-| API Calls | 19 |
+| Elapsed | 9140 ms |
+| API Calls | 18 |
 | Errors | 0 |
 
 ### API Calls
@@ -27,8 +27,8 @@
 | 7 | `GET` | `/ledger/account?number=1700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 8 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 9 | `GET` | `/ledger/account?number=2920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 10 | `GET` | `/ledger/account?number=1250&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 11 | `GET` | `/ledger/account?number=1210&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 10 | `GET` | `/ledger/account?number=1240&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 11 | `GET` | `/ledger/account?number=1250&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 12 | `GET` | `/ledger/account?number=1230&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 13 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 | 14 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
@@ -36,12 +36,11 @@
 | 16 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 17 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 | 18 | `GET` | `/ledger/posting?dateFrom=2025-01-01&dateTo=2026-01-01&accoun...` | ✅  |  |
-| 19 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"annual_accounts","action":"create","language":"de","entities":{"annualAccounts":{"date":"2025-12-31","depreciationExpenseAccount":"6010","accumulatedDepreciationAccount":"1209","prepaidAccount":"1700","prepaidAmount":45700,"taxExpenseAccount":"8700","taxPayableAccount":"2920","taxRate":0.22},"asset1":{"name":"Programvare","bookValue":352200,"usefulLife":10,"assetAccount":"1250"},"asset2":{"name":"IT-utstyr","bookValue":66950,"usefulLife":6,"assetAccount":"1210"},"asset3":{"name":"Kjøretøy","bookValue":210600,"usefulLife":8,"assetAccount":"1230"}},"relationships":{},"raw_amounts":["352200","66950","210600","45700"],"dates":["2025-12-31"],"files_needed":false}
+{"task_type":"annual_accounts","action":"create","language":"fr","entities":{"annualAccounts":{"date":"2025-12-31","depreciationExpenseAccount":"6010","accumulatedDepreciationAccount":"1209","prepaidAccount":"1700","prepaidAmount":23750,"taxExpenseAccount":"8700","taxPayableAccount":"2920","taxRate":0.22},"asset1":{"name":"Inventar","bookValue":340300,"usefulLife":7,"assetAccount":"1240"},"asset2":{"name":"Programvare","bookValue":218450,"usefulLife":6,"assetAccount":"1250"},"asset3":{"name":"Kjøretøy","bookValue":216150,"usefulLife":8,"assetAccount":"1230"}},"relationships":{},"raw_amounts":["340300","218450","216150","23750"],"dates":["2025-12-31"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

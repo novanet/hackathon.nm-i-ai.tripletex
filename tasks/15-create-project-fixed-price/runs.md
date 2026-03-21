@@ -31,39 +31,40 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 08:56:02 |
-| Task Type | `create_project` |
+| Timestamp | 03/21/2026 22:39:12 |
+| Task Type | `set_fixed_price` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 4537 ms |
-| API Calls | 5 |
+| Elapsed | 6045 ms |
+| API Calls | 11 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?name=Nordland%20Bygg%20AS&count=1&fields=id%2Cname` | ✅  |  |
-| 2 | `GET` | `/employee?count=1&fields=id&firstName=Kari&lastName=Nordmann` | ✅  |  |
-| 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
-| 4 | `POST` | `/project` | ✅  |  |
-| 5 | `GET` | `/project/401997820?fields=id%2Cname%2Ccustomer%2CprojectMana...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=846715363&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/customer?name=For%C3%AAt%20SARL&count=1&fields=id%2Cname` | ✅  |  |
+| 3 | `GET` | `/employee?count=1&fields=id&firstName=Camille&lastName=Marti...` | ✅  |  |
+| 4 | `GET` | `/employee?count=1&fields=id&email=camille.martin%40example.o...` | ✅  |  |
+| 5 | `GET` | `/department?count=1&fields=id` | ✅  |  |
+| 6 | `POST` | `/employee` | ✅  |  |
+| 7 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
+| 8 | `POST` | `/project` | ✅  |  |
+| 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 10 | `POST` | `/order` | ✅  |  |
+| 11 | `POST` | `/invoice` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 10 / 10 |
+| Points | 1 / 1 |
 
 ### Checks
 
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
-| project_found | `true` | `true` | ✅ | 2 |
-| name | `Byggeprosjekt Lofoten` | `Byggeprosjekt Lofoten` | ✅ | 2 |
-| has_customer | `true` | `true` | ✅ | 2 |
-| has_project_manager | `true` | `true` | ✅ | 2 |
-| isFixedPrice | `true` | `true` | ✅ | 2 |
-
+| handler_executed | `true` | `true` | ✅ | 1 |
 

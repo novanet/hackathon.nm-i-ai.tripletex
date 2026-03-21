@@ -6,34 +6,35 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:46:05 |
+| Timestamp | 03/21/2026 22:59:31 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 24873 ms |
-| API Calls | 11 |
+| Elapsed | 34623 ms |
+| API Calls | 12 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=936514200&count=1&fields=id%2Cn...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=941944566&count=1&fields=id%2Cn...` | ✅  |  |
 | 2 | `GET` | `/employee?count=1&fields=id` | ✅  |  |
 | 3 | `POST` | `/project` | ✅  |  |
 | 4 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅  |  |
-| 5 | `GET` | `/employee?count=1&fields=id&firstName=Laura&lastName=M%C3%BC...` | ✅  |  |
-| 6 | `GET` | `/activity?name=R%C3%A5dgivning&count=1&fields=id` | ✅  |  |
+| 5 | `GET` | `/employee?count=1&fields=id&firstName=Anna&lastName=Becker` | ✅  |  |
+| 6 | `GET` | `/activity?name=Testing&count=1&fields=id` | ✅  |  |
 | 7 | `POST` | `/project/projectActivity` | ✅  |  |
 | 8 | `POST` | `/timesheet/entry` | ✅  |  |
 | 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 10 | `POST` | `/order` | ✅  |  |
-| 11 | `POST` | `/invoice` | ✅  |  |
+| 10 | `PUT` | `/ledger/account/377794742` | ✅  |  |
+| 11 | `POST` | `/order` | ✅  |  |
+| 12 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","entities":{"project":{"name":"Datenmigration","customerName":"Nordlicht GmbH","customerOrgNumber":"936514200"},"timesheet":{"hours":20,"hourlyRate":1550,"activityName":"Rådgivning"},"employee":{"firstName":"Laura","lastName":"Müller","email":"laura.muller@example.org"}},"relationships":{"customer":"Nordlicht GmbH"},"action":"create","raw_amounts":["1550.00"],"dates":[],"files_needed":false,"language":"de"}
+{"task_type":"create_project","action":"create","language":"de","entities":{"project":{"name":"Website-Redesign","customerName":"Windkraft GmbH","customerOrgNumber":"941944566"},"timesheet":{"hours":25,"hourlyRate":1200,"activityName":"Testing"},"employee":{"firstName":"Anna","lastName":"Becker","email":"anna.becker@example.org"}},"relationships":{"customer":"Windkraft GmbH"},"raw_amounts":["1200"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
@@ -84,5 +85,4 @@
 | name | `Redesign do site` | `Redesign do site` | ✅ | 2 |
 | has_customer | `true` | `true` | ✅ | 1 |
 | has_project_manager | `true` | `true` | ✅ | 1 |
-
 
