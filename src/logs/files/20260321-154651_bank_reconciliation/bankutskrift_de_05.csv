@@ -1,0 +1,12 @@
+Dato;Forklaring;Inn;Ut;Saldo
+2026-01-16;Innbetaling fra Wagner GmbH / Faktura 1001;23625.00;;123625.00
+2026-01-19;Innbetaling fra Wagner GmbH / Faktura 1002;28812.50;;152437.50
+2026-01-22;Innbetaling fra Weber GmbH / Faktura 1003;15250.00;;167687.50
+2026-01-25;Innbetaling fra Becker GmbH / Faktura 1004;17875.00;;185562.50
+2026-01-28;Innbetaling fra Meyer GmbH / Faktura 1005;10750.00;;196312.50
+2026-01-31;Betaling Lieferant Hoffmann GmbH;;-19450.00;176862.50
+2026-02-02;Betaling Lieferant Weber GmbH;;-7500.00;169362.50
+2026-02-04;Betaling Lieferant Wagner GmbH;;-5800.00;163562.50
+2026-02-05;Bankgebyr;;-57.41;163505.09
+2026-02-06;Bankgebyr;315.79;;163820.88
+2026-02-08;Bankgebyr;1704.68;;165525.56
