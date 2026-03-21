@@ -1,0 +1,11 @@
+Konto,Kontonavn,Inngående saldo,Utgående saldo,Bokført dato,Forklarende tekst,Ut,Inn
+1920,Bankkonto 1920,100000.00,106937.50,2026-01-17,Innbetaling fra Vik AS / Faktura 1001,,6937.50
+1920,Bankkonto 1920,106937.50,136250.00,2026-01-18,Innbetaling fra Haugen AS / Faktura 1002,,29312.50
+1920,Bankkonto 1920,136250.00,155062.50,2026-01-19,Innbetaling fra Eide AS / Faktura 1003,,18812.50
+1920,Bankkonto 1920,155062.50,184312.50,2026-01-20,Innbetaling fra Vik AS / Faktura 1004,,29250.00
+1920,Bankkonto 1920,184312.50,193187.50,2026-01-22,Innbetaling fra Berge AS / Faktura 1005,,8875.00
+1920,Bankkonto 1920,193187.50,182487.50,2026-01-23,Betaling Leverandor Vik AS,10700.00,
+1920,Bankkonto 1920,182487.50,169937.50,2026-01-25,Betaling Leverandor Neset AS,12550.00,
+1920,Bankkonto 1920,169937.50,154787.50,2026-01-26,Betaling Leverandor Vik AS,15150.00,
+1920,Bankkonto 1920,154787.50,156117.62,2026-01-27,Skattetrekk,,1330.12
+1920,Bankkonto 1920,156117.62,154522.75,2026-01-29,Bankgebyr,1594.87,
