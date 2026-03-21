@@ -442,15 +442,43 @@ public class VoucherHandler : ITaskHandler
         var date = GetStringField(voucher, "date")
             ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : DateTime.Now.ToString("yyyy-MM-dd"));
 
-        // 1. Create supplier
+        // 1. Create supplier (failure is non-fatal — importDocument can still run)
         var supplierBody = new Dictionary<string, object> { ["name"] = supplierName! };
         if (supplierOrgNumber != null) supplierBody["organizationNumber"] = supplierOrgNumber;
         var email = GetStringField(voucher, "supplierEmail") ?? GetStringField(voucher, "email");
         if (email != null) supplierBody["email"] = email;
 
-        var supplierResult = await api.PostAsync("/supplier", supplierBody);
-        var supplierId = supplierResult.GetProperty("value").GetProperty("id").GetInt64();
-        _logger.LogInformation("Created supplier '{Name}' ID: {Id}", supplierName, supplierId);
+        long? supplierId = null;
+        try
+        {
+            var supplierResult = await api.PostAsync("/supplier", supplierBody);
+            supplierId = supplierResult.GetProperty("value").GetProperty("id").GetInt64();
+            _logger.LogInformation("Created supplier '{Name}' ID: {Id}", supplierName, supplierId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("POST /supplier failed ({Msg}), trying GET /supplier to find existing", ex.Message);
+            try
+            {
+                var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,name" };
+                if (supplierOrgNumber != null) searchParams["organizationNumber"] = supplierOrgNumber;
+                else searchParams["name"] = supplierName!;
+                var searchResult = await api.GetAsync("/supplier", searchParams);
+                if (searchResult.TryGetProperty("values", out var svVals))
+                    foreach (var sv in svVals.EnumerateArray())
+                    {
+                        supplierId = sv.GetProperty("id").GetInt64();
+                        _logger.LogInformation("Found existing supplier '{Name}' ID: {Id}", supplierName, supplierId);
+                        break;
+                    }
+            }
+            catch (Exception ex2)
+            {
+                _logger.LogWarning("GET /supplier also failed ({Msg}), continuing without supplier ID", ex2.Message);
+            }
+        }
+        if (!supplierId.HasValue)
+            _logger.LogWarning("Could not create or find supplier '{Name}', proceeding without supplierId", supplierName);
 
         // 2. Resolve expense account (with vatLocked check)
         var (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
@@ -511,11 +539,11 @@ public class VoucherHandler : ITaskHandler
                     ["account"] = new { id = accountId!.Value },
                     ["amountGross"] = amount,
                     ["amountGrossCurrency"] = amount,
-                    ["supplier"] = new { id = supplierId },
                     ["date"] = date,
                     ["description"] = description,
                     ["row"] = 1
                 };
+                if (supplierId.HasValue) postingData["supplier"] = new { id = supplierId.Value };
                 if (inputVatId.HasValue) postingData["vatType"] = new { id = inputVatId.Value };
                 if (invoiceNumber != null) postingData["invoiceNumber"] = invoiceNumber;
 
@@ -563,9 +591,9 @@ public class VoucherHandler : ITaskHandler
             ["account"] = new { id = accountId!.Value },
             ["amountGross"] = amount,
             ["amountGrossCurrency"] = amount,
-            ["supplier"] = new { id = supplierId },
             ["row"] = 1
         };
+        if (supplierId.HasValue) debitPosting["supplier"] = new { id = supplierId.Value };
         if (inputVatId.HasValue) debitPosting["vatType"] = new { id = inputVatId.Value };
         if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
 
@@ -576,9 +604,9 @@ public class VoucherHandler : ITaskHandler
             ["account"] = new { id = creditorId!.Value },
             ["amountGross"] = -amount,
             ["amountGrossCurrency"] = -amount,
-            ["supplier"] = new { id = supplierId },
             ["row"] = 2
         };
+        if (supplierId.HasValue) creditPosting["supplier"] = new { id = supplierId.Value };
         if (invoiceNumber != null) creditPosting["invoiceNumber"] = invoiceNumber;
 
         _logger.LogInformation("Creating supplier invoice voucher (fallback): {Description} amount={Amount}", description, amount);
@@ -598,7 +626,10 @@ public class VoucherHandler : ITaskHandler
         var fallbackResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBodyFallback);
         var voucherId = fallbackResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created supplier invoice voucher (fallback) ID: {Id}", voucherId);
-        return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
+        // Return the importDocument voucher ID when available — competition validator finds it via search.
+        // The fallback classic voucher is secondary; the importDocument one registers as a supplier invoice.
+        var entityId = importedVoucherId ?? voucherId;
+        return new HandlerResult { EntityType = "supplierInvoice", EntityId = entityId };
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)
