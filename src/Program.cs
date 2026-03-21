@@ -47,6 +47,7 @@ builder.Services.AddSingleton<TimesheetHandler>();
 builder.Services.AddSingleton<FixedPriceProjectHandler>();
 builder.Services.AddSingleton<CostAnalysisHandler>();
 builder.Services.AddSingleton<AnnualAccountsHandler>();
+builder.Services.AddSingleton<LedgerCorrectionHandler>();
 builder.Services.AddSingleton<TaskRouter>();
 builder.Services.AddSingleton<SandboxValidator>();
 builder.Services.AddSingleton<TripletexKnowledgeService>();

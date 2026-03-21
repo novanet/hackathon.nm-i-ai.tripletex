@@ -22,12 +22,13 @@ public class LlmExtractor
         {
           "task_type": one of ["create_employee", "update_employee",
             "create_customer", "create_product", "create_department",
-            "create_invoice", "register_payment", "create_credit_note",
+            "create_invoice", "register_payment", "reminder_fee", "create_credit_note",
             "create_travel_expense", "delete_travel_expense",
             "create_project", "create_supplier", "create_voucher",
             "delete_entity", "enable_module", "run_payroll",
             "bank_reconciliation", "create_timesheet", "create_contact",
-            "set_fixed_price", "cost_analysis", "annual_accounts", "unknown"],
+            "set_fixed_price", "cost_analysis", "annual_accounts",
+            "correct_ledger", "unknown"],
           "entities": {
             "<entity_type>": {
               "<field>": "<value>"
@@ -55,6 +56,7 @@ public class LlmExtractor
         - For invoice tasks, extract customer info, order lines with description/count/unitPrice, and invoice dates. Prices are ALWAYS treated as EXCLUDING VAT by default — do NOT set "vatIncluded" at all unless the prompt EXPLICITLY says prices include VAT (e.g. "inkl. mva", "inkludert mva", "including VAT", "incl. VAT", "con IVA incluido", "IVA inclusa", "inkl. MwSt", "TTC"). Only then set "vatIncluded": true.
         - For travel expense, extract employee reference, title, travel details, and cost items. IMPORTANT: Always extract the employee as a SEPARATE top-level "employee" entity with "firstName", "lastName", "email" — NEVER nest the employee inside the travelExpense entity. Use "dailyAllowanceRate" (not "perDiemRate" or "dailyRate") for per diem rate.
         - If the prompt mentions registering/recording a payment, use "register_payment" even if it also describes creating the invoice
+        - If the prompt asks to find an overdue or past-due invoice and register reminder fees or late fees (purregebyr, inkassovarsling, Mahngebühr, recargo por mora, pénalité de retard, taxa de mora, reminder fee, late fee), use task_type "reminder_fee". Extract the fee amount into a "payment" entity: {"amount": <fee amount>}. Do NOT use "register_payment" for these tasks.
         - For credit notes, use "create_credit_note"
         - For vouchers/journal entries/postings, use "create_voucher"
         - For deleting entities, use "delete_entity" and set action to "delete"
@@ -69,6 +71,14 @@ public class LlmExtractor
         - For timesheet / hour logging tasks (registrere timer, log hours, timeregnstest, registrar horas, enregistrer heures, Stunden erfassen) that do NOT involve creating an invoice, use task_type "create_timesheet". Extract into a "timesheet" entity: "hours" (number), "activityName" (name of the activity), "date" (YYYY-MM-DD). Also extract "employee": {"firstName", "lastName", "email"} and "project": {"name"} if mentioned.
         - For creating a contact person for an existing customer (kontaktperson, contact person, persona de contacto, personne de contact, Ansprechpartner), use task_type "create_contact". Extract into a "contact" entity: "firstName", "lastName", "email", "phoneNumberMobile". Also extract "customer": {"name"} in relationships.
         - For tasks that set a fixed price on an existing project (sett fastpris, set fixed price, fijar precio fijo, prix fixe, Festpreis, definir preco fixo), use task_type "set_fixed_price". Extract into a "project" entity: "name" (project name), "fixedPrice" (amount as number). Also extract "customer" entity if mentioned.
+        - For ledger correction tasks (rette feil i regnskapet, rette feil i hovudboka, correct errors in the general ledger, correct ledger, korrigere bilag, Hauptbuchkorrektur, Korrektur Hauptbuch, corriger le grand livre, corriger grand livre, corregir el libro mayor, corrigir razão geral), use task_type "correct_ledger". Extract EACH individual error as a separate numbered entity: "correction1", "correction2", "correction3", "correction4", etc. Each correction entity must have:
+          - "errorType": exactly one of "wrong_account" (booked on wrong account), "duplicate" (duplicate/double entry), "missing_vat" (VAT posting missing), "wrong_amount" (incorrect amount booked)
+          - "account": the account number STRING (e.g. "6540") where the error appears
+          - "correctAccount": ONLY for "wrong_account" — the correct account number string (e.g. "6860")
+          - "amount": the amount involved (positive number, always excl. VAT)
+          - "postedAmount": ONLY for "wrong_amount" — the incorrectly posted amount (number)
+          - "correctAmount": ONLY for "wrong_amount" — the correct amount (number)
+          - "vatAccount": ONLY for "missing_vat" — VAT account number, typically "2710"
         - For simplified annual accounts / year-end closing tasks (forenklet årsoppgjør, simplified annual accounts, cierre contable anual, clôture annuelle, Jahresabschluss, fechamento contábil) that involve depreciation (avskrivninger, depreciation), prepaid reversals (forskuddsbetalte kostnader, prepaid), and/or tax calculations, use task_type "annual_accounts". Extract as follows:
           - Create an "annualAccounts" entity with: "date" (YYYY-MM-DD, typically Dec 31 of the year), "depreciationExpenseAccount" (e.g. "6010"), "accumulatedDepreciationAccount" (e.g. "1209"), "prepaidAccount" (e.g. "1700"), "prepaidAmount" (number), "taxExpenseAccount" (e.g. "8700"), "taxPayableAccount" (e.g. "2920"), "taxRate" (e.g. 0.22).
           - For each fixed asset to depreciate, create a separate entity "asset1", "asset2", "asset3" etc. with: "name" (asset name), "bookValue" (current book value as number), "usefulLife" (remaining useful life in years as number), "assetAccount" (the asset's balance sheet account number, e.g. "1210").
@@ -425,6 +435,10 @@ public class LlmExtractor
         else if (Regex.IsMatch(lower, @"\b(årsoppgjør|avskrivning|annual\s*accounts|depreciation|amortissement|jahresabschluss|depreciaci[oó]n|ammortamento|forskuddsbetalt|prepaid|skattekostnad)\b"))
         {
             result.TaskType = "annual_accounts";
+        }
+        else if (Regex.IsMatch(lower, @"(rette?\s*feil|korriger|ledger\s*correct|correct\s*ledger|correct\s*error|hauptbuchkorrektur|feil\s*i\s*(hoved|hovud)boka?|errors?\s+in\s+.*ledger|corriger.*grand\s*livre|corregir.*libro)"))
+        {
+            result.TaskType = "correct_ledger";
         }
         else
         {

@@ -23,6 +23,7 @@ public class TaskRouter
             ["create_supplier"] = services.GetRequiredService<SupplierHandler>(),
             ["create_invoice"] = services.GetRequiredService<InvoiceHandler>(),
             ["register_payment"] = services.GetRequiredService<PaymentHandler>(),
+            ["reminder_fee"] = services.GetRequiredService<PaymentHandler>(),
             ["create_project"] = services.GetRequiredService<ProjectHandler>(),
             ["create_travel_expense"] = services.GetRequiredService<TravelExpenseHandler>(),
             ["delete_travel_expense"] = services.GetRequiredService<TravelExpenseHandler>(),
@@ -37,6 +38,7 @@ public class TaskRouter
             ["update_project"] = services.GetRequiredService<FixedPriceProjectHandler>(),
             ["annual_accounts"] = services.GetRequiredService<AnnualAccountsHandler>(),
             ["cost_analysis"] = services.GetRequiredService<CostAnalysisHandler>(),
+            ["correct_ledger"] = services.GetRequiredService<LedgerCorrectionHandler>(),
         };
 
         var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")
@@ -121,9 +123,9 @@ public class TaskRouter
             && (string.IsNullOrEmpty(custRel) || custRel.Equals("unknown", StringComparison.OrdinalIgnoreCase));
         if (hasVoucher1 && hasPayment1 && customerUnknown)
         {
-            _logger.LogInformation("Inferred task_type register_payment from reminder-fees pattern (voucher1+payment1+unknown customer) (was {Original})", tt);
-            extracted.TaskType = "register_payment";
-            return "register_payment";
+            _logger.LogInformation("Inferred task_type reminder_fee from reminder-fees pattern (voucher1+payment1+unknown customer) (was {Original})", tt);
+            extracted.TaskType = "reminder_fee";
+            return "reminder_fee";
         }
 
         var hasVoucher = extracted.Entities.ContainsKey("voucher") && extracted.Entities["voucher"].Count > 0;

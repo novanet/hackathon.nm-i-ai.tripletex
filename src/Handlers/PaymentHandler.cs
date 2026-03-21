@@ -80,7 +80,10 @@ public class PaymentHandler : ITaskHandler
     /// <summary>Detect composite "reminder fees" task: voucher postings + payment + unknown customer</summary>
     private static bool IsReminderFeeTask(ExtractionResult extracted)
     {
-        // Must have voucher1 entity with debit/credit accounts (indicates accounting entry for fee)
+        // Primary: explicit task_type set by LLM
+        if (extracted.TaskType == "reminder_fee") return true;
+
+        // Legacy fallback: voucher1 entity with debit/credit accounts + payment + unknown customer
         var voucher1 = extracted.Entities.GetValueOrDefault("voucher1");
         if (voucher1 == null) return false;
         if (!voucher1.ContainsKey("debitAccount") || !voucher1.ContainsKey("creditAccount")) return false;

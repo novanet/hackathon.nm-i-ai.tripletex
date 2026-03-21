@@ -48,6 +48,7 @@ public class SandboxValidator
                     await ValidateInvoice(api, extracted, handlerResult, report);
                     break;
                 case "register_payment":
+                case "reminder_fee":
                     await ValidatePayment(api, extracted, handlerResult, report);
                     break;
                 case "create_project":
@@ -61,6 +62,9 @@ public class SandboxValidator
                     break;
                 case "create_voucher":
                     await ValidateVoucher(api, extracted, handlerResult, report);
+                    break;
+                case "correct_ledger":
+                    await ValidateLedgerCorrection(api, extracted, handlerResult, report);
                     break;
                 case "annual_accounts":
                     await ValidateAnnualAccounts(api, extracted, handlerResult, report);
@@ -804,6 +808,51 @@ public class SandboxValidator
         // Check first voucher has postings
         bool hasPostings = voucher.TryGetProperty("postings", out var postings) && postings.GetArrayLength() >= 2;
         report.Checks.Add(new ValidationCheck("has_postings", "≥2", postings.GetArrayLength().ToString(), hasPostings, 2));
+    }
+
+    private async Task ValidateLedgerCorrection(TripletexApiClient api, ExtractionResult extracted, HandlerResult handlerResult, ValidationReport report)
+    {
+        // Expect at least one correction voucher to have been created
+        if (handlerResult.EntityId == null)
+        {
+            report.Checks.Add(new ValidationCheck("correction_vouchers_found", "≥1", "0", false, 4));
+            return;
+        }
+
+        var allIds = new List<long> { handlerResult.EntityId.Value };
+        allIds.AddRange(handlerResult.AdditionalEntityIds);
+
+        report.Checks.Add(new ValidationCheck("correction_vouchers_found", "≥1", allIds.Count.ToString(), allIds.Count >= 1, 2));
+        report.Checks.Add(new ValidationCheck("all_corrections_applied", "4", allIds.Count.ToString(), allIds.Count >= 4, 4));
+
+        // Verify first correction voucher exists and has balanced postings
+        var voucherId = handlerResult.EntityId.Value;
+        try
+        {
+            var response = await api.GetAsync($"/ledger/voucher/{voucherId}", new Dictionary<string, string>
+            { ["fields"] = "id,date,description,postings(id,amountGross,account(id,number))" });
+            if (!response.TryGetProperty("value", out var voucher))
+            {
+                report.Checks.Add(new ValidationCheck("voucher_valid", "valid", "not_found", false, 2));
+                return;
+            }
+            report.Checks.Add(new ValidationCheck("voucher_valid", "valid", "valid", true, 1));
+
+            if (voucher.TryGetProperty("postings", out var postings))
+            {
+                var count = postings.GetArrayLength();
+                decimal sum = 0m;
+                foreach (var p in postings.EnumerateArray())
+                    if (p.TryGetProperty("amountGross", out var ag) && ag.ValueKind == JsonValueKind.Number)
+                        sum += ag.GetDecimal();
+                report.Checks.Add(new ValidationCheck("postings_balanced", "0", sum.ToString("F2"), Math.Abs(sum) < 0.01m, 3));
+                report.Checks.Add(new ValidationCheck("postings_count", "≥2", count.ToString(), count >= 2, 1));
+            }
+        }
+        catch
+        {
+            report.Checks.Add(new ValidationCheck("voucher_valid", "valid", "error", false, 2));
+        }
     }
 
     private static readonly Dictionary<string, string> _deleteEntityPaths = new(StringComparer.OrdinalIgnoreCase)
