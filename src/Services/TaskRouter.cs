@@ -39,6 +39,7 @@ public class TaskRouter
             ["annual_accounts"] = services.GetRequiredService<AnnualAccountsHandler>(),
             ["cost_analysis"] = services.GetRequiredService<CostAnalysisHandler>(),
             ["correct_ledger"] = services.GetRequiredService<LedgerCorrectionHandler>(),
+            ["overdue_invoice_reminder"] = services.GetRequiredService<PaymentHandler>(),
         };
 
         var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN")

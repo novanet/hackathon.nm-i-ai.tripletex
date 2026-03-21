@@ -102,8 +102,8 @@ public class LedgerCorrectionHandler : ITaskHandler
                     // Reverse wrong account, add to correct account — both sum to 0
                     postings = new List<object>
                 {
-                    new { account = new { id = correctId.Value }, amountGross = c.Amount, amountGrossCurrency = c.Amount, row = 1, date, description },
-                    new { account = new { id = wrongId.Value }, amountGross = -c.Amount, amountGrossCurrency = -c.Amount, row = 2, date, description }
+                    new { account = new { id = correctId.Value }, amountGross = (double)c.Amount, amountGrossCurrency = (double)c.Amount, row = 1, date, description },
+                    new { account = new { id = wrongId.Value }, amountGross = -(double)c.Amount, amountGrossCurrency = -(double)c.Amount, row = 2, date, description }
                 };
                     break;
                 }
@@ -123,8 +123,8 @@ public class LedgerCorrectionHandler : ITaskHandler
                     // Reverse: counter gets +amount, error account gets -amount
                     postings = new List<object>
                 {
-                    new { account = new { id = counterId.Value }, amountGross = c.Amount, amountGrossCurrency = c.Amount, row = 1, date, description },
-                    new { account = new { id = errorId.Value }, amountGross = -c.Amount, amountGrossCurrency = -c.Amount, row = 2, date, description }
+                    new { account = new { id = counterId.Value }, amountGross = (double)c.Amount, amountGrossCurrency = (double)c.Amount, row = 1, date, description },
+                    new { account = new { id = errorId.Value }, amountGross = -(double)c.Amount, amountGrossCurrency = -(double)c.Amount, row = 2, date, description }
                 };
                     break;
                 }
@@ -145,8 +145,8 @@ public class LedgerCorrectionHandler : ITaskHandler
                     // Add missing VAT: debit 2710, credit counter-account
                     postings = new List<object>
                 {
-                    new { account = new { id = vatId.Value }, amountGross = vatAmt, amountGrossCurrency = vatAmt, row = 1, date, description },
-                    new { account = new { id = counterId.Value }, amountGross = -vatAmt, amountGrossCurrency = -vatAmt, row = 2, date, description }
+                    new { account = new { id = vatId.Value }, amountGross = (double)vatAmt, amountGrossCurrency = (double)vatAmt, row = 1, date, description },
+                    new { account = new { id = counterId.Value }, amountGross = -(double)vatAmt, amountGrossCurrency = -(double)vatAmt, row = 2, date, description }
                 };
                     break;
                 }
@@ -172,8 +172,8 @@ public class LedgerCorrectionHandler : ITaskHandler
                     // Reverse the excess: counter-account gets +diff, error account gets -diff
                     postings = new List<object>
                 {
-                    new { account = new { id = counterId.Value }, amountGross = diff, amountGrossCurrency = diff, row = 1, date, description },
-                    new { account = new { id = errorId.Value }, amountGross = -diff, amountGrossCurrency = -diff, row = 2, date, description }
+                    new { account = new { id = counterId.Value }, amountGross = (double)diff, amountGrossCurrency = (double)diff, row = 1, date, description },
+                    new { account = new { id = errorId.Value }, amountGross = -(double)diff, amountGrossCurrency = -(double)diff, row = 2, date, description }
                 };
                     break;
                 }
