@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:34:55 |
+| Timestamp | 03/21/2026 23:42:20 |
 | Task Type | `annual_accounts` |
 | Handler | `AnnualAccountsHandler` |
 | Success | True |
-| Elapsed | 9583 ms |
-| API Calls | 19 |
+| Elapsed | 9332 ms |
+| API Calls | 14 |
 | Errors | 0 |
 
 ### API Calls
@@ -22,26 +22,21 @@
 | 2 | `POST` | `/ledger/account` | ✅  |  |
 | 3 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber` | ✅  |  |
 | 4 | `POST` | `/ledger/account` | ✅  |  |
-| 5 | `GET` | `/ledger/account?number=6010&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=6030&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 6 | `GET` | `/ledger/account?number=1209&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 7 | `GET` | `/ledger/account?number=1700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 8 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 9 | `GET` | `/ledger/account?number=2920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 10 | `GET` | `/ledger/account?number=1210&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 11 | `GET` | `/ledger/account?number=1240&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 12 | `GET` | `/ledger/account?number=1250&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 13 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 11 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 12 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 13 | `GET` | `/ledger/posting?dateFrom=2026-01-01&dateTo=2027-01-01&accoun...` | ✅  |  |
 | 14 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 15 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 16 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 17 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 18 | `GET` | `/ledger/posting?dateFrom=2025-01-01&dateTo=2026-01-01&accoun...` | ✅  |  |
-| 19 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"annual_accounts","action":"create","language":"en","entities":{"annualAccounts":{"date":"2025-12-31","depreciationExpenseAccount":"6010","accumulatedDepreciationAccount":"1209","prepaidAccount":"1700","prepaidAmount":20350,"taxExpenseAccount":"8700","taxPayableAccount":"2920","taxRate":0.22},"asset1":{"name":"IT-utstyr","bookValue":99450,"usefulLife":6,"assetAccount":"1210"},"asset2":{"name":"Inventar","bookValue":252750,"usefulLife":3,"assetAccount":"1240"},"asset3":{"name":"Programvare","bookValue":74300,"usefulLife":3,"assetAccount":"1250"}},"relationships":{},"raw_amounts":["99450","252750","74300","20350"],"dates":["2025-12-31"],"files_needed":false}
+{"task_type":"annual_accounts","action":"create","language":"de","entities":{"annualAccounts":{"date":"2026-03-31","depreciationExpenseAccount":"6030","accumulatedDepreciationAccount":"1209","prepaidAccount":"1700","prepaidAmount":4200,"taxExpenseAccount":null,"taxPayableAccount":null,"taxRate":null},"asset1":{"name":"Anlage","bookValue":64000,"usefulLife":3,"assetAccount":"1210"},"provision1":{"expenseAccount":"5000","liabilityAccount":"2900","amount":null}},"relationships":{},"raw_amounts":["4200.00","64000.00"],"dates":["2026-03-31"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

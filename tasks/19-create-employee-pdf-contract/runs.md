@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:38:23 |
+| Timestamp | 03/21/2026 23:44:39 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 7665 ms |
+| Elapsed | 6337 ms |
 | API Calls | 10 |
 | Errors | 0 |
 
@@ -20,19 +20,19 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=camille.bernard%40example.org&count=10&field...` | ✅  |  |
+| 3 | `GET` | `/employee?email=camille.moreau%40example.org&count=10&fields...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
 | 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/employee/employment?employeeId=18695982&count=1&fields=id%2...` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18697637&count=1&fields=id%2...` | ✅  |  |
 | 7 | `GET` | `/employee/employment/occupationCode?from=0&count=1000&fields...` | ✅  |  |
-| 8 | `GET` | `/employee/employment/occupationCode?nameNO=Kontorarbeider&co...` | ✅  |  |
-| 9 | `GET` | `/employee/employment/2850272?fields=id%2CemploymentDetails%2...` | ✅  |  |
+| 8 | `GET` | `/employee/employment/occupationCode?nameNO=Regnskapsf%C3%B8r...` | ✅  |  |
+| 9 | `GET` | `/employee/employment/2851060?fields=id%2CemploymentDetails%2...` | ✅  |  |
 | 10 | `POST` | `/employee/employment/details` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"fr","entities":{"employee":{"firstName":"Camille","lastName":"Bernard","email":"camille.bernard@example.org","dateOfBirth":"1992-09-04","nationalIdentityNumber":"04099226434","bankAccountNumber":"18891171818","startDate":"2026-04-09","occupationCode":"4110","occupationName":"Kontorarbeider","employmentPercentage":100.0,"annualSalary":790000,"employmentType":"permanent","employmentForm":"Fast stilling","salaryType":"monthly salary"},"department":{"name":"Drift"}},"relationships":{},"raw_amounts":["790000"],"dates":["2026-04-09","1992-09-04"],"files_needed":false}
+{"task_type":"create_employee","action":"create","language":"fr","entities":{"employee":{"firstName":"Camille","lastName":"Moreau","dateOfBirth":"1984-01-12","nationalIdentityNumber":"12018486901","email":"camille.moreau@example.org","bankAccountNumber":"27925957246","startDate":"2026-04-23","occupationCode":"3323","occupationName":"Regnskapsfører","employmentPercentage":80.0,"annualSalary":860000,"employmentType":"permanent","salaryType":"monthly salary"},"department":{"name":"Lager"}},"relationships":{},"raw_amounts":["860000"],"dates":["2026-04-23","1984-01-12"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

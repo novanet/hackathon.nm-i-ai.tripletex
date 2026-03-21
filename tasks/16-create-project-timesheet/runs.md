@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:39:33 |
+| Timestamp | 03/21/2026 23:45:34 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 7531 ms |
+| Elapsed | 7026 ms |
 | API Calls | 12 |
 | Errors | 0 |
 
@@ -18,23 +18,23 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=980551709&count=1&fields=id%2Cn...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=976689283&count=1&fields=id%2Cn...` | ✅  |  |
 | 2 | `GET` | `/employee?count=1&fields=id` | ✅  |  |
 | 3 | `POST` | `/project` | ✅  |  |
 | 4 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅  |  |
-| 5 | `GET` | `/employee?count=1&fields=id&firstName=Diego&lastName=S%C3%A1...` | ✅  |  |
+| 5 | `GET` | `/employee?count=1&fields=id&firstName=Leonor&lastName=Silva` | ✅  |  |
 | 6 | `GET` | `/activity?name=Analyse&count=1&fields=id` | ✅  |  |
 | 7 | `POST` | `/project/projectActivity` | ✅  |  |
 | 8 | `POST` | `/timesheet/entry` | ✅  |  |
 | 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 10 | `PUT` | `/ledger/account/478838613` | ✅  |  |
+| 10 | `PUT` | `/ledger/account/479188310` | ✅  |  |
 | 11 | `POST` | `/order` | ✅  |  |
 | 12 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"es","entities":{"project":{"name":"Desarrollo de app","customerName":"Olivares SL","customerOrgNumber":"980551709"},"timesheet":{"hours":39,"hourlyRate":1450,"activityName":"Analyse"},"employee":{"firstName":"Diego","lastName":"Sánchez","email":"diego.sanchez@example.org"}},"relationships":{"customer":"Olivares SL"},"raw_amounts":["1450.00"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"pt","entities":{"project":{"name":"Auditoria de segurança","customerName":"Porto Alegre Lda","customerOrgNumber":"976689283"},"timesheet":{"hours":15,"hourlyRate":1650,"activityName":"Analyse"},"employee":{"firstName":"Leonor","lastName":"Silva","email":"leonor.silva@example.org"}},"relationships":{"customer":"Porto Alegre Lda"},"raw_amounts":["24750.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

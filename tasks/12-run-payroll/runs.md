@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:28:32 |
+| Timestamp | 03/21/2026 23:42:45 |
 | Task Type | `run_payroll` |
 | Handler | `PayrollHandler` |
 | Success | False |
-| Elapsed | 4755 ms |
+| Elapsed | 6185 ms |
 | API Calls | 9 |
 | Errors | 2 |
 | Error | `employee: Arbeidsforholdet er ikke knyttet mot en virksomhet.` |
@@ -19,12 +19,12 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=si...` | ✅  |  |
-| 2 | `PUT` | `/employee/18693258` | ✅  |  |
+| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=lu...` | ✅  |  |
+| 2 | `PUT` | `/employee/18697077` | ✅  |  |
 | 3 | `GET` | `/division?count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/municipality?count=1&fields=id` | ✅  |  |
 | 5 | `POST` | `/division` | ✅  |  |
-| 6 | `GET` | `/employee/employment?employeeId=18693258&count=1&fields=id%2...` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18697077&count=1&fields=id%2...` | ✅  |  |
 | 7 | `POST` | `/employee/employment` | ✅  |  |
 | 8 | `GET` | `/salary/type?count=100&fields=id%2Cnumber%2Cname` | ✅  |  |
 | 9 | `POST` | `/salary/transaction?generateTaxDeduction=false` | ✅  |  |
@@ -32,7 +32,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"run_payroll","action":"create","language":"nn","entities":{"employee":{"firstName":"Sigrid","lastName":"Brekke","email":"sigrid.brekke@example.org"},"payroll":{"baseSalary":34950,"bonus":15350}},"relationships":{},"raw_amounts":["34950","15350"],"dates":[],"files_needed":false}
+{"task_type":"run_payroll","action":"create","language":"en","entities":{"employee":{"firstName":"Lucy","lastName":"Walker","email":"lucy.walker@example.org"},"payroll":{"baseSalary":43050,"bonus":6100}},"relationships":{},"raw_amounts":["43050","6100"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

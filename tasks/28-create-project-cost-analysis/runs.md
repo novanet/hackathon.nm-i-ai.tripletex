@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:38:02 |
+| Timestamp | 03/21/2026 23:45:08 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 6934 ms |
+| Elapsed | 7465 ms |
 | API Calls | 8 |
 | Errors | 0 |
 
@@ -18,19 +18,19 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=948221934&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/employee?count=1&fields=id&firstName=Diego&lastName=Mart%C3...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=957527353&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=Beatriz&lastName=Sousa` | ✅  |  |
 | 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
 | 4 | `POST` | `/project` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 6 | `PUT` | `/ledger/account/478741799` | ✅  |  |
+| 6 | `PUT` | `/ledger/account/479166615` | ✅  |  |
 | 7 | `POST` | `/order` | ✅  |  |
 | 8 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"es","entities":{"project":{"name":"Actualización Sistema Costa","customerName":"Costa Brava SL","customerOrgNumber":"948221934","budget":433850,"projectManager":{"firstName":"Diego","lastName":"Martínez","email":"diego.martinez@example.org"}},"timesheet1":{"employee":{"firstName":"Diego","lastName":"Martínez","email":"diego.martinez@example.org"},"hours":47,"activityName":"Project Management"},"timesheet2":{"employee":{"firstName":"Fernando","lastName":"Pérez","email":"fernando.perez@example.org"},"hours":124,"activityName":"Consulting"},"voucher":{"supplierName":"Luna SL","supplierOrgNumber":"851230610","invoiceNumber":null,"account":null,"amount":98650,"date":null,"vatRate":null},"invoice":{"customerName":"Costa Brava SL","customerOrgNumber":"948221934","orderLines":[{"description":"Actualización Sistema Costa","count":1,"unitPrice":433850}]}},"relationships":{"customer":"Costa Brava SL"},"raw_amounts":["433850","98650"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"pt","entities":{"project":{"name":"Implementação ERP Rio","customerName":"Rio Azul Lda","customerOrgNumber":"957527353","budget":386350,"projectManager":{"firstName":"Beatriz","lastName":"Sousa","email":"beatriz.sousa@example.org"}},"timesheet1":{"hours":79,"activityName":"Gestão de Projeto","employee":{"firstName":"Beatriz","lastName":"Sousa","email":"beatriz.sousa@example.org"}},"timesheet2":{"hours":127,"activityName":"Consultoria","employee":{"firstName":"Rita","lastName":"Sousa","email":"rita.sousa@example.org"}},"voucher":{"supplierName":"Oceano Lda","supplierOrgNumber":"979736673","invoiceNumber":null,"account":"6000","amount":28350,"date":null},"invoice":{"customerName":"Rio Azul Lda","customerOrgNumber":"957527353","projectName":"Implementação ERP Rio","orderLines":[{"description":"Serviços do projeto Implementação ERP Rio","count":1,"unitPrice":386350}]}},"relationships":{"customer":"Rio Azul Lda"},"raw_amounts":["386350","28350"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
