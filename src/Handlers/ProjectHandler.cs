@@ -76,7 +76,7 @@ public class ProjectHandler : ITaskHandler
         {
             var customerId = await ResolveCustomerId(api, customerName, orgNumber);
             if (customerId.HasValue)
-                body["customer"] = new { id = customerId.Value };
+                body["customer"] = new Dictionary<string, object> { ["id"] = customerId.Value };
         }
 
         // Resolve project manager (required field)
@@ -154,7 +154,7 @@ public class ProjectHandler : ITaskHandler
                 // Need a department
                 var deptResult = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
                 if (deptResult.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
-                    empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+                    empBody["department"] = new Dictionary<string, object> { ["id"] = dv[0].GetProperty("id").GetInt64() };
                 empBody["dateOfBirth"] = "1990-01-01";
                 var empResult = await api.PostAsync("/employee", empBody);
                 managerId = empResult.GetProperty("value").GetProperty("id").GetInt64();
@@ -163,14 +163,14 @@ public class ProjectHandler : ITaskHandler
             // Always grant entitlements so they can be project manager
             try { await api.PutAsync($"/employee/entitlement/:grantEntitlementsByTemplate?employeeId={managerId}&template=ALL_PRIVILEGES", null); }
             catch { /* may already have entitlements */ }
-            body["projectManager"] = new { id = managerId.Value };
+            body["projectManager"] = new Dictionary<string, object> { ["id"] = managerId.Value };
         }
         // If no manager specified, use the first employee as fallback
         if (!body.ContainsKey("projectManager"))
         {
             var fallbackId = await ResolveFirstEmployeeId(api);
             if (fallbackId.HasValue)
-                body["projectManager"] = new { id = fallbackId.Value };
+                body["projectManager"] = new Dictionary<string, object> { ["id"] = fallbackId.Value };
         }
 
         // Resolve department
@@ -180,7 +180,7 @@ public class ProjectHandler : ITaskHandler
         {
             var deptId = await ResolveDepartmentId(api, deptName);
             if (deptId.HasValue)
-                body["department"] = new { id = deptId.Value };
+                body["department"] = new Dictionary<string, object> { ["id"] = deptId.Value };
         }
 
         _logger.LogInformation("Creating project: {Name}, isFixedPrice={IsFixed}, fixedprice={FixedAmt}",
@@ -262,7 +262,7 @@ public class ProjectHandler : ITaskHandler
                 empBody["dateOfBirth"] = "1990-01-01";
                 var deptResult = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
                 if (deptResult.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
-                    empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+                    empBody["department"] = new Dictionary<string, object> { ["id"] = dv[0].GetProperty("id").GetInt64() };
                 var empResult = await api.PostAsync("/employee", empBody);
                 employeeId = empResult.GetProperty("value").GetProperty("id").GetInt64();
                 _logger.LogInformation("Created employee {First} {Last} (ID: {Id})", fn, ln, employeeId);
@@ -297,8 +297,8 @@ public class ProjectHandler : ITaskHandler
             {
                 var paLinkBody = new Dictionary<string, object>
                 {
-                    ["project"] = new { id = projectId },
-                    ["activity"] = new { id = existingActId }
+                    ["project"] = new Dictionary<string, object> { ["id"] = projectId },
+                    ["activity"] = new Dictionary<string, object> { ["id"] = existingActId }
                 };
                 if (hourlyRate > 0) paLinkBody["budgetHourlyRateCurrency"] = hourlyRate;
                 await api.PostAsync("/project/projectActivity", paLinkBody);
@@ -317,7 +317,7 @@ public class ProjectHandler : ITaskHandler
             {
                 var paBody = new Dictionary<string, object>
                 {
-                    ["project"] = new { id = projectId },
+                    ["project"] = new Dictionary<string, object> { ["id"] = projectId },
                     ["activity"] = new Dictionary<string, object>
                     {
                         ["name"] = activityName,
@@ -349,9 +349,9 @@ public class ProjectHandler : ITaskHandler
             {
                 await api.PostAsync("/timesheet/entry", new
                 {
-                    project = new { id = projectId },
-                    activity = new { id = activityId },
-                    employee = new { id = employeeId.Value },
+                    project = new Dictionary<string, object> { ["id"] = projectId },
+                    activity = new Dictionary<string, object> { ["id"] = activityId },
+                    employee = new Dictionary<string, object> { ["id"] = employeeId.Value },
                     date = DateTime.Today.ToString("yyyy-MM-dd"),
                     hours
                 });
@@ -382,8 +382,8 @@ public class ProjectHandler : ITaskHandler
                 var invoiceDate = DateTime.Today.ToString("yyyy-MM-dd");
                 var orderResult = await api.PostAsync("/order", new
                 {
-                    customer = new { id = customerId.Value },
-                    project = new { id = projectId },
+                    customer = new Dictionary<string, object> { ["id"] = customerId.Value },
+                    project = new Dictionary<string, object> { ["id"] = projectId },
                     orderDate = invoiceDate,
                     deliveryDate = invoiceDate,
                     orderLines = new[]
@@ -402,7 +402,7 @@ public class ProjectHandler : ITaskHandler
                 {
                     invoiceDate,
                     invoiceDueDate = DateTime.Today.AddDays(30).ToString("yyyy-MM-dd"),
-                    orders = new[] { new { id = orderId } }
+                    orders = new[] { new Dictionary<string, object> { ["id"] = orderId } }
                 });
                 var invoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
                 _logger.LogInformation("Created project invoice ID: {Id}, amount: {Amount} NOK excl. VAT", invoiceId, invoiceAmount);
@@ -506,8 +506,8 @@ public class ProjectHandler : ITaskHandler
         var invoiceDate = DateTime.Now.ToString("yyyy-MM-dd");
         var orderBody = new Dictionary<string, object>
         {
-            ["customer"] = new { id = customerId.Value },
-            ["project"] = new { id = projectId },
+            ["customer"] = new Dictionary<string, object> { ["id"] = customerId.Value },
+            ["project"] = new Dictionary<string, object> { ["id"] = projectId },
             ["orderDate"] = invoiceDate,
             ["deliveryDate"] = invoiceDate,
             ["orderLines"] = new[]
@@ -531,7 +531,7 @@ public class ProjectHandler : ITaskHandler
         {
             ["invoiceDate"] = invoiceDate,
             ["invoiceDueDate"] = invoiceDueDate,
-            ["orders"] = new[] { new { id = orderId } }
+            ["orders"] = new[] { new Dictionary<string, object> { ["id"] = orderId } }
         };
 
         var invoiceResult = await api.PostAsync("/invoice", invoiceBody);

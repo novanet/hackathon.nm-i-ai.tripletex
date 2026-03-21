@@ -63,7 +63,7 @@ public class DepartmentHandler : ITaskHandler
 
                 var empResult = await api.GetAsync("/employee", searchParams);
                 if (empResult.TryGetProperty("values", out var emps) && emps.GetArrayLength() > 0)
-                    managerRef = new { id = emps[0].GetProperty("id").GetInt64() };
+                    managerRef = new Dictionary<string, object> { ["id"] = emps[0].GetProperty("id").GetInt64() };
             }
         }
 

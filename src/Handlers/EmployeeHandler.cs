@@ -72,11 +72,44 @@ public class EmployeeHandler : ITaskHandler
         if (emp.TryGetValue("startDate", out var sdObj))
             startDate = (sdObj is JsonElement sdJe ? sdJe.GetString() : sdObj?.ToString());
 
-        // Determine if admin role is needed
+        // Determine if admin role is needed — check multiple extraction patterns
         var hasRoles = emp.TryGetValue("roles", out var rolesObj);
         var roles = ParseStringList(rolesObj);
         var needsAdmin = roles.Any(r => r.Equals("administrator", StringComparison.OrdinalIgnoreCase)
             || r.Equals("admin", StringComparison.OrdinalIgnoreCase));
+
+        // Fallback: check entity fields the LLM may use instead of roles array
+        if (!needsAdmin)
+        {
+            // Check for isAdmin/isAdministrator boolean fields
+            foreach (var key in new[] { "isAdmin", "isAdministrator", "admin", "role", "access", "userType" })
+            {
+                if (emp.TryGetValue(key, out var v) && v is not null)
+                {
+                    var s = v is JsonElement je2 ? je2.ToString() : v.ToString();
+                    if (s != null && (s.Contains("admin", StringComparison.OrdinalIgnoreCase)
+                        || s.Equals("true", StringComparison.OrdinalIgnoreCase)
+                        || s.Contains("EXTENDED", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        needsAdmin = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Fallback: check raw prompt for admin keywords in any language
+        if (!needsAdmin && extracted.RawPrompt != null)
+        {
+            var prompt = extracted.RawPrompt;
+            needsAdmin = prompt.Contains("admin", StringComparison.OrdinalIgnoreCase)
+                || prompt.Contains("administrateur", StringComparison.OrdinalIgnoreCase)
+                || prompt.Contains("Verwaltung", StringComparison.OrdinalIgnoreCase)
+                || prompt.Contains("administrador", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (needsAdmin)
+            _logger.LogInformation("Admin role detected for employee");
 
         body["userType"] = needsAdmin ? "EXTENDED" : "STANDARD";
 

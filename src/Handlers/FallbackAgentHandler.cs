@@ -11,7 +11,7 @@ public class FallbackAgentHandler : ITaskHandler
 {
     private readonly ILogger<FallbackAgentHandler> _logger;
     private readonly ChatClient _chatClient;
-    private const int MaxIterations = 12;
+    private const int MaxIterations = 20;
 
     private static readonly ChatTool GetTool = ChatTool.CreateFunctionTool(
         "api_get",

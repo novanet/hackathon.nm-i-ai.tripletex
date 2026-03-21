@@ -80,10 +80,12 @@ public class PaymentHandler : ITaskHandler
     /// <summary>Detect composite "reminder fees" task: voucher postings + payment + unknown customer</summary>
     private static bool IsReminderFeeTask(ExtractionResult extracted)
     {
-        // Must have voucher1 entity with debit/credit accounts (indicates accounting entry for fee)
-        var voucher1 = extracted.Entities.GetValueOrDefault("voucher1");
-        if (voucher1 == null) return false;
-        if (!voucher1.ContainsKey("debitAccount") || !voucher1.ContainsKey("creditAccount")) return false;
+        // Check voucher1 OR voucher (LLM may use either naming)
+        var voucher = extracted.Entities.GetValueOrDefault("voucher1")
+            ?? extracted.Entities.GetValueOrDefault("voucher");
+        if (voucher == null) return false;
+        if (!voucher.ContainsKey("debitAccount") && !voucher.ContainsKey("debit_account")
+            && !voucher.ContainsKey("creditAccount") && !voucher.ContainsKey("credit_account")) return false;
 
         // Must have payment data (LLM may name it "payment" or "payment1")
         if (!extracted.Entities.ContainsKey("payment") && !extracted.Entities.ContainsKey("payment1")) return false;
@@ -146,9 +148,10 @@ public class PaymentHandler : ITaskHandler
         }
 
         // Step 2: Extract voucher and payment details
-        var voucher1 = extracted.Entities.GetValueOrDefault("voucher1") ?? new();
-        var debitAccountNum = GetStringField(voucher1, "debitAccount") ?? "1500";
-        var creditAccountNum = GetStringField(voucher1, "creditAccount") ?? "3400";
+        var voucher1 = extracted.Entities.GetValueOrDefault("voucher1")
+            ?? extracted.Entities.GetValueOrDefault("voucher") ?? new();
+        var debitAccountNum = GetStringField(voucher1, "debitAccount") ?? GetStringField(voucher1, "debit_account") ?? "1500";
+        var creditAccountNum = GetStringField(voucher1, "creditAccount") ?? GetStringField(voucher1, "credit_account") ?? "3400";
         var feeAmount = ParseDecimalField(voucher1, "amount") ?? 50m;
         var feeDescription = GetStringField(voucher1, "description") ?? "Reminder fee";
 
@@ -180,7 +183,7 @@ public class PaymentHandler : ITaskHandler
                     {
                         ["date"] = today,
                         ["description"] = feeDescription,
-                        ["account"] = new { id = debitAccountId },
+                        ["account"] = new Dictionary<string, object> { ["id"] = debitAccountId },
                         ["amountGross"] = feeAmount,
                         ["amountGrossCurrency"] = feeAmount
                     },
@@ -188,7 +191,7 @@ public class PaymentHandler : ITaskHandler
                     {
                         ["date"] = today,
                         ["description"] = feeDescription,
-                        ["account"] = new { id = creditAccountId },
+                        ["account"] = new Dictionary<string, object> { ["id"] = creditAccountId },
                         ["amountGross"] = -feeAmount,
                         ["amountGrossCurrency"] = -feeAmount
                     }
@@ -217,7 +220,7 @@ public class PaymentHandler : ITaskHandler
                 var vatTypeId = InvoiceHandler.DefaultOutputVatTypeId; // 25% standard
                 var orderBody = new Dictionary<string, object>
                 {
-                    ["customer"] = new { id = customerId },
+                    ["customer"] = new Dictionary<string, object> { ["id"] = customerId },
                     ["orderDate"] = today,
                     ["deliveryDate"] = today,
                     ["orderLines"] = new[]
@@ -227,7 +230,7 @@ public class PaymentHandler : ITaskHandler
                             ["description"] = feeDescription,
                             ["count"] = 1,
                             ["unitPriceIncludingVatCurrency"] = feeAmount,
-                            ["vatType"] = new { id = vatTypeId }
+                            ["vatType"] = new Dictionary<string, object> { ["id"] = vatTypeId }
                         }
                     },
                     ["isPrioritizeAmountsIncludingVat"] = true
@@ -245,7 +248,7 @@ public class PaymentHandler : ITaskHandler
                     var (dynVatId, _) = await _invoiceHandler.ResolveVatTypesFull(api);
                     vatTypeId = dynVatId;
                     _logger.LogInformation("Resolved dynamic output VAT type ID: {Id}", vatTypeId);
-                    ((Dictionary<string, object>)((object[])orderBody["orderLines"])[0])["vatType"] = new { id = vatTypeId };
+                    ((Dictionary<string, object>)((object[])orderBody["orderLines"])[0])["vatType"] = new Dictionary<string, object> { ["id"] = vatTypeId };
                     orderResult = await api.PostAsync("/order", orderBody);
                 }
 
@@ -255,7 +258,7 @@ public class PaymentHandler : ITaskHandler
                 {
                     ["invoiceDate"] = today,
                     ["invoiceDueDate"] = DateTime.Today.AddDays(14).ToString("yyyy-MM-dd"),
-                    ["orders"] = new[] { new { id = orderId } }
+                    ["orders"] = new[] { new Dictionary<string, object> { ["id"] = orderId } }
                 };
                 var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
                 var reminderInvoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
@@ -422,10 +425,42 @@ public class PaymentHandler : ITaskHandler
         }
         else
         {
-            _logger.LogWarning("Could not find existing customer, falling back to full chain");
+            _logger.LogWarning("Could not find existing customer, trying broad invoice search");
         }
 
-        // Fallback: create the full chain
+        // Broad fallback: search ALL invoices with amountOutstanding > 0 (no customer filter)
+        // This catches Task 25 where prompt says "one of your clients" without naming them
+        {
+            var allInvoices = await api.GetAsync("/invoice", new Dictionary<string, string>
+            {
+                ["invoiceDateFrom"] = "2020-01-01",
+                ["invoiceDateTo"] = DateTime.Today.ToString("yyyy-MM-dd"),
+                ["from"] = "0",
+                ["count"] = "100",
+                ["fields"] = "id,amount,amountOutstanding,amountCurrency"
+            });
+
+            if (allInvoices.TryGetProperty("values", out var allVals) && allVals.GetArrayLength() > 0)
+            {
+                foreach (var inv in allVals.EnumerateArray())
+                {
+                    var outstanding = inv.TryGetProperty("amountOutstanding", out var ao)
+                        && ao.ValueKind == JsonValueKind.Number ? ao.GetDecimal() : 0m;
+                    if (outstanding > 0)
+                    {
+                        var invoiceId = inv.GetProperty("id").GetInt64();
+                        _logger.LogInformation("Broad search found unpaid invoice {Id} with amountOutstanding={Outstanding}", invoiceId, outstanding);
+
+                        var paymentTypeId = await ResolvePaymentTypeId(api);
+                        var paymentDate = ResolvePaymentDate(extracted);
+                        await RegisterPayment(api, invoiceId, paymentTypeId, outstanding, paymentDate);
+                        return PaymentResult(invoiceId, outstanding);
+                    }
+                }
+            }
+        }
+
+        // Last resort: create the full chain
         return await HandleFullChainPaymentAsync(api, extracted);
     }
 
@@ -754,7 +789,7 @@ public class PaymentHandler : ITaskHandler
 
     private async Task<long> ResolveCurrencyId(TripletexApiClient api, string currencyCode)
     {
-        var key = currencyCode.ToUpperInvariant();
+        var key = currencyCode.ToUpperInvariant().Trim();
         lock (_currencyLock)
         {
             if (_currencyCache.TryGetValue(key, out var cached))
@@ -776,7 +811,31 @@ public class PaymentHandler : ITaskHandler
         }
         else
         {
-            _logger.LogWarning("Currency {Code} not found in Tripletex", key);
+            // Fallback: search all currencies and match by code
+            _logger.LogWarning("Currency {Code} not found by exact search, trying full list", key);
+            var allCurrencies = await api.GetAsync("/currency", new Dictionary<string, string>
+            {
+                ["count"] = "500",
+                ["fields"] = "id,code"
+            });
+            if (allCurrencies.TryGetProperty("values", out var allVals))
+            {
+                foreach (var c in allVals.EnumerateArray())
+                {
+                    if (c.TryGetProperty("code", out var codeProp) && codeProp.ValueKind == JsonValueKind.String
+                        && string.Equals(codeProp.GetString(), key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        currencyId = c.GetProperty("id").GetInt64();
+                        _logger.LogInformation("Found currency {Code} in full list → ID {Id}", key, currencyId);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (currencyId == 0)
+        {
+            _logger.LogError("CRITICAL: Currency {Code} not found in Tripletex — FX payment will use NOK", key);
         }
 
         lock (_currencyLock)

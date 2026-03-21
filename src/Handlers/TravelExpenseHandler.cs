@@ -132,7 +132,7 @@ public class TravelExpenseHandler : ITaskHandler
             // Department may be required if module is active
             var depts = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
             if (depts.TryGetProperty("values", out var deptVals) && deptVals.GetArrayLength() > 0)
-                empBody["department"] = new { id = deptVals[0].GetProperty("id").GetInt64() };
+                empBody["department"] = new Dictionary<string, object> { ["id"] = deptVals[0].GetProperty("id").GetInt64() };
             var empResult = await api.PostAsync("/employee", empBody);
             employeeId = empResult.GetProperty("value").GetProperty("id").GetInt64();
         }
@@ -140,7 +140,7 @@ public class TravelExpenseHandler : ITaskHandler
         // Step 2: Build travel expense body
         var body = new Dictionary<string, object>();
         if (employeeId.HasValue)
-            body["employee"] = new { id = employeeId.Value };
+            body["employee"] = new Dictionary<string, object> { ["id"] = employeeId.Value };
 
         SetIfPresent(body, travel, "title");
         if (!body.ContainsKey("title"))
@@ -308,14 +308,14 @@ public class TravelExpenseHandler : ITaskHandler
         // Post each cost line
         foreach (var costLine in costLines)
         {
-            costLine["travelExpense"] = new { id = travelId };
+            costLine["travelExpense"] = new Dictionary<string, object> { ["id"] = travelId };
 
             // Resolve payment type if not set (cached after first call)
             if (!costLine.ContainsKey("paymentType"))
             {
                 cachedPaymentTypeId ??= await ResolvePaymentTypeId(api);
                 if (cachedPaymentTypeId.HasValue)
-                    costLine["paymentType"] = new { id = cachedPaymentTypeId.Value };
+                    costLine["paymentType"] = new Dictionary<string, object> { ["id"] = cachedPaymentTypeId.Value };
             }
 
             _logger.LogInformation("Adding cost to travel expense {TravelId}", travelId);

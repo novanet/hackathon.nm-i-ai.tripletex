@@ -87,7 +87,7 @@ public class CustomerHandler : ITaskHandler
         SetIfPresent(addr, cust, "postalCode");
         SetIfPresent(addr, cust, "city");
         if (cust.TryGetValue("countryId", out var countryId))
-            addr["country"] = new { id = long.Parse(countryId.ToString()!) };
+            addr["country"] = new Dictionary<string, object> { ["id"] = long.Parse(countryId.ToString()!) };
         return addr;
     }
 

@@ -85,7 +85,7 @@ public class TimesheetHandler : ITaskHandler
             if (empEmail != null) empBody["email"] = empEmail;
             var deptRes = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
             if (deptRes.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
-                empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+                empBody["department"] = new Dictionary<string, object> { ["id"] = dv[0].GetProperty("id").GetInt64() };
             var empResult = await api.PostAsync("/employee", empBody);
             employeeId = empResult.GetProperty("value").GetProperty("id").GetInt64();
         }
@@ -146,8 +146,8 @@ public class TimesheetHandler : ITaskHandler
                 {
                     await api.PostAsync("/project/projectActivity", new
                     {
-                        project = new { id = projectId.Value },
-                        activity = new { id = existingActId }
+                        project = new Dictionary<string, object> { ["id"] = projectId.Value },
+                        activity = new Dictionary<string, object> { ["id"] = existingActId }
                     });
                 }
                 catch (Exception ex)
@@ -163,7 +163,7 @@ public class TimesheetHandler : ITaskHandler
                 {
                     var paResult = await api.PostAsync("/project/projectActivity", new
                     {
-                        project = new { id = projectId.Value },
+                        project = new Dictionary<string, object> { ["id"] = projectId.Value },
                         activity = new Dictionary<string, object>
                         {
                             ["name"] = activityName,
@@ -220,14 +220,14 @@ public class TimesheetHandler : ITaskHandler
         // ── Step 6: POST timesheet entry ─────────────────────────────────────────
         var entryBody = new Dictionary<string, object>
         {
-            ["activity"] = new { id = activityId },
+            ["activity"] = new Dictionary<string, object> { ["id"] = activityId },
             ["date"] = date,
             ["hours"] = hours
         };
         if (employeeId.HasValue)
-            entryBody["employee"] = new { id = employeeId.Value };
+            entryBody["employee"] = new Dictionary<string, object> { ["id"] = employeeId.Value };
         if (projectId.HasValue)
-            entryBody["project"] = new { id = projectId.Value };
+            entryBody["project"] = new Dictionary<string, object> { ["id"] = projectId.Value };
 
         var entryResult = await api.PostAsync("/timesheet/entry", entryBody);
         var entryId = entryResult.GetProperty("value").GetProperty("id").GetInt64();

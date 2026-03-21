@@ -128,13 +128,13 @@ public class BankReconciliationHandler : ITaskHandler
         // Note: isApproved field is NOT accepted by the API (422 "Feltet eksisterer ikke i objektet")
         var body = new Dictionary<string, object>
         {
-            ["account"] = new { id = accountId.Value },
+            ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
             ["bankAccountClosingBalanceCurrency"] = closingBalance.Value,
             ["date"] = date
         };
         if (accountingPeriodId.HasValue)
         {
-            body["accountingPeriod"] = new { id = accountingPeriodId.Value };
+            body["accountingPeriod"] = new Dictionary<string, object> { ["id"] = accountingPeriodId.Value };
             body["type"] = "MANUAL";
         }
 
@@ -236,7 +236,7 @@ public class BankReconciliationHandler : ITaskHandler
                 ["amount"] = tx.Amount
             };
             if (paymentTypeId.HasValue)
-                adj["paymentType"] = new { id = paymentTypeId.Value };
+                adj["paymentType"] = new Dictionary<string, object> { ["id"] = paymentTypeId.Value };
             adjustments.Add(adj);
         }
 

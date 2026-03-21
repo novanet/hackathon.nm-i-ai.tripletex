@@ -94,13 +94,13 @@ public class InvoiceHandler : ITaskHandler
 
         var orderBody = new Dictionary<string, object>
         {
-            ["customer"] = new { id = customerId },
+            ["customer"] = new Dictionary<string, object> { ["id"] = customerId },
             ["orderDate"] = invoiceDate,
             ["deliveryDate"] = deliveryDate,
             ["orderLines"] = lines
         };
         if (currencyId.HasValue && currencyId.Value > 0)
-            orderBody["currency"] = new { id = currencyId.Value };
+            orderBody["currency"] = new Dictionary<string, object> { ["id"] = currencyId.Value };
 
         JsonElement orderResult;
         try
@@ -131,7 +131,7 @@ public class InvoiceHandler : ITaskHandler
         {
             ["invoiceDate"] = invoiceDate,
             ["invoiceDueDate"] = invoiceDueDate,
-            ["orders"] = new[] { new { id = orderId } }
+            ["orders"] = new[] { new Dictionary<string, object> { ["id"] = orderId } }
         };
 
         var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
@@ -192,13 +192,13 @@ public class InvoiceHandler : ITaskHandler
             {
                 ["name"] = projectName,
                 ["startDate"] = DateTime.Today.ToString("yyyy-MM-dd"),
-                ["customer"] = new { id = customerId }
+                ["customer"] = new Dictionary<string, object> { ["id"] = customerId }
             };
 
             // Resolve project manager — need at least one employee
             var firstEmpResult = await api.GetAsync("/employee", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
             if (firstEmpResult.TryGetProperty("values", out var empVals) && empVals.GetArrayLength() > 0)
-                projectBody["projectManager"] = new { id = empVals[0].GetProperty("id").GetInt64() };
+                projectBody["projectManager"] = new Dictionary<string, object> { ["id"] = empVals[0].GetProperty("id").GetInt64() };
 
             var projectResult = await api.PostAsync("/project", projectBody);
             var projectId = projectResult.GetProperty("value").GetProperty("id").GetInt64();
@@ -244,8 +244,8 @@ public class InvoiceHandler : ITaskHandler
             // 3. Link activity to project via projectActivity
             var projectActivityBody = new Dictionary<string, object>
             {
-                ["project"] = new { id = projectId },
-                ["activity"] = new { id = activityId }
+                ["project"] = new Dictionary<string, object> { ["id"] = projectId },
+                ["activity"] = new Dictionary<string, object> { ["id"] = activityId }
             };
 
             // Set hourly rate on project activity if known
@@ -295,7 +295,7 @@ public class InvoiceHandler : ITaskHandler
                 // Need department
                 var deptResult = await api.GetAsync("/department", new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id" });
                 if (deptResult.TryGetProperty("values", out var dv) && dv.GetArrayLength() > 0)
-                    empBody["department"] = new { id = dv[0].GetProperty("id").GetInt64() };
+                    empBody["department"] = new Dictionary<string, object> { ["id"] = dv[0].GetProperty("id").GetInt64() };
 
                 var createEmpResult = await api.PostAsync("/employee", empBody);
                 employeeId = createEmpResult.GetProperty("value").GetProperty("id").GetInt64();
@@ -325,9 +325,9 @@ public class InvoiceHandler : ITaskHandler
 
             var timesheetBody = new Dictionary<string, object>
             {
-                ["employee"] = new { id = employeeId },
-                ["activity"] = new { id = activityId },
-                ["project"] = new { id = projectId },
+                ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                ["activity"] = new Dictionary<string, object> { ["id"] = activityId },
+                ["project"] = new Dictionary<string, object> { ["id"] = projectId },
                 ["date"] = DateTime.Today.ToString("yyyy-MM-dd"),
                 ["hours"] = hours
             };
@@ -521,7 +521,7 @@ public class InvoiceHandler : ITaskHandler
                     ["description"] = desc ?? "Vare",
                     ["count"] = 1,
                     [priceField] = amt.Value,
-                    ["vatType"] = new { id = vatTypeId }
+                    ["vatType"] = new Dictionary<string, object> { ["id"] = vatTypeId }
                 });
             }
         }
@@ -534,7 +534,7 @@ public class InvoiceHandler : ITaskHandler
                 ["description"] = "Vare",
                 ["count"] = 1,
                 ["unitPriceExcludingVatCurrency"] = 1000.0,
-                ["vatType"] = new { id = vatTypeId }
+                ["vatType"] = new Dictionary<string, object> { ["id"] = vatTypeId }
             });
         }
 
@@ -552,7 +552,7 @@ public class InvoiceHandler : ITaskHandler
             if (rate >= 0 && outputRateMap != null && outputRateMap.TryGetValue(rate, out var mappedId))
                 lineVatTypeId = mappedId;
         }
-        var line = new Dictionary<string, object> { ["vatType"] = new { id = lineVatTypeId } };
+        var line = new Dictionary<string, object> { ["vatType"] = new Dictionary<string, object> { ["id"] = lineVatTypeId } };
         if (je.TryGetProperty("description", out var desc))
             line["description"] = desc.GetString()!;
         // Always default count to 1 — Tripletex defaults to 0 if omitted, making amount=0
@@ -768,7 +768,7 @@ public class InvoiceHandler : ITaskHandler
             }
 
             if (productId != null)
-                lines[i]["product"] = new { id = productId.Value };
+                lines[i]["product"] = new Dictionary<string, object> { ["id"] = productId.Value };
         }
     }
 

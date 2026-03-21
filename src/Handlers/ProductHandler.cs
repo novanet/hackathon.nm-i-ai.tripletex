@@ -30,7 +30,7 @@ public class ProductHandler : ITaskHandler
         {
             var vatId = await ResolveVatTypeId(api, vatRate.ToString()!);
             if (vatId.HasValue)
-                body["vatType"] = new { id = vatId.Value };
+                body["vatType"] = new Dictionary<string, object> { ["id"] = vatId.Value };
         }
         // Note: omit vatType when not specified — competition accepts products without explicit vatType
 
@@ -44,7 +44,7 @@ public class ProductHandler : ITaskHandler
                 ["fields"] = "id"
             });
             if (accResult.TryGetProperty("values", out var accs) && accs.GetArrayLength() > 0)
-                body["account"] = new { id = accs[0].GetProperty("id").GetInt64() };
+                body["account"] = new Dictionary<string, object> { ["id"] = accs[0].GetProperty("id").GetInt64() };
         }
 
         _logger.LogInformation("Creating product: {Name}", body.GetValueOrDefault("name"));

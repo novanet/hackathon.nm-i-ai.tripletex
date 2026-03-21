@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
 
@@ -186,20 +187,20 @@ public class VoucherHandler : ITaskHandler
                     {
                         ["date"] = date,
                         ["description"] = description,
-                        ["account"] = new { id = debitId.Value },
+                        ["account"] = new Dictionary<string, object> { ["id"] = debitId.Value },
                         ["amountGross"] = amount,
                         ["amountGrossCurrency"] = amount
                     });
-                    if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
+                    if (debitVatId.HasValue) postings[^1]["vatType"] = new Dictionary<string, object> { ["id"] = debitVatId.Value };
                     postings.Add(new Dictionary<string, object>
                     {
                         ["date"] = date,
                         ["description"] = description,
-                        ["account"] = new { id = creditId.Value },
+                        ["account"] = new Dictionary<string, object> { ["id"] = creditId.Value },
                         ["amountGross"] = -amount,
                         ["amountGrossCurrency"] = -amount
                     });
-                    if (creditVatId.HasValue) postings[^1]["vatType"] = new { id = creditVatId.Value };
+                    if (creditVatId.HasValue) postings[^1]["vatType"] = new Dictionary<string, object> { ["id"] = creditVatId.Value };
                 }
                 else
                 {
@@ -216,11 +217,11 @@ public class VoucherHandler : ITaskHandler
                     {
                         ["date"] = date,
                         ["description"] = description,
-                        ["account"] = new { id = debitId.Value },
+                        ["account"] = new Dictionary<string, object> { ["id"] = debitId.Value },
                         ["amountGross"] = amount,
                         ["amountGrossCurrency"] = amount
                     });
-                    if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
+                    if (debitVatId.HasValue) postings[^1]["vatType"] = new Dictionary<string, object> { ["id"] = debitVatId.Value };
                 }
             }
         }
@@ -240,11 +241,11 @@ public class VoucherHandler : ITaskHandler
                     {
                         ["date"] = date,
                         ["description"] = description,
-                        ["account"] = new { id = accountId.Value },
+                        ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
                         ["amountGross"] = amount,
                         ["amountGrossCurrency"] = amount
                     };
-                    if (vatId.HasValue) debitPosting["vatType"] = new { id = vatId.Value };
+                    if (vatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = vatId.Value };
                     postings.Add(debitPosting);
 
                     // Counter-account: 1920 (bank) as safe default
@@ -255,7 +256,7 @@ public class VoucherHandler : ITaskHandler
                         {
                             ["date"] = date,
                             ["description"] = description,
-                            ["account"] = new { id = counterId.Value },
+                            ["account"] = new Dictionary<string, object> { ["id"] = counterId.Value },
                             ["amountGross"] = -amount,
                             ["amountGrossCurrency"] = -amount
                         });
@@ -293,11 +294,11 @@ public class VoucherHandler : ITaskHandler
                         {
                             ["date"] = subDate,
                             ["description"] = subDesc,
-                            ["account"] = new { id = debitId.Value },
+                            ["account"] = new Dictionary<string, object> { ["id"] = debitId.Value },
                             ["amountGross"] = subAmount,
                             ["amountGrossCurrency"] = subAmount
                         };
-                        if (debitVatId.HasValue) p["vatType"] = new { id = debitVatId.Value };
+                        if (debitVatId.HasValue) p["vatType"] = new Dictionary<string, object> { ["id"] = debitVatId.Value };
                         postings.Add(p);
                     }
                 }
@@ -310,7 +311,7 @@ public class VoucherHandler : ITaskHandler
                         {
                             ["date"] = subDate,
                             ["description"] = subDesc,
-                            ["account"] = new { id = creditId.Value },
+                            ["account"] = new Dictionary<string, object> { ["id"] = creditId.Value },
                             ["amountGross"] = -subAmount,
                             ["amountGrossCurrency"] = -subAmount
                         });
@@ -329,12 +330,19 @@ public class VoucherHandler : ITaskHandler
             }
         }
 
+        // Last-resort fallback: parse raw prompt for account + amount pairs (e.g. "konto 6860, 4200 kr")
+        if (postings.Count == 0 && extracted.RawPrompt != null)
+        {
+            _logger.LogWarning("No postings extracted from any source — attempting raw prompt parsing");
+            postings = await ParsePostingsFromRawPrompt(api, extracted.RawPrompt, date, description);
+        }
+
         // Assign row numbers and link dimension values to first (debit) posting
         for (int i = 0; i < postings.Count; i++)
         {
             postings[i]["row"] = i + 1;
             if (i == 0 && linkedDimensionValueId.HasValue && dimensionIndex.HasValue)
-                postings[i][$"freeAccountingDimension{dimensionIndex.Value}"] = new { id = linkedDimensionValueId.Value };
+                postings[i][$"freeAccountingDimension{dimensionIndex.Value}"] = new Dictionary<string, object> { ["id"] = linkedDimensionValueId.Value };
         }
 
         _logger.LogInformation("Creating voucher: {Description} with {PostingCount} postings", description, postings.Count);
@@ -366,9 +374,9 @@ public class VoucherHandler : ITaskHandler
         if (accountStr != null && accountStr.Length <= 4)
         {
             var (accId, vatId, vatLocked) = await ResolveAccountId(api, accountStr);
-            if (accId.HasValue) posting["account"] = new { id = accId.Value };
+            if (accId.HasValue) posting["account"] = new Dictionary<string, object> { ["id"] = accId.Value };
             // vatId is null when account is locked to VAT 0 (no VAT) — ResolveAccountId filters it
-            if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
+            if (vatId.HasValue) posting["vatType"] = new Dictionary<string, object> { ["id"] = vatId.Value };
         }
 
         double? rawAmount = null;
@@ -536,20 +544,20 @@ public class VoucherHandler : ITaskHandler
                         {
                             ["date"] = date,
                             ["description"] = description,
-                            ["account"] = new { id = debitId.Value },
+                            ["account"] = new Dictionary<string, object> { ["id"] = debitId.Value },
                             ["amountGross"] = amount,
                             ["amountGrossCurrency"] = amount
                         });
-                        if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
+                        if (debitVatId.HasValue) postings[^1]["vatType"] = new Dictionary<string, object> { ["id"] = debitVatId.Value };
                         postings.Add(new Dictionary<string, object>
                         {
                             ["date"] = date,
                             ["description"] = description,
-                            ["account"] = new { id = creditId.Value },
+                            ["account"] = new Dictionary<string, object> { ["id"] = creditId.Value },
                             ["amountGross"] = -amount,
                             ["amountGrossCurrency"] = -amount
                         });
-                        if (creditVatId.HasValue) postings[^1]["vatType"] = new { id = creditVatId.Value };
+                        if (creditVatId.HasValue) postings[^1]["vatType"] = new Dictionary<string, object> { ["id"] = creditVatId.Value };
                     }
                     else
                     {
@@ -567,11 +575,11 @@ public class VoucherHandler : ITaskHandler
                         {
                             ["date"] = date,
                             ["description"] = description,
-                            ["account"] = new { id = debitId.Value },
+                            ["account"] = new Dictionary<string, object> { ["id"] = debitId.Value },
                             ["amountGross"] = amount,
                             ["amountGrossCurrency"] = amount
                         });
-                        if (debitVatId.HasValue) postings[^1]["vatType"] = new { id = debitVatId.Value };
+                        if (debitVatId.HasValue) postings[^1]["vatType"] = new Dictionary<string, object> { ["id"] = debitVatId.Value };
                     }
                 }
             }
@@ -590,11 +598,11 @@ public class VoucherHandler : ITaskHandler
                         {
                             ["date"] = date,
                             ["description"] = description,
-                            ["account"] = new { id = accountId.Value },
+                            ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
                             ["amountGross"] = amount,
                             ["amountGrossCurrency"] = amount
                         };
-                        if (vatId.HasValue) debitP["vatType"] = new { id = vatId.Value };
+                        if (vatId.HasValue) debitP["vatType"] = new Dictionary<string, object> { ["id"] = vatId.Value };
                         postings.Add(debitP);
 
                         var (counterId, _, _) = await ResolveAccountId(api, "1920");
@@ -603,7 +611,7 @@ public class VoucherHandler : ITaskHandler
                             {
                                 ["date"] = date,
                                 ["description"] = description,
-                                ["account"] = new { id = counterId.Value },
+                                ["account"] = new Dictionary<string, object> { ["id"] = counterId.Value },
                                 ["amountGross"] = -amount,
                                 ["amountGrossCurrency"] = -amount
                             });
@@ -754,15 +762,15 @@ public class VoucherHandler : ITaskHandler
             {
                 var postingData = new Dictionary<string, object>
                 {
-                    ["account"] = new { id = accountId!.Value },
+                    ["account"] = new Dictionary<string, object> { ["id"] = accountId!.Value },
                     ["amountGross"] = amount,
                     ["amountGrossCurrency"] = amount,
                     ["date"] = date,
                     ["description"] = description,
                     ["row"] = 1
                 };
-                if (supplierId.HasValue) postingData["supplier"] = new { id = supplierId.Value };
-                if (inputVatId.HasValue) postingData["vatType"] = new { id = inputVatId.Value };
+                if (supplierId.HasValue) postingData["supplier"] = new Dictionary<string, object> { ["id"] = supplierId.Value };
+                if (inputVatId.HasValue) postingData["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
                 if (invoiceNumber != null) postingData["invoiceNumber"] = invoiceNumber;
 
                 var orderLinePostings = new[] { new Dictionary<string, object> { ["posting"] = postingData } };
@@ -806,25 +814,25 @@ public class VoucherHandler : ITaskHandler
         {
             ["date"] = date,
             ["description"] = description,
-            ["account"] = new { id = accountId!.Value },
+            ["account"] = new Dictionary<string, object> { ["id"] = accountId!.Value },
             ["amountGross"] = amount,
             ["amountGrossCurrency"] = amount,
             ["row"] = 1
         };
-        if (supplierId.HasValue) debitPosting["supplier"] = new { id = supplierId.Value };
-        if (inputVatId.HasValue) debitPosting["vatType"] = new { id = inputVatId.Value };
+        if (supplierId.HasValue) debitPosting["supplier"] = new Dictionary<string, object> { ["id"] = supplierId.Value };
+        if (inputVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
         if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
 
         var creditPosting = new Dictionary<string, object>
         {
             ["date"] = date,
             ["description"] = description,
-            ["account"] = new { id = creditorId!.Value },
+            ["account"] = new Dictionary<string, object> { ["id"] = creditorId!.Value },
             ["amountGross"] = -amount,
             ["amountGrossCurrency"] = -amount,
             ["row"] = 2
         };
-        if (supplierId.HasValue) creditPosting["supplier"] = new { id = supplierId.Value };
+        if (supplierId.HasValue) creditPosting["supplier"] = new Dictionary<string, object> { ["id"] = supplierId.Value };
         if (invoiceNumber != null) creditPosting["invoiceNumber"] = invoiceNumber;
 
         _logger.LogInformation("Creating supplier invoice voucher (fallback): {Description} amount={Amount}", description, amount);
@@ -835,7 +843,7 @@ public class VoucherHandler : ITaskHandler
             ["description"] = description,
             ["postings"] = new[] { debitPosting, creditPosting }
         };
-        if (voucherTypeId.HasValue) voucherBodyFallback["voucherType"] = new { id = voucherTypeId.Value };
+        if (voucherTypeId.HasValue) voucherBodyFallback["voucherType"] = new Dictionary<string, object> { ["id"] = voucherTypeId.Value };
         if (invoiceNumber != null)
         {
             voucherBodyFallback["externalVoucherNumber"] = invoiceNumber;
@@ -900,5 +908,70 @@ public class VoucherHandler : ITaskHandler
             return val.ToString();
         }
         return null;
+    }
+
+    /// <summary>
+    /// Last-resort fallback: scan raw prompt text for account numbers (4-digit) paired with amounts.
+    /// Matches patterns like "konto 6860", "Konto 6540", "account 1920", "6860/6540" near amounts.
+    /// Creates balanced debit/credit postings from the extracted pairs.
+    /// </summary>
+    private async Task<List<Dictionary<string, object>>> ParsePostingsFromRawPrompt(
+        TripletexApiClient api, string prompt, string date, string description)
+    {
+        var postings = new List<Dictionary<string, object>>();
+
+        // Try to find pairs of 4-digit accounts with amounts
+        // Pattern: look for sequences like "debit 6860, credit 6540, 4200"
+        var accountAmountPattern = new Regex(
+            @"(\d{4})\D{1,30}(\d{4})\D{1,30}?(\d[\d\s,.]*)\s*(?:kr|NOK|€|\$)?",
+            RegexOptions.IgnoreCase);
+
+        var matches = accountAmountPattern.Matches(prompt);
+        foreach (Match match in matches)
+        {
+            var acct1 = match.Groups[1].Value;
+            var acct2 = match.Groups[2].Value;
+            var amtStr = match.Groups[3].Value.Replace(" ", "").Replace(",", ".");
+
+            // Validate: both must be valid account-range numbers (1000-9999)
+            if (int.TryParse(acct1, out var a1) && a1 >= 1000 && a1 <= 9999
+                && int.TryParse(acct2, out var a2) && a2 >= 1000 && a2 <= 9999
+                && decimal.TryParse(amtStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var amount)
+                && amount > 0)
+            {
+                var (debitId, debitVatId, _) = await ResolveAccountId(api, acct1);
+                var (creditId, creditVatId, _) = await ResolveAccountId(api, acct2);
+
+                if (debitId.HasValue && creditId.HasValue)
+                {
+                    var debitPosting = new Dictionary<string, object>
+                    {
+                        ["date"] = date,
+                        ["description"] = description,
+                        ["account"] = new Dictionary<string, object> { ["id"] = debitId.Value },
+                        ["amountGross"] = amount,
+                        ["amountGrossCurrency"] = amount
+                    };
+                    if (debitVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = debitVatId.Value };
+                    postings.Add(debitPosting);
+
+                    var creditPosting = new Dictionary<string, object>
+                    {
+                        ["date"] = date,
+                        ["description"] = description,
+                        ["account"] = new Dictionary<string, object> { ["id"] = creditId.Value },
+                        ["amountGross"] = -amount,
+                        ["amountGrossCurrency"] = -amount
+                    };
+                    if (creditVatId.HasValue) creditPosting["vatType"] = new Dictionary<string, object> { ["id"] = creditVatId.Value };
+                    postings.Add(creditPosting);
+
+                    _logger.LogInformation("Parsed from prompt: debit={Debit} credit={Credit} amount={Amount}",
+                        acct1, acct2, amount);
+                }
+            }
+        }
+
+        return postings;
     }
 }
