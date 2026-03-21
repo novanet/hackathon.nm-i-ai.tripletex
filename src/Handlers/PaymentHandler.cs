@@ -289,7 +289,7 @@ public class PaymentHandler : ITaskHandler
         // Step 6: Register partial payment on the overdue invoice
         var payment = extracted.Entities.GetValueOrDefault("payment")
             ?? extracted.Entities.GetValueOrDefault("payment1") ?? new();
-        var partialAmount = ParseDecimalField(payment, "amount") ?? amountOutstanding;
+        var partialAmount = amountOutstanding;
         var paymentTypeId = await paymentTypeTask;
         var paymentDate = ResolvePaymentDate(extracted);
 
