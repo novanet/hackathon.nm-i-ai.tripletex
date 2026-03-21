@@ -434,7 +434,7 @@ try {
             $tid = $_.tx_task_id
             $lb = $leaderboardData | Where-Object { $_.tx_task_id -eq $tid } | Select-Object -First 1
             $_ | Add-Member -NotePropertyName last_attempt_at -NotePropertyValue $lb.last_attempt_at -PassThru
-        } | Sort-Object { [DateTimeOffset]::Parse($_.last_attempt_at) }
+        } | Sort-Object { [DateTimeOffset]::Parse($_.last_attempt_at, [System.Globalization.CultureInfo]::InvariantCulture) }
 
         # Sort new submissions.jsonl entries (non-ping) by timestamp ascending
         $sortedSubmissions = @()
@@ -449,7 +449,7 @@ try {
                 }
                 catch { }
             }
-            $sortedSubmissions = $sortedSubmissions | Sort-Object { [DateTimeOffset]::Parse($_.timestamp) }
+            $sortedSubmissions = $sortedSubmissions | Sort-Object { [DateTimeOffset]::Parse($_.timestamp, [System.Globalization.CultureInfo]::InvariantCulture) }
         }
 
         # Zip positionally
