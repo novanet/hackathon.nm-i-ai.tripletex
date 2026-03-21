@@ -1,0 +1,29 @@
+[
+  {
+    "name": "id",
+    "in": "path",
+    "description": "Voucher id",
+    "required": true,
+    "schema": {
+      "type": "integer",
+      "format": "int64"
+    }
+  },
+  {
+    "name": "sendToLedger",
+    "in": "query",
+    "description": "Use of this parameter with value 'true' requires setup done by Tripletex.",
+    "schema": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  {
+    "name": "voucherDate",
+    "in": "query",
+    "description": "If set, the date of the voucher and the supplier invoice will be changed to this date. If empty, date will not be changed",
+    "schema": {
+      "type": "string"
+    }
+  }
+]

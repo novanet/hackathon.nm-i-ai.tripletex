@@ -198,24 +198,26 @@ public class PayrollHandler : ITaskHandler
         _logger.LogInformation("Salary types: base={BaseId}, bonus={BonusId}", baseSalaryTypeId, bonusTypeId);
 
         // Build salary specifications for the payslip
-        var specifications = new List<object>();
+        // Use Dictionary<string,object> — anonymous types inside List<object> lose properties
+        // during System.Text.Json serialization (same bug as voucher postings, Phase 1.1)
+        var specifications = new List<Dictionary<string, object>>();
 
         // Base salary specification
-        specifications.Add(new
+        specifications.Add(new Dictionary<string, object>
         {
-            salaryType = new { id = baseSalaryTypeId },
-            rate = baseSalary,
-            count = 1
+            ["salaryType"] = new Dictionary<string, object> { ["id"] = baseSalaryTypeId! },
+            ["rate"] = baseSalary,
+            ["count"] = 1
         });
 
         // Bonus specification (if any)
         if (bonus > 0 && bonusTypeId != null)
         {
-            specifications.Add(new
+            specifications.Add(new Dictionary<string, object>
             {
-                salaryType = new { id = bonusTypeId },
-                rate = bonus,
-                count = 1
+                ["salaryType"] = new Dictionary<string, object> { ["id"] = bonusTypeId },
+                ["rate"] = bonus,
+                ["count"] = 1
             });
         }
 
@@ -249,6 +251,29 @@ public class PayrollHandler : ITaskHandler
         long? payslipId = null;
         if (txValue.TryGetProperty("payslips", out var payslipsArr) && payslipsArr.GetArrayLength() > 0)
             payslipId = payslipsArr[0].GetProperty("id").GetInt64();
+
+        // Phase 2.2/2.3: Diagnostic payslip verification — GET the payslip to confirm
+        // employee link + grossAmount are persisted (competition checks 2+3)
+        if (payslipId != null)
+        {
+            try
+            {
+                var payslipDetail = await api.GetAsync($"/salary/payslip/{payslipId}",
+                    new Dictionary<string, string> { ["fields"] = "id,employee(id,firstName,lastName),grossAmount,specifications(id,salaryType(id,number),rate,count)" });
+                if (payslipDetail.TryGetProperty("value", out var psVal))
+                {
+                    var hasEmployee = psVal.TryGetProperty("employee", out var psEmp) && psEmp.ValueKind != JsonValueKind.Null;
+                    var grossAmount = psVal.TryGetProperty("grossAmount", out var gaProp) ? gaProp.GetDecimal() : 0m;
+                    var specCount = psVal.TryGetProperty("specifications", out var specsArr) ? specsArr.GetArrayLength() : 0;
+                    _logger.LogInformation("Payslip {PayslipId} verification: hasEmployee={HasEmp}, grossAmount={Gross}, specCount={Specs}, detail={Detail}",
+                        payslipId, hasEmployee, grossAmount, specCount, psVal.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Payslip verification GET failed for {PayslipId}", payslipId);
+            }
+        }
 
         // ALSO create a voucher on 5000-series accounts as fallback
         // The competition prompt explicitly suggests this: "bruke manuelle bilag på lønnskontoer (5000-serien)"

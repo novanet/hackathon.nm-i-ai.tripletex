@@ -1,0 +1,20 @@
+Voucher: id=608885028 version=1
+Status: InternalServerError (500)
+=== Response Headers ===
+  Date: Sat, 21 Mar 2026 01:48:58 GMT
+  Connection: keep-alive
+  x-tlx-request-id: 7647b05c-b3da-45ae-95bd-bcdb1b3282e3
+  Strict-Transport-Security: max-age=31536000;includeSubDomains;preload
+  X-Content-Type-Options: nosniff
+  Cache-Control: no-store, must-revalidate, no-cache, max-age=0, post-check=0, pre-check=0
+  Pragma: no-cache
+  Set-Cookie: JSESSIONID=E20BA6D337ED4EED60853527AE4A513D; Path=/; Secure; HttpOnly; SameSite=None, tlx_locale=no_NO; Max-Age=3600; Expires=Sat, 21 Mar 2026 02:48:58 GMT; Path=/; Secure; SameSite=None
+  X-Rate-Limit-Limit: 100
+  X-Rate-Limit-Remaining: 98
+  X-Rate-Limit-Reset: 1
+  Server: tripletex.no
+=== Content Headers ===
+  Content-Type: application/json; charset=UTF-8
+  Content-Length: 181
+=== Body ===
+{"status":500,"code":1000,"message":null,"link":"https://tripletex.no/v2-docs/","developerMessage":null,"validationMessages":null,"requestId":"7647b05c-b3da-45ae-95bd-bcdb1b3282e3"}

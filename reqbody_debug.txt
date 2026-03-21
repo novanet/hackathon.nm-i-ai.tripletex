@@ -1,0 +1,14 @@
+{
+  "description": "Postings",
+  "content": {
+    "application/json; charset=utf-8": {
+      "schema": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/OrderLinePosting"
+        }
+      }
+    }
+  },
+  "required": true
+}
