@@ -78,14 +78,16 @@ Always return `{"status": "completed"}` after executing the task. The platform v
 - `task_score = correctness × tier_multiplier + efficiency_bonus`
 - **Breadth > depth**: covering 25 tasks at 1.0 (=25 pts) beats 10 tasks at 2.0 (=20 pts)
 - **Correctness first**: efficiency bonus only applies when correctness = 1.0
-- **Every 4xx error permanently reduces efficiency score** — validate before sending, don't retry blindly
-- **Fewer API calls = higher efficiency bonus** — see §8.2 in opening-strategy.md for minimum call counts per task
+- **GET requests are FREE** — they are NOT counted towards efficiency. Read as much data as you need. Never skip a GET to "save calls".
+- **Only write calls count**: POST, PUT, DELETE, PATCH are the only methods that affect the efficiency bonus. Fewer write calls = higher bonus.
+- **Every 4xx error on a write call permanently reduces efficiency bonus** — validate before sending, don't retry blindly
+- **Error cleanliness matters**: An agent that gets write calls right without trial-and-error is rewarded. Avoid speculative writes.
 
 ## Development Priority (Follow This Order)
 
-1. **Correctness first** — Get all 30 task types passing all checks (correctness = 1.0). An extra API call that prevents a 4xx error is worth it. Don't skip validation steps to save calls.
+1. **Correctness first** — Get all 30 task types passing all checks (correctness = 1.0). Extra GET requests are free and never hurt. An extra write call that prevents a 4xx error is worth it.
 2. **Breadth second** — Cover all task types before optimizing any single one. A handler that scores 0.8 on a new task is worth more than squeezing 1.0→1.0+efficiency on an existing one.
-3. **Efficiency last** — Only optimize API call counts and eliminate 4xx errors AFTER all tasks pass at full correctness. Never sacrifice correctness for fewer calls.
+3. **Efficiency last** — Only minimize write calls (POST/PUT/DELETE/PATCH) and eliminate 4xx errors AFTER all tasks pass at full correctness. Never sacrifice correctness for fewer calls. Never remove GET requests to "optimize" — they are free.
 
 ## Key Dependency Chains
 
@@ -103,7 +105,7 @@ These are the #1 source of failures. See `opening-strategy.md` §8 for the full 
 - Never create an invoice without first creating an order with order lines
 - Never retry on 4xx errors in a loop — each error permanently hurts the efficiency score
 - Never skip the `version` field on PUT updates
-- Never fetch all reference data upfront for simple tasks — lazy-load only what's needed
+- Never remove or skip GET requests to "optimize" efficiency — GET requests are free and not counted
 - Never translate field values extracted from prompts — copy them character-for-character
 
 ## Multi-Language Support
