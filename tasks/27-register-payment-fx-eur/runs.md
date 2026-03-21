@@ -36,33 +36,35 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:54:16 |
+| Timestamp | 03/21/2026 21:52:58 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 5555 ms |
-| API Calls | 8 |
+| Elapsed | 6100 ms |
+| API Calls | 10 |
 | Errors | 1 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 1 | `GET` | `/currency?code=EUR&count=1&fields=id%2Ccode` | ✅  |  |
 | 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `POST` | `/order` | ✅  |  |
-| 4 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
-| 5 | `POST` | `/order` | ✅  |  |
-| 6 | `POST` | `/invoice` | ✅  |  |
-| 7 | `PUT` | `/invoice/2147619240/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
-| 8 | `GET` | `/invoice/2147619240?fields=%2A` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 4 | `POST` | `/order` | ✅  |  |
+| 5 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 6 | `POST` | `/order` | ✅  |  |
+| 7 | `POST` | `/invoice` | ✅  |  |
+| 8 | `PUT` | `/invoice/2147641959/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
+| 9 | `GET` | `/invoice/2147641959?fields=id%2CinvoiceNumber%2CinvoiceDate%...` | ✅  |  |
+| 10 | `GET` | `/ledger/posting?dateFrom=2026-03-21&dateTo=2026-03-22&accoun...` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 8 / 8 |
+| Points | 14 / 14 |
 
 ### Checks
 
@@ -73,5 +75,7 @@
 | correct_paid_amount | `131829,78` | `131829,78` | ✅ | 2 |
 | has_customer | `true` | `true` | ✅ | 1 |
 | has_amount | `> 0` | `131829,78` | ✅ | 1 |
-
+| has_currency | `!= NOK` | `EUR` | ✅ | 2 |
+| correct_amount_currency | `11671,00` | `11671,00` | ✅ | 2 |
+| exchange_rate_difference_posted | `true` | `8060: Payment: Faktura nummer 138 til Ironbridge Ltd (10111) Profit on exchange.` | ✅ | 2 |
 

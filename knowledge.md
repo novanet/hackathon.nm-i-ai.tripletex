@@ -46,6 +46,7 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **Composite task extraction varies** — LLM may put employee/activity data under `timeRegistration` entity OR as separate `employee`/`project.activity` entities. Handler must check both paths. _(2026-03-20)_
 - **Voucher dimension nested in voucher entity** — LLM sometimes puts `"dimension": {"name": "Region", "value": "Vestlandet"}` inside the voucher entity instead of as a separate `"dimension"` entity. VoucherHandler has fallback to extract it from `voucher["dimension"]`. Also check singular `"value"` vs plural `"values"` key. _(2026-03-20)_
 - **LLM hallucinate `vatIncluded: true`** — when prompts don't mention VAT at all ("a 21950 NOK"), the LLM sometimes set `vatIncluded: true`, causing prices to go into `unitPriceIncludingVatCurrency`. This makes invoice total = sum of stated prices (no VAT added), but competition expects excl. VAT pricing with VAT applied on top. Fixed: LLM prompt explicitly says "do NOT set vatIncluded unless prompt explicitly says prices include VAT." Code safeguard: `BuildOrderLines` checks raw prompt for VAT-inclusive keywords before trusting `vatIncluded=true`. _(2026-03-20)_
+- **FX payment extraction can collapse foreign invoices into NOK totals** — Ironbridge replay showed `payment.currency = NOK`, `payment.amount = 136`, and missing exchange-rate fields for a prompt that clearly stated `11671 EUR` at `11.22/11.71 NOK/EUR`. `PaymentHandler` and `SandboxValidator` now recover foreign amount/currency/rates from the raw prompt + relationships when FX extraction degrades. _(2026-03-21)_
 
 ## Scoring & Validation Insights
 
@@ -154,7 +155,14 @@ Keep entries short (1–2 lines). Include the date discovered.
 - **`GET /currency?code=EUR&count=1&fields=id`** resolves currency code to Tripletex ID. EUR = ID 5 in sandbox. _(2026-03-21)_
 - **LLM already extracts FX fields** (`currency`, `exchangeRateAtInvoice`, `exchangeRateAtPayment`) from prompts mentioning exchange rates — no system prompt changes needed. _(2026-03-21)_
 - **FX detection**: `IsFxPayment()` checks for `currency` or `exchangeRateAtPayment` in payment/invoice entities. Does NOT false-trigger on normal NOK payments. _(2026-03-21)_
+- **Tripletex auto-posts FX differences on payment** — a read-only sandbox probe of invoice `2147640945` showed `PUT /invoice/{id}/:payment` created a linked ledger posting on account `8060` with description `Payment: Faktura nummer 136 til Ironbridge Ltd (10110) Profit on exchange.` The missing gap was validator coverage, not an extra runtime write. _(2026-03-21)_
 - **Phase 3 — Voucher**: Validator now does up to 6 checks / 8-13pts: voucher_found (2), has_description (2), has_postings (2), postings_balanced (2), correct_accounts (2 conditional), correct_amount (3 conditional). Sums debit/credit from amountGross or amount fields.
+
+## Overdue Reminder Fees (2026-03-21)
+
+- **Reminder-fee voucher on `1500/3400` must include explicit posting rows** — without `row=1/2`, `POST /ledger/voucher?sendToLedger=true` fails with `postings.row ... systemgenererte`. Standard voucher shape in Tripletex requires explicit row numbering for manual postings. _(2026-03-21)_
+- **Receivables posting on account `1500` must include `customer.id`** — after adding rows, the next blocker was `postings.customer.id: Customer missing.` Attaching the overdue invoice's customer to the debit leg made the reminder-fee voucher succeed. _(2026-03-21)_
+- **Current working overdue-reminder flow** — post reminder-fee voucher (`1500` debit with customer, `3400` credit, explicit rows), create/send reminder-fee invoice, then register payment for the full `amountOutstanding` on the overdue invoice. This replay now passes local validation at `12/12`. _(2026-03-21)_
 
 ## Efficiency Optimizations (2026-03-21)
 

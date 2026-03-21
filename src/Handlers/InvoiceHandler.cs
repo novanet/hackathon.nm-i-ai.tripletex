@@ -107,7 +107,7 @@ public class InvoiceHandler : ITaskHandler
         {
             orderResult = await api.PostAsync("/order", orderBody);
         }
-        catch (TripletexApiException ex) when (ex.StatusCode == 422 && ex.Message.Contains("mva-kode", StringComparison.OrdinalIgnoreCase))
+        catch (TripletexApiException ex) when (IsInvalidVatCodeError(ex))
         {
             // Hardcoded VAT IDs invalid in this environment — resolve dynamically and retry
             _logger.LogWarning("Hardcoded VAT type IDs rejected, falling back to dynamic lookup");
@@ -179,6 +179,16 @@ public class InvoiceHandler : ITaskHandler
         }
 
         return (invoiceId, invoiceAmount);
+    }
+
+    private static bool IsInvalidVatCodeError(TripletexApiException ex)
+    {
+        if (ex.StatusCode != 422 || string.IsNullOrWhiteSpace(ex.Message))
+            return false;
+
+        return ex.Message.Contains("mva-kode", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("vat code", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("invalid vat", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task CreateProjectAndRegisterHours(TripletexApiClient api, ExtractionResult extracted,

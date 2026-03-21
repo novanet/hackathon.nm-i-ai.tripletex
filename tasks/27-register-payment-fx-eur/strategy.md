@@ -2,92 +2,87 @@
 
 ## Overview
 
-| Field | Value |
-|---|---|
-| **Task ID** | 27 |
-| **Task Type** | `register_payment` |
-| **Variant** | Foreign currency (EUR) invoice + payment with exchange rate |
-| **Tier** | 3 |
-| **Our Score** | 0.60 |
-| **Leader Score** | 6.00 |
-| **Gap** | -5.40 |
-| **Status** | ❌ Failing — large gap |
-| **Handler** | `PaymentHandler.cs` → `HandleFxPaymentAsync` |
-| **Priority** | #7 — MEDIUM effort, HIGH gain |
+| Field                        | Value                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------- |
+| **Task ID**                  | 27                                                                                    |
+| **Task Type**                | `register_payment`                                                                    |
+| **Variant**                  | Foreign currency (EUR) invoice + payment with exchange rate                           |
+| **Tier**                     | 3                                                                                     |
+| **Latest Competition Score** | 0.60                                                                                  |
+| **Leader Score**             | 6.00                                                                                  |
+| **Gap**                      | -5.40                                                                                 |
+| **Current Runtime Status**   | Local flow passing; competition still unverified after latest validator/runtime fixes |
+| **Handler**                  | `PaymentHandler.cs` → `HandleFxPaymentAsync`                                          |
+| **Priority**                 | High leverage, but likely submission-verification rather than more code               |
 
-## What It Does
+## Current Assessment
 
-Create an invoice in a foreign currency (EUR), then register payment with exchange rate difference (agio/disagio). The prompt specifies:
-- Invoice amount in EUR
-- Exchange rate at invoice time
-- Exchange rate at payment time
-- NOK payment amount = EUR amount × rate at payment
+Task 27 is no longer a clear handler bug. The latest refreshed evidence shows:
 
-## API Flow
+- latest competition replay at `2026-03-21 17:53:56`: handler succeeded in 7 calls with 0 API errors, but competition score remained `0.60`
+- latest sandbox replay at `2026-03-21 21:52:58`: handler succeeded and local validation passed `14/14`
+- validator now explicitly checks the FX bookkeeping side effect by reading ledger postings on accounts `8050-8070`
 
-1. `GET /currency?code=EUR` — resolve currency ID
-2. `POST /customer` — create customer
-3. `POST /order` — create order with `currency: {id: X}`
-4. `POST /invoice` — create invoice
-5. `GET /invoice/paymentType` — resolve payment type
-6. `PUT /invoice/{id}/:payment` — pay with `paidAmount` (NOK) + `paidAmountCurrency` (EUR)
+That means the old root cause analysis in this file is stale. The handler currently does the expected FX flow end-to-end; the remaining uncertainty is whether the competition validator agrees with our new local interpretation.
 
-## Competition Checks
+## What the Working Flow Does
 
-| Check | Points | Status |
-|---|:---:|:---:|
-| `invoice_found` | — | ⚠️ |
-| `has_currency` | — | ❌ |
-| `payment_registered` | — | ❌ |
-| `correct_amount_nok` | — | ❌ |
-| `exchange_rate_diff` | — | ❌ |
+- Resolve EUR via `GET /currency?code=EUR`.
+- Create customer.
+- Create foreign-currency order with `currency: { id = EUR }`.
+- Create invoice from the order.
+- Resolve payment type.
+- Register payment with `paidAmount` set to the NOK amount using the payment-time exchange rate, and `paidAmountCurrency` set to the foreign amount actually paid by the customer.
+- Let Tripletex auto-post the exchange gain/loss entry.
 
-## Why We Score 0.60
+## Verified Findings
 
-Score 0.60/6.00 = 10% correctness. Possible issues:
+### Runtime
 
-1. **FX detection fails**: `IsFxPayment()` checks for `currency` or `exchangeRateAtPayment` in payment/invoice entities. If LLM doesn't extract these fields, the task falls through to simple payment → no currency handling.
+- `PaymentHandler.HandleFxPaymentAsync` now infers foreign currency and foreign amount from the prompt if extraction degrades them.
+- Prompt-derived exchange rates are used when extracted rates are missing or obviously wrong.
+- `InvoiceHandler.CreateInvoiceChainAsync(..., currencyId)` does pass the resolved currency into the order flow.
+- The payment call includes `paidAmountCurrency`.
 
-2. **Currency not passed to order**: `CreateInvoiceChainAsync(api, extracted, currencyId)` receives `currencyId`, but the chain might not apply it to the order body correctly.
+### Validation
 
-3. **Exchange rate calculation wrong**: `nokAmount = foreignAmount × rateAtPayment`. If `rateAtPayment` is extracted as 0 or 1, the calculation is wrong.
+- Local validation now checks:
+  - invoice exists
+  - payment clears the invoice
+  - NOK payment amount is correct
+  - currency is non-NOK and preserved on the invoice
+  - foreign-currency amount is correct
+  - exchange-rate difference posting exists in the ledger
+- A live sandbox probe confirmed that Tripletex auto-posts the exchange difference during `PUT /invoice/{id}/:payment`; the missing piece was validator coverage, not an extra runtime voucher.
 
-4. **`paidAmountCurrency` parameter**: The `:payment` call must include both `paidAmount` (NOK) and `paidAmountCurrency` (foreign). If `paidAmountCurrency` is missing, Tripletex can't reconcile the FX difference.
+## Latest Evidence
 
-## Key Knowledge (from knowledge.md)
+### Latest Competition Run
 
-- `PUT /invoice/{id}/:payment` supports `paidAmountCurrency` query param
-- `GET /currency?code=EUR&count=1&fields=id` → EUR = ID 5 in sandbox
-- LLM already extracts FX fields from prompts mentioning exchange rates
-- FX detection does NOT false-trigger on normal NOK payments
+- extraction already looked good: `EUR`, `11671`, `11.22`, `11.71`
+- order request contained `currency.id = 5`
+- payment request used `paidAmount=136667.41` and `paidAmountCurrency=11671.00`
+- handler completed successfully with 0 API errors
+- score still came back `0.60`
 
-## How to Fix
+### Latest Sandbox Run
 
-1. **Check submission logs** — what did LLM extract for this task? Were currency/rates populated?
-2. **Verify InvoiceHandler passes currency to order** — read `CreateInvoiceChainAsync` to confirm `currencyId` is used in the order body
-3. **Test locally** with an FX prompt — verify currency flows end-to-end
-4. **Check `paidAmountCurrency`** is actually sent as a query param to `:payment`
+- handler completed successfully
+- local validation passed `14/14`
+- `exchange_rate_difference_posted` passed based on a real ledger posting on account `8060`
 
-## Debugging Steps
+## Most Likely Explanation For The Remaining Gap
 
-```powershell
-.\scripts\Analyze-Run.ps1 -ShowExtraction -ShowApiCalls
-# Find task 27, check:
-# 1. extraction.entities.payment.currency = "EUR"?
-# 2. extraction.entities.payment.exchangeRateAtPayment = X?
-# 3. POST /order body includes currency?
-# 4. PUT /:payment includes paidAmountCurrency param?
-```
+The last competition score is almost certainly lagging behind our latest local understanding, not our latest runtime. The competition run predates the new FX-specific validator checks and the prompt-based inference hardening that we now see reflected in the sandbox pass.
 
-## Effort
+## Next Action
 
-**MEDIUM** — likely 1-2 specific bugs in the FX flow.
+The correct follow-up is not more speculative FX code changes. It is submission-level verification:
 
-## Action Required
+1. Submit a fresh run including task 27 with the current code.
+2. Compare the new competition checks against the current local `14/14` validator result.
+3. Only return to handler changes if competition still fails despite the clean runtime and clean local FX bookkeeping evidence.
 
-- [ ] Analyze latest run for task 27
-- [ ] Verify LLM extracts currency + exchange rates
-- [ ] Verify order creation passes currencyId
-- [ ] Verify `:payment` call includes `paidAmountCurrency`
-- [ ] Test locally with EUR prompt
-- [ ] Submit to verify
+## Open Risk
+
+If competition still scores task 27 low after a fresh submission, the remaining mismatch is likely in our validator assumptions about what the competition considers sufficient evidence for the exchange-rate-difference posting, not in the payment flow itself.

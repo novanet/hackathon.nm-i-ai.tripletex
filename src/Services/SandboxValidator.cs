@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TripletexAgent.Models;
 
 namespace TripletexAgent.Services;
@@ -50,6 +52,9 @@ public class SandboxValidator
                 case "register_payment":
                 case "reminder_fee":
                     await ValidatePayment(api, extracted, handlerResult, report);
+                    break;
+                case "overdue_invoice_reminder":
+                    await ValidateOverdueInvoiceReminder(api, extracted, handlerResult, report);
                     break;
                 case "create_project":
                     await ValidateProject(api, extracted, handlerResult, report);
@@ -524,8 +529,14 @@ public class SandboxValidator
     {
         if (!result.EntityId.HasValue) return;
 
+        var isFxPayment = IsFxPayment(extracted);
         var inv = await api.GetAsync($"/invoice/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "*" });
+            new Dictionary<string, string>
+            {
+                ["fields"] = isFxPayment
+                    ? "id,invoiceNumber,invoiceDate,amount,amountOutstanding,amountCurrency,customer(id),currency(id,code)"
+                    : "id,invoiceNumber,invoiceDate,amount,amountOutstanding,customer(id)"
+            });
         var val = inv.GetProperty("value");
 
         // Check 1: invoice_found (2pts)
@@ -571,6 +582,363 @@ public class SandboxValidator
         decimal invoiceAmt = val.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Number
             ? amt.GetDecimal() : 0;
         report.Checks.Add(new ValidationCheck("has_amount", "> 0", invoiceAmt.ToString(), invoiceAmt > 0, 1));
+
+        if (isFxPayment)
+        {
+            var expectedFx = InferExpectedFxPayment(extracted);
+            string currencyCode = "NOK";
+            var hasCurrency = val.TryGetProperty("currency", out var currencyProp)
+                && currencyProp.ValueKind == JsonValueKind.Object
+                && currencyProp.TryGetProperty("code", out var codeProp)
+                && !string.IsNullOrWhiteSpace(codeProp.GetString());
+
+            if (hasCurrency)
+            {
+                currencyCode = currencyProp.GetProperty("code").GetString() ?? "NOK";
+            }
+
+            var fxCurrencyValid = hasCurrency && !string.Equals(currencyCode, "NOK", StringComparison.OrdinalIgnoreCase);
+            report.Checks.Add(new ValidationCheck("has_currency", "!= NOK", currencyCode, fxCurrencyValid, 2));
+
+            decimal? expectedForeignAmount = null;
+            var paymentEntity = extracted.Entities.GetValueOrDefault("payment") ?? new();
+            var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+            expectedForeignAmount = GetDecimalFromEntity(paymentEntity, "amount")
+                ?? GetDecimalFromEntity(invoiceEntity, "amount");
+            if (expectedFx.ForeignAmount.HasValue && (!expectedForeignAmount.HasValue || string.Equals(expectedFx.CurrencyCode, "EUR", StringComparison.OrdinalIgnoreCase)))
+                expectedForeignAmount = expectedFx.ForeignAmount;
+
+            decimal actualForeignAmount = val.TryGetProperty("amountCurrency", out var amountCurrencyProp)
+                && amountCurrencyProp.ValueKind == JsonValueKind.Number
+                    ? amountCurrencyProp.GetDecimal()
+                    : 0m;
+
+            var foreignAmountOk = expectedForeignAmount.HasValue
+                ? Math.Abs(actualForeignAmount - expectedForeignAmount.Value) < 1m
+                : actualForeignAmount > 0;
+
+            report.Checks.Add(new ValidationCheck(
+                "correct_amount_currency",
+                expectedForeignAmount?.ToString("F2") ?? "> 0",
+                actualForeignAmount.ToString("F2"),
+                foreignAmountOk,
+                2));
+
+            await ValidateFxExchangeDifference(api, val, extracted, report);
+        }
+    }
+
+    private async Task ValidateOverdueInvoiceReminder(TripletexApiClient api, ExtractionResult extracted,
+        HandlerResult result, ValidationReport report)
+    {
+        if (!result.EntityId.HasValue) return;
+
+        var reminderFee = extracted.Entities.GetValueOrDefault("reminderFee") ?? new();
+        var voucher = extracted.Entities.GetValueOrDefault("voucher1") ?? new();
+        var expectedFeeAmount = GetDecimalFromEntity(voucher, "amount")
+            ?? GetDecimalFromEntity(reminderFee, "amount")
+            ?? GetDecimalFromMetadata(result, "reminderFeeAmount");
+        var expectedDebitAccount = GetStringFromEntity(voucher, "debitAccount")
+            ?? GetStringFromEntity(reminderFee, "debitAccount")
+            ?? "1500";
+        var expectedCreditAccount = GetStringFromEntity(voucher, "creditAccount")
+            ?? GetStringFromEntity(reminderFee, "creditAccount")
+            ?? "3400";
+
+        var invoiceResponse = await api.GetAsync($"/invoice/{result.EntityId}",
+            new Dictionary<string, string> { ["fields"] = "id,invoiceNumber,invoiceDate,amount,amountOutstanding,customer(id)" });
+        var invoice = invoiceResponse.GetProperty("value");
+
+        report.Checks.Add(new ValidationCheck("overdue_invoice_found", "true", "true", true, 2));
+
+        var outstandingAmount = invoice.TryGetProperty("amountOutstanding", out var outstandingProp)
+            && outstandingProp.ValueKind == JsonValueKind.Number
+                ? outstandingProp.GetDecimal()
+                : decimal.MaxValue;
+        report.Checks.Add(new ValidationCheck(
+            "payment_registered",
+            "0",
+            outstandingAmount == decimal.MaxValue ? "missing" : outstandingAmount.ToString("F2", CultureInfo.InvariantCulture),
+            outstandingAmount == 0m,
+            2));
+
+        var originalAmount = invoice.TryGetProperty("amount", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number
+            ? amountProp.GetDecimal()
+            : 0m;
+        var amountPaid = outstandingAmount == decimal.MaxValue ? 0m : originalAmount - outstandingAmount;
+        var paidAmountCorrect = originalAmount > 0m && Math.Abs(amountPaid - originalAmount) < 1m;
+        report.Checks.Add(new ValidationCheck(
+            "correct_paid_amount",
+            originalAmount > 0m ? originalAmount.ToString("F2", CultureInfo.InvariantCulture) : "> 0",
+            amountPaid.ToString("F2", CultureInfo.InvariantCulture),
+            paidAmountCorrect,
+            2));
+
+        var customerId = invoice.TryGetProperty("customer", out var customerProp)
+            && customerProp.ValueKind == JsonValueKind.Object
+            && customerProp.TryGetProperty("id", out var customerIdProp)
+            && customerIdProp.ValueKind == JsonValueKind.Number
+                ? customerIdProp.GetInt64()
+                : 0L;
+
+        var voucherCreated = false;
+        var voucherActual = "missing";
+        if (result.ExtraIds.TryGetValue("reminderVoucherId", out var voucherId))
+        {
+            try
+            {
+                var voucherResponse = await api.GetAsync($"/ledger/voucher/{voucherId}",
+                    new Dictionary<string, string> { ["fields"] = "id,postings(amountGross,account(number))" });
+                var voucherValue = voucherResponse.GetProperty("value");
+                if (voucherValue.TryGetProperty("postings", out var postings) && postings.ValueKind == JsonValueKind.Array)
+                {
+                    bool hasDebit = false;
+                    bool hasCredit = false;
+                    bool hasExpectedAmount = !expectedFeeAmount.HasValue;
+
+                    foreach (var posting in postings.EnumerateArray())
+                    {
+                        var accountNumber = posting.TryGetProperty("account", out var accountProp)
+                            && accountProp.ValueKind == JsonValueKind.Object
+                            && accountProp.TryGetProperty("number", out var numberProp)
+                                ? numberProp.GetRawText().Trim('"')
+                                : string.Empty;
+                        var amountGross = posting.TryGetProperty("amountGross", out var grossProp)
+                            && grossProp.ValueKind == JsonValueKind.Number
+                                ? grossProp.GetDecimal()
+                                : 0m;
+
+                        if (string.Equals(accountNumber, expectedDebitAccount, StringComparison.OrdinalIgnoreCase) && amountGross > 0)
+                            hasDebit = true;
+                        if (string.Equals(accountNumber, expectedCreditAccount, StringComparison.OrdinalIgnoreCase) && amountGross < 0)
+                            hasCredit = true;
+                        if (expectedFeeAmount.HasValue && Math.Abs(Math.Abs(amountGross) - expectedFeeAmount.Value) < 1m)
+                            hasExpectedAmount = true;
+                    }
+
+                    voucherCreated = hasDebit && hasCredit && hasExpectedAmount;
+                    voucherActual = voucherCreated
+                        ? voucherId.ToString(CultureInfo.InvariantCulture)
+                        : $"{voucherId} (accounts/amount mismatch)";
+                }
+            }
+            catch
+            {
+                voucherActual = $"{voucherId} (lookup failed)";
+            }
+        }
+
+        report.Checks.Add(new ValidationCheck(
+            "reminder_fee_voucher_created",
+            "true",
+            voucherActual,
+            voucherCreated,
+            2));
+
+        var reminderInvoiceCreated = false;
+        var reminderInvoiceSent = false;
+        var reminderInvoiceActual = "missing";
+        if (result.ExtraIds.TryGetValue("reminderInvoiceId", out var reminderInvoiceId))
+        {
+            try
+            {
+                var reminderInvoiceResponse = await api.GetAsync($"/invoice/{reminderInvoiceId}",
+                    new Dictionary<string, string> { ["fields"] = "id,amount,customer(id)" });
+                var reminderInvoice = reminderInvoiceResponse.GetProperty("value");
+                var reminderAmount = reminderInvoice.TryGetProperty("amount", out var reminderAmountProp)
+                    && reminderAmountProp.ValueKind == JsonValueKind.Number
+                        ? reminderAmountProp.GetDecimal()
+                        : 0m;
+                var reminderCustomerMatches = reminderInvoice.TryGetProperty("customer", out var reminderCustomerProp)
+                    && reminderCustomerProp.ValueKind == JsonValueKind.Object
+                    && reminderCustomerProp.TryGetProperty("id", out var reminderCustomerIdProp)
+                    && reminderCustomerIdProp.ValueKind == JsonValueKind.Number
+                    && reminderCustomerIdProp.GetInt64() == customerId;
+                var reminderAmountMatches = !expectedFeeAmount.HasValue || Math.Abs(reminderAmount - expectedFeeAmount.Value) < 1m;
+
+                reminderInvoiceCreated = reminderCustomerMatches && reminderAmountMatches;
+                reminderInvoiceSent = result.Metadata.TryGetValue("reminderInvoiceSent", out var sentValue)
+                    && bool.TryParse(sentValue, out var sent)
+                    && sent;
+                reminderInvoiceActual = reminderInvoiceCreated
+                    ? reminderInvoiceId.ToString(CultureInfo.InvariantCulture)
+                    : $"{reminderInvoiceId} (customer/amount mismatch)";
+            }
+            catch
+            {
+                reminderInvoiceActual = $"{reminderInvoiceId} (lookup failed)";
+            }
+        }
+
+        report.Checks.Add(new ValidationCheck(
+            "reminder_fee_invoice_created",
+            "true",
+            reminderInvoiceActual,
+            reminderInvoiceCreated,
+            2));
+        report.Checks.Add(new ValidationCheck(
+            "reminder_fee_invoice_sent",
+            "true",
+            reminderInvoiceSent ? "true" : "false",
+            reminderInvoiceSent,
+            2));
+    }
+
+    private async Task ValidateFxExchangeDifference(TripletexApiClient api, JsonElement invoice, ExtractionResult extracted,
+        ValidationReport report)
+    {
+        var invoiceNumber = invoice.TryGetProperty("invoiceNumber", out var invoiceNumberProp)
+            && invoiceNumberProp.ValueKind == JsonValueKind.Number
+                ? invoiceNumberProp.GetInt64()
+                : 0L;
+        var invoiceDate = invoice.TryGetProperty("invoiceDate", out var invoiceDateProp) && invoiceDateProp.ValueKind == JsonValueKind.String
+            ? invoiceDateProp.GetString()
+            : null;
+
+        if (string.IsNullOrWhiteSpace(invoiceDate))
+        {
+            report.Checks.Add(new ValidationCheck("exchange_rate_difference_posted", "true", "missing invoice date", false, 2));
+            return;
+        }
+
+        var paymentDate = extracted.Dates.LastOrDefault();
+        if (string.IsNullOrWhiteSpace(paymentDate))
+            paymentDate = invoiceDate;
+
+        var dateTo = paymentDate;
+        if (DateTime.TryParseExact(paymentDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedPaymentDate))
+            dateTo = parsedPaymentDate.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+        var postingResponse = await api.GetAsync("/ledger/posting", new Dictionary<string, string>
+        {
+            ["dateFrom"] = paymentDate!,
+            ["dateTo"] = dateTo!,
+            ["accountNumberFrom"] = "8050",
+            ["accountNumberTo"] = "8070",
+            ["count"] = "200",
+            ["fields"] = "id,amount,account(number),description,voucher(id,description),date"
+        });
+
+        bool exchangeDifferencePosted = false;
+        string actual = "missing";
+        if (postingResponse.TryGetProperty("values", out var postings) && postings.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var posting in postings.EnumerateArray())
+            {
+                var description = posting.TryGetProperty("description", out var descriptionProp) && descriptionProp.ValueKind == JsonValueKind.String
+                    ? descriptionProp.GetString() ?? string.Empty
+                    : string.Empty;
+                var voucherDescription = posting.TryGetProperty("voucher", out var voucherProp)
+                    && voucherProp.ValueKind == JsonValueKind.Object
+                    && voucherProp.TryGetProperty("description", out var voucherDescriptionProp)
+                    && voucherDescriptionProp.ValueKind == JsonValueKind.String
+                        ? voucherDescriptionProp.GetString() ?? string.Empty
+                        : string.Empty;
+
+                var matchesInvoice = invoiceNumber > 0
+                    && (description.Contains($"nummer {invoiceNumber}", StringComparison.OrdinalIgnoreCase)
+                        || description.Contains($"number {invoiceNumber}", StringComparison.OrdinalIgnoreCase)
+                        || voucherDescription.Contains($"nummer {invoiceNumber}", StringComparison.OrdinalIgnoreCase)
+                        || voucherDescription.Contains($"number {invoiceNumber}", StringComparison.OrdinalIgnoreCase));
+
+                if (!matchesInvoice)
+                    continue;
+
+                var accountNumber = posting.TryGetProperty("account", out var accountProp)
+                    && accountProp.ValueKind == JsonValueKind.Object
+                    && accountProp.TryGetProperty("number", out var accountNumberProp)
+                        ? accountNumberProp.GetRawText().Trim('"')
+                        : string.Empty;
+
+                exchangeDifferencePosted = true;
+                actual = string.IsNullOrWhiteSpace(accountNumber)
+                    ? description
+                    : $"{accountNumber}: {description}";
+                break;
+            }
+        }
+
+        report.Checks.Add(new ValidationCheck(
+            "exchange_rate_difference_posted",
+            "true",
+            actual,
+            exchangeDifferencePosted,
+            2));
+    }
+
+    private static bool IsFxPayment(ExtractionResult extracted)
+    {
+        var payment = extracted.Entities.GetValueOrDefault("payment");
+        var invoice = extracted.Entities.GetValueOrDefault("invoice");
+
+        return (payment != null && (payment.ContainsKey("currency") || payment.ContainsKey("exchangeRateAtPayment")))
+            || (invoice != null && (invoice.ContainsKey("currency") || invoice.ContainsKey("exchangeRateAtInvoice") || invoice.ContainsKey("exchangeRateAtInvoicing")));
+    }
+
+    private static (string? CurrencyCode, decimal? ForeignAmount) InferExpectedFxPayment(ExtractionResult extracted)
+    {
+        var payment = extracted.Entities.GetValueOrDefault("payment") ?? new();
+        var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+
+        var extractedCurrency = NormalizeCurrencyCode(GetStringFromEntity(payment, "currency"))
+            ?? NormalizeCurrencyCode(GetStringFromEntity(invoice, "currency"));
+        var promptMatch = FindPromptAmountCurrency(extracted)
+            .FirstOrDefault(match => !string.Equals(match.CurrencyCode, "NOK", StringComparison.OrdinalIgnoreCase));
+
+        var currencyCode = !string.IsNullOrWhiteSpace(extractedCurrency) && !string.Equals(extractedCurrency, "NOK", StringComparison.OrdinalIgnoreCase)
+            ? extractedCurrency
+            : promptMatch.CurrencyCode;
+
+        var entityAmount = GetDecimalFromEntity(invoice, "amount") ?? GetDecimalFromEntity(payment, "amount");
+        var foreignAmount = promptMatch.Amount ?? entityAmount;
+
+        if (string.Equals(extractedCurrency, "NOK", StringComparison.OrdinalIgnoreCase) && promptMatch.Amount.HasValue)
+            foreignAmount = promptMatch.Amount;
+
+        return (currencyCode, foreignAmount);
+    }
+
+    private static IEnumerable<(decimal? Amount, string CurrencyCode)> FindPromptAmountCurrency(ExtractionResult extracted)
+    {
+        foreach (var source in EnumeratePromptCurrencySources(extracted))
+        {
+            foreach (Match match in Regex.Matches(source, @"(?<!\w)(?<amount>\d+(?:[.,]\d+)?)\s*(?<currency>[A-Z]{3})(?!\w)"))
+            {
+                if (!decimal.TryParse(
+                    match.Groups["amount"].Value.Replace(',', '.'),
+                    NumberStyles.Any,
+                    CultureInfo.InvariantCulture,
+                    out var amount))
+                {
+                    continue;
+                }
+
+                var currencyCode = NormalizeCurrencyCode(match.Groups["currency"].Value);
+                if (currencyCode is not null)
+                    yield return (amount, currencyCode);
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumeratePromptCurrencySources(ExtractionResult extracted)
+    {
+        if (!string.IsNullOrWhiteSpace(extracted.RawPrompt))
+            yield return extracted.RawPrompt;
+
+        foreach (var relation in extracted.Relationships.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(relation))
+                yield return relation;
+        }
+    }
+
+    private static string? NormalizeCurrencyCode(string? currencyCode)
+    {
+        if (string.IsNullOrWhiteSpace(currencyCode))
+            return null;
+
+        currencyCode = currencyCode.Trim().ToUpperInvariant();
+        return currencyCode.Length == 3 ? currencyCode : null;
     }
 
     private async Task ValidateProject(TripletexApiClient api, ExtractionResult extracted,
@@ -1510,6 +1878,14 @@ public class SandboxValidator
         if (decimal.TryParse(v?.ToString(), System.Globalization.NumberStyles.Any,
             System.Globalization.CultureInfo.InvariantCulture, out var d2)) return d2;
         return null;
+    }
+
+    private static decimal? GetDecimalFromMetadata(HandlerResult result, string key)
+    {
+        if (!result.Metadata.TryGetValue(key, out var value)) return null;
+        return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
     }
 }
 

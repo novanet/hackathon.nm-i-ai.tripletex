@@ -38,40 +38,48 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 16:34:57 |
+| Timestamp | 03/21/2026 22:02:45 |
 | Task Type | `overdue_invoice_reminder` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 5143 ms |
-| API Calls | 11 |
-| Errors | 2 |
+| Elapsed | 11290 ms |
+| API Calls | 14 |
+| Errors | 1 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/invoice?invoiceDateFrom=2020-01-01&invoiceDateTo=2026-03-21...` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=1500&count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=3400&count=1&fields=id` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=3400&count=1&fields=id` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=1500&count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
 | 5 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 | 6 | `POST` | `/order` | ✅  |  |
 | 7 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
 | 8 | `POST` | `/order` | ✅  |  |
 | 9 | `POST` | `/invoice` | ✅  |  |
-| 10 | `PUT` | `/invoice/2147610255/:send?sendType=EMAIL` | ✅  |  |
-| 11 | `PUT` | `/invoice/2147518802/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
+| 10 | `PUT` | `/invoice/2147642942/:send?sendType=EMAIL` | ✅  |  |
+| 11 | `PUT` | `/invoice/2147523736/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
+| 12 | `GET` | `/invoice/2147523736?fields=id%2CinvoiceNumber%2CinvoiceDate%...` | ✅  |  |
+| 13 | `GET` | `/ledger/voucher/609175119?fields=id%2Cpostings%28amountGross...` | ✅  |  |
+| 14 | `GET` | `/invoice/2147642942?fields=id%2Camount%2Ccustomer%28id%29` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 1 / 1 |
+| Points | 12 / 12 |
 
 ### Checks
 
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
-| handler_executed | `true` | `true` | ✅ | 1 |
+| overdue_invoice_found | `true` | `true` | ✅ | 2 |
+| payment_registered | `0` | `0.00` | ✅ | 2 |
+| correct_paid_amount | `56500.00` | `56500.00` | ✅ | 2 |
+| reminder_fee_voucher_created | `true` | `609175119` | ✅ | 2 |
+| reminder_fee_invoice_created | `true` | `2147642942` | ✅ | 2 |
+| reminder_fee_invoice_sent | `true` | `true` | ✅ | 2 |
 

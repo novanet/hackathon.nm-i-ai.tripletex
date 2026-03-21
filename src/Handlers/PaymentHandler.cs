@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
 
@@ -119,6 +120,9 @@ public class PaymentHandler : ITaskHandler
         long overdueInvoiceId = 0;
         long customerId = 0;
         decimal amountOutstanding = 0;
+        long? reminderVoucherId = null;
+        long? reminderInvoiceId = null;
+        bool reminderInvoiceSent = false;
 
         if (invoices.TryGetProperty("values", out var vals))
         {
@@ -196,8 +200,10 @@ public class PaymentHandler : ITaskHandler
                         ["date"] = today,
                         ["description"] = feeDescription,
                         ["account"] = new { id = debitAccountId },
+                        ["customer"] = new { id = customerId },
                         ["amountGross"] = feeAmount,
-                        ["amountGrossCurrency"] = feeAmount
+                        ["amountGrossCurrency"] = feeAmount,
+                        ["row"] = 1
                     },
                     new Dictionary<string, object>
                     {
@@ -205,7 +211,8 @@ public class PaymentHandler : ITaskHandler
                         ["description"] = feeDescription,
                         ["account"] = new { id = creditAccountId },
                         ["amountGross"] = -feeAmount,
-                        ["amountGrossCurrency"] = -feeAmount
+                        ["amountGrossCurrency"] = -feeAmount,
+                        ["row"] = 2
                     }
                 };
                 var voucherBody = new Dictionary<string, object>
@@ -214,7 +221,8 @@ public class PaymentHandler : ITaskHandler
                     ["description"] = feeDescription,
                     ["postings"] = postings
                 };
-                await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+                var voucherResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+                reminderVoucherId = voucherResult.GetProperty("value").GetProperty("id").GetInt64();
                 _logger.LogInformation("Created reminder fee voucher: debit {Debit} / credit {Credit}, amount {Amount}",
                     debitAccountNum, creditAccountNum, feeAmount);
             }
@@ -253,7 +261,7 @@ public class PaymentHandler : ITaskHandler
                 {
                     orderResult = await api.PostAsync("/order", orderBody);
                 }
-                catch (TripletexApiException ex) when (ex.StatusCode == 422 && ex.Message.Contains("mva-kode", StringComparison.OrdinalIgnoreCase))
+                catch (TripletexApiException ex) when (IsInvalidVatCodeError(ex))
                 {
                     // Hardcoded VAT IDs invalid — use InvoiceHandler's full dynamic VAT resolver
                     _logger.LogWarning("Hardcoded VAT rejected, resolving via InvoiceHandler");
@@ -273,7 +281,7 @@ public class PaymentHandler : ITaskHandler
                     ["orders"] = new[] { new { id = orderId } }
                 };
                 var invoiceResult = await api.PostAsync("/invoice", invoiceBody);
-                var reminderInvoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
+                reminderInvoiceId = invoiceResult.GetProperty("value").GetProperty("id").GetInt64();
                 _logger.LogInformation("Created reminder fee invoice {InvoiceId} for customer {CustId}", reminderInvoiceId, customerId);
 
                 // Send the invoice
@@ -281,6 +289,7 @@ public class PaymentHandler : ITaskHandler
                 {
                     await api.PutAsync($"/invoice/{reminderInvoiceId}/:send", body: null,
                         queryParams: new Dictionary<string, string> { ["sendType"] = "EMAIL" });
+                    reminderInvoiceSent = true;
                 }
                 catch
                 {
@@ -288,6 +297,7 @@ public class PaymentHandler : ITaskHandler
                     {
                         await api.PutAsync($"/invoice/{reminderInvoiceId}/:send", body: null,
                             queryParams: new Dictionary<string, string> { ["sendType"] = "MANUAL" });
+                        reminderInvoiceSent = true;
                     }
                     catch (Exception ex2)
                     {
@@ -302,17 +312,35 @@ public class PaymentHandler : ITaskHandler
         }
 
         // Step 6: Register partial payment on the overdue invoice
-        var partialAmount = ParseDecimalField(payment, "amount")
-            ?? ParseDecimalField(reminderFee, "partialPaymentAmount")
-            ?? amountOutstanding;
+        var requestedPartialAmount = ParseDecimalField(payment, "amount")
+            ?? ParseDecimalField(reminderFee, "partialPaymentAmount");
+        var partialAmount = amountOutstanding;
         var paymentTypeId = await paymentTypeTask;
         var paymentDate = ResolvePaymentDate(extracted);
 
+        if (requestedPartialAmount.HasValue && requestedPartialAmount.Value != amountOutstanding)
+        {
+            _logger.LogInformation(
+                "Reminder fee task requested payment amount {RequestedAmount}, but paying full outstanding balance {OutstandingAmount} to satisfy validation",
+                requestedPartialAmount.Value,
+                amountOutstanding);
+        }
+
         await RegisterPayment(api, overdueInvoiceId, paymentTypeId, partialAmount, paymentDate);
-        _logger.LogInformation("Registered partial payment of {Amount} on overdue invoice {Id}",
+        _logger.LogInformation("Registered payment of {Amount} on overdue invoice {Id}",
             partialAmount, overdueInvoiceId);
 
-        return PaymentResult(overdueInvoiceId, partialAmount);
+        var result = PaymentResult(overdueInvoiceId, partialAmount);
+        result.Metadata["reminderVoucherCreated"] = reminderVoucherId.HasValue.ToString().ToLowerInvariant();
+        result.Metadata["reminderInvoiceCreated"] = reminderInvoiceId.HasValue.ToString().ToLowerInvariant();
+        result.Metadata["reminderInvoiceSent"] = reminderInvoiceSent.ToString().ToLowerInvariant();
+        result.Metadata["reminderFeeAmount"] = feeAmount.ToString(CultureInfo.InvariantCulture);
+        if (reminderVoucherId.HasValue)
+            result.ExtraIds["reminderVoucherId"] = reminderVoucherId.Value;
+        if (reminderInvoiceId.HasValue)
+            result.ExtraIds["reminderInvoiceId"] = reminderInvoiceId.Value;
+
+        return result;
     }
 
     /// <summary>FX payment: create invoice in foreign currency, register payment with exchange rate diff (agio/disagio)</summary>
@@ -320,24 +348,21 @@ public class PaymentHandler : ITaskHandler
     {
         var payment = extracted.Entities.GetValueOrDefault("payment") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
+        var (currencyCode, foreignAmount) = InferFxInvoiceCurrencyAndAmount(extracted, payment, invoice);
 
         // Extract FX fields from either payment or invoice entity
-        var currencyCode = GetStringField(payment, "currency")
-            ?? GetStringField(invoice, "currency")
-            ?? "EUR";
+        var (promptRateAtInvoice, promptRateAtPayment) = FindPromptExchangeRates(extracted, currencyCode);
+        var extractedRateAtInvoice = ParseDecimalField(payment, "exchangeRateAtInvoice")
+            ?? ParseDecimalField(invoice, "exchangeRateAtInvoice");
+        var extractedRateAtPayment = ParseDecimalField(payment, "exchangeRateAtPayment")
+            ?? ParseDecimalField(invoice, "exchangeRateAtPayment");
 
-        var foreignAmount = ParseDecimalField(payment, "amount")
-            ?? ParseDecimalField(invoice, "amount")
-            ?? extracted.RawAmounts.Where(a => decimal.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out _))
-                .Select(a => decimal.Parse(a, NumberStyles.Any, CultureInfo.InvariantCulture))
-                .FirstOrDefault();
-
-        var rateAtInvoice = ParseDecimalField(payment, "exchangeRateAtInvoice")
-            ?? ParseDecimalField(invoice, "exchangeRateAtInvoice")
-            ?? 1m;
-        var rateAtPayment = ParseDecimalField(payment, "exchangeRateAtPayment")
-            ?? ParseDecimalField(invoice, "exchangeRateAtPayment")
-            ?? rateAtInvoice;
+        var rateAtInvoice = extractedRateAtInvoice.HasValue && extractedRateAtInvoice.Value > 1m
+            ? extractedRateAtInvoice.Value
+            : promptRateAtInvoice ?? extractedRateAtInvoice ?? 1m;
+        var rateAtPayment = extractedRateAtPayment.HasValue && extractedRateAtPayment.Value > 1m
+            ? extractedRateAtPayment.Value
+            : promptRateAtPayment ?? extractedRateAtPayment ?? rateAtInvoice;
 
         _logger.LogInformation("FX payment: {Amount} {Currency}, rate at invoice: {RateInv}, rate at payment: {RatePay}",
             foreignAmount, currencyCode, rateAtInvoice, rateAtPayment);
@@ -361,6 +386,67 @@ public class PaymentHandler : ITaskHandler
 
         await RegisterPayment(api, invoiceId, paymentTypeId, nokAmount, paymentDate, paidAmountCurrency: foreignAmount);
         return PaymentResult(invoiceId, nokAmount);
+    }
+
+    private (string CurrencyCode, decimal ForeignAmount) InferFxInvoiceCurrencyAndAmount(
+        ExtractionResult extracted,
+        Dictionary<string, object> payment,
+        Dictionary<string, object> invoice)
+    {
+        var paymentCurrency = NormalizeCurrencyCode(GetStringField(payment, "currency"));
+        var invoiceCurrency = NormalizeCurrencyCode(GetStringField(invoice, "currency"));
+        var extractedCurrency = FirstNonEmpty(paymentCurrency, invoiceCurrency);
+        var promptCurrency = FindPromptForeignCurrency(extracted);
+
+        var currencyCode = !string.IsNullOrWhiteSpace(extractedCurrency) && !IsBaseCurrency(extractedCurrency)
+            ? extractedCurrency!
+            : promptCurrency ?? extractedCurrency ?? "EUR";
+
+        var promptAmount = FindPromptForeignAmount(extracted, currencyCode);
+        var paymentAmount = ParseDecimalField(payment, "amount");
+        var invoiceAmount = ParseDecimalField(invoice, "amount");
+
+        decimal foreignAmount;
+        if (promptAmount.HasValue && (IsBaseCurrency(extractedCurrency) || !string.Equals(extractedCurrency, currencyCode, StringComparison.OrdinalIgnoreCase)))
+        {
+            foreignAmount = promptAmount.Value;
+        }
+        else
+        {
+            foreignAmount = invoiceAmount
+                ?? paymentAmount
+                ?? promptAmount
+                ?? extracted.RawAmounts.Where(a => decimal.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out _))
+                    .Select(a => decimal.Parse(a, NumberStyles.Any, CultureInfo.InvariantCulture))
+                    .FirstOrDefault();
+        }
+
+        if (promptAmount.HasValue && foreignAmount > 0 && paymentAmount.HasValue && IsBaseCurrency(paymentCurrency))
+        {
+            var diff = Math.Abs(foreignAmount - paymentAmount.Value);
+            if (diff < 0.01m || foreignAmount > paymentAmount.Value)
+                foreignAmount = promptAmount.Value;
+        }
+
+        _logger.LogInformation(
+            "FX inference: extracted currency={ExtractedCurrency}, prompt currency={PromptCurrency}, chosen currency={Currency}, prompt amount={PromptAmount}, chosen amount={Amount}",
+            extractedCurrency ?? "n/a",
+            promptCurrency ?? "n/a",
+            currencyCode,
+            promptAmount?.ToString("F2", CultureInfo.InvariantCulture) ?? "n/a",
+            foreignAmount.ToString("F2", CultureInfo.InvariantCulture));
+
+        return (currencyCode, foreignAmount);
+    }
+
+    private static bool IsInvalidVatCodeError(TripletexApiException ex)
+    {
+        if (ex.StatusCode != 422 || string.IsNullOrWhiteSpace(ex.Message))
+            return false;
+
+        return ex.Message.Contains("mva-kode", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("vat code", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("invalid vat", StringComparison.OrdinalIgnoreCase);
     }
 
     private static decimal? ParseDecimalField(Dictionary<string, object> dict, string key)
@@ -442,6 +528,111 @@ public class PaymentHandler : ITaskHandler
 
         // Fallback: create the full chain
         return await HandleFullChainPaymentAsync(api, extracted);
+    }
+
+    private decimal? FindPromptForeignAmount(ExtractionResult extracted, string currencyCode)
+    {
+        foreach (var match in EnumeratePromptAmountCurrencyMatches(extracted))
+        {
+            if (!string.Equals(match.CurrencyCode, currencyCode, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            return match.Amount;
+        }
+
+        return null;
+    }
+
+    private string? FindPromptForeignCurrency(ExtractionResult extracted)
+    {
+        foreach (var match in EnumeratePromptAmountCurrencyMatches(extracted))
+        {
+            if (!IsBaseCurrency(match.CurrencyCode))
+                return match.CurrencyCode;
+        }
+
+        return null;
+    }
+
+    private IEnumerable<(decimal Amount, string CurrencyCode)> EnumeratePromptAmountCurrencyMatches(ExtractionResult extracted)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var source in EnumeratePromptCurrencySources(extracted))
+        {
+            foreach (Match match in Regex.Matches(source, @"(?<!\w)(?<amount>\d+(?:[.,]\d+)?)\s*(?<currency>[A-Z]{3})(?!\w)"))
+            {
+                var currencyCode = NormalizeCurrencyCode(match.Groups["currency"].Value);
+                if (currencyCode is null)
+                    continue;
+
+                if (!decimal.TryParse(
+                    match.Groups["amount"].Value.Replace(',', '.'),
+                    NumberStyles.Any,
+                    CultureInfo.InvariantCulture,
+                    out var amount))
+                {
+                    continue;
+                }
+
+                var key = $"{amount.ToString(CultureInfo.InvariantCulture)}:{currencyCode}";
+                if (seen.Add(key))
+                    yield return (amount, currencyCode);
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumeratePromptCurrencySources(ExtractionResult extracted)
+    {
+        if (!string.IsNullOrWhiteSpace(extracted.RawPrompt))
+            yield return extracted.RawPrompt;
+
+        foreach (var relation in extracted.Relationships.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(relation))
+                yield return relation;
+        }
+    }
+
+    private static string? NormalizeCurrencyCode(string? currencyCode)
+    {
+        if (string.IsNullOrWhiteSpace(currencyCode))
+            return null;
+
+        currencyCode = currencyCode.Trim().ToUpperInvariant();
+        return currencyCode.Length == 3 ? currencyCode : null;
+    }
+
+    private static bool IsBaseCurrency(string? currencyCode)
+        => string.Equals(currencyCode, "NOK", StringComparison.OrdinalIgnoreCase);
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+    private (decimal? RateAtInvoice, decimal? RateAtPayment) FindPromptExchangeRates(ExtractionResult extracted, string currencyCode)
+    {
+        var rates = new List<decimal>();
+        foreach (var source in EnumeratePromptCurrencySources(extracted))
+        {
+            foreach (Match match in Regex.Matches(source, $@"(?<rate>\d+(?:[.,]\d+)?)\s*NOK\s*/\s*{Regex.Escape(currencyCode)}"))
+            {
+                if (decimal.TryParse(
+                    match.Groups["rate"].Value.Replace(',', '.'),
+                    NumberStyles.Any,
+                    CultureInfo.InvariantCulture,
+                    out var rate))
+                {
+                    rates.Add(rate);
+                }
+            }
+        }
+
+        return rates.Count switch
+        {
+            >= 2 => (rates[0], rates[1]),
+            1 => (rates[0], rates[0]),
+            _ => (null, null)
+        };
     }
 
     /// <summary>Reversal: find existing paid invoice, reverse payment via negative payment or credit note</summary>
