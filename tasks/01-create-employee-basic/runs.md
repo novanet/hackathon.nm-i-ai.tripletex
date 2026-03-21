@@ -31,48 +31,39 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:57:56 |
+| Timestamp | 03/21/2026 19:52:46 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
-| Success | False |
-| Elapsed | 2853 ms |
-| API Calls | 3 |
-| Errors | 2 |
-| Error | `dateOfBirth: Verdien er ikke av korrekt type for dette feltet.` |
+| Success | True |
+| Elapsed | 4581 ms |
+| API Calls | 6 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
-| 2 | `POST` | `/employee` | ✅  |  |
+| 2 | `GET` | `/employee?email=anne.solberg.maxscore.20260321%40example.org...` | ✅  |  |
 | 3 | `POST` | `/employee` | ✅  |  |
+| 4 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
+| 5 | `GET` | `/employee/18658267?fields=id%2CfirstName%2ClastName%2Cemail%...` | ✅  |  |
+| 6 | `GET` | `/employee/entitlement?employeeId=18658267&count=100&fields=i...` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
-| Correctness | 0.933333333333333 |
-| Points | 14 / 15 |
+| Correctness | 1 |
+| Points | 6 / 6 |
 
 ### Checks
 
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
 | employee_found | `true` | `true` | ✅ | 1 |
-| firstName | `Catarina` | `Catarina` | ✅ | 1 |
-| lastName | `Almeida` | `Almeida` | ✅ | 1 |
-| email | `catarina.almeida@example.org` | `catarina.almeida@example.org` | ✅ | 1 |
-| dateOfBirth | `1985-10-21` | `1985-10-21` | ✅ | 1 |
-| department | `Regnskap` | `Regnskap` | ✅ | 1 |
-| employment_found | `true` | `true` | ✅ | 1 |
-| employment.startDate | `2026-07-06` | `2026-07-06` | ✅ | 1 |
-| employment.details_found | `true` | `true` | ✅ | 1 |
-| employment.occupationCode | `3323` | `(null)` | ❌ | 1 |
-| employment.percentageOfFullTimeEquivalent | `80` | `80` | ✅ | 1 |
-| employment.annualSalary | `500000` | `500000` | ✅ | 1 |
-| employment.employmentType | `ORDINARY` | `ORDINARY` | ✅ | 1 |
-| employment.employmentForm | `PERMANENT` | `PERMANENT` | ✅ | 1 |
-| employment.remunerationType | `MONTHLY_WAGE` | `MONTHLY_WAGE` | ✅ | 1 |
-
+| firstName | `Anne` | `Anne` | ✅ | 1 |
+| lastName | `Solberg` | `Solberg` | ✅ | 1 |
+| email | `anne.solberg.maxscore.20260321@example.org` | `anne.solberg.maxscore.20260321@example.org` | ✅ | 1 |
+| administrator_role | `true` | `true` | ✅ | 2 |
 

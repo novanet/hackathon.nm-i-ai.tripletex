@@ -37,11 +37,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 16:37:03 |
+| Timestamp | 03/21/2026 19:58:01 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 3735 ms |
+| Elapsed | 4205 ms |
 | API Calls | 7 |
 | Errors | 0 |
 
@@ -50,19 +50,19 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6300&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=7140&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 7 | `GET` | `/ledger/voucher/609035604?fields=id%2Cdescription%2Cdate%2Cp...` | ✅  |  |
+| 7 | `GET` | `/ledger/voucher/609122172?fields=id%2Cdescription%2Cdate%2Cp...` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 13 / 13 |
+| Points | 15 / 15 |
 
 ### Checks
 
@@ -73,6 +73,6 @@
 | has_postings | `>= 2` | `3` | ✅ | 2 |
 | postings_balanced | `true` | `true` | ✅ | 2 |
 | correct_accounts | `true` | `true` | ✅ | 2 |
-| correct_amount | `52937,00` | `52937,00` | ✅ | 3 |
-
+| has_department | `Produksjon` | `Produksjon` | ✅ | 2 |
+| correct_amount | `10900,00` | `10900,00` | ✅ | 3 |
 

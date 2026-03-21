@@ -179,12 +179,15 @@ function Write-IfChanged {
     param([string]$Path, [string]$Content)
     if (Test-Path $Path) {
         $existing = Get-Content $Path -Raw -Encoding UTF8
-        if ($null -ne $existing -and $existing.TrimEnd() -eq $Content.TrimEnd()) {
+        # Normalize line endings and trailing whitespace for comparison
+        $normExisting = ($existing -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd()
+        $normContent = ($Content -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd()
+        if ($null -ne $existing -and $normExisting -eq $normContent) {
             $script:skippedFiles++
             return
         }
     }
-    Set-Content -Path $Path -Value $Content -Encoding UTF8
+    Set-Content -Path $Path -Value $Content -Encoding UTF8 -NoNewline
     $script:updatedFiles++
 }
 

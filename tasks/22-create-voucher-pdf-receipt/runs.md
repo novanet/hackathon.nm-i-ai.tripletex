@@ -36,11 +36,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 16:37:01 |
+| Timestamp | 03/21/2026 20:09:00 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 4529 ms |
+| Elapsed | 3531 ms |
 | API Calls | 8 |
 | Errors | 0 |
 
@@ -55,6 +55,5 @@
 | 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 8 | `GET` | `/ledger/voucher/609035599?fields=id%2Cdescription%2Cdate%2Cp...` | ✅  |  |
-
+| 8 | `GET` | `/ledger/voucher/609127581?fields=id%2Cdescription%2Cdate%2Cp...` | ✅  |  |
 

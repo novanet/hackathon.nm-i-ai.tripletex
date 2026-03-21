@@ -66,7 +66,6 @@
 | has_postings | `>= 2` | `3` | ✅ | 2 |
 | postings_balanced | `true` | `true` | ✅ | 2 |
 | correct_accounts | `true` | `true` | ✅ | 2 |
-| has_department | `Salg` | `Salg` | ✅ | 2 |
-| correct_amount | `2700,00` | `2700,00` | ✅ | 3 |
-
+| has_department | `HR` | `HR` | ✅ | 2 |
+| correct_amount | `13600,00` | `13600,00` | ✅ | 3 |
 
