@@ -58,7 +58,6 @@ $taskFolders = @{
 }
 
 # Task type + variant keywords → task ID (for matching submissions to task IDs)
-# We use the task_index from competition runs when available, otherwise best-effort match
 $taskTypeToIds = @{
     # Simple mappings (unique task types)
     "create_customer"       = @("02")
@@ -82,26 +81,45 @@ function Read-Jsonl {
 }
 
 # --- Helper: Identify task ID from a submission entry ---
+function Get-TaskIdFromPrompt {
+    param(
+        [string]$Prompt,
+        [bool]$HasFiles = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Prompt)) { return $null }
+
+    # Task 25: overdue invoice + reminder fee + invoice/payment workflow.
+    if ($Prompt -match "retard|overdue|forfalt|forfalte|überfällig|uberfallig|vencid|rappel|reminder|purring|purregebyr|mahngeb[uü]hr|recordatorio") {
+        return "25"
+    }
+
+    return $null
+}
+
 function Get-TaskId {
     param($Entry)
     
-    # If task_index is present (competition runs), use it directly
-    if ($Entry.task_index) {
-        $idx = "{0:D2}" -f [int]$Entry.task_index
-        if ($taskFolders.ContainsKey($idx)) { return $idx }
-    }
-    
     $type = $Entry.task_type
-    if (-not $type -or $type -eq "unknown") { return $null }
+    $hasFiles = $Entry.files -and $Entry.files.Count -gt 0
+    $prompt = $Entry.prompt
+
+    if (-not $type -or $type -eq "unknown") {
+        return Get-TaskIdFromPrompt -Prompt $prompt -HasFiles:$hasFiles
+    }
     
     # Unique task types → direct mapping
     if ($taskTypeToIds.ContainsKey($type)) {
         return $taskTypeToIds[$type][0]
     }
+
+    if ($type -in @("reminder_fee", "overdue_invoice_reminder")) {
+        return "25"
+    }
     
     # Multi-variant types need heuristics
-    $hasFiles = $Entry.files -and $Entry.files.Count -gt 0
-    $prompt = $Entry.prompt
+    $promptTaskId = Get-TaskIdFromPrompt -Prompt $prompt -HasFiles:$hasFiles
+    if ($promptTaskId) { return $promptTaskId }
     
     switch ($type) {
         "create_employee" {
@@ -120,7 +138,6 @@ function Get-TaskId {
             return "06"
         }
         "register_payment" {
-            if ($prompt -match "retard|overdue|forfalt|überfällig|rappel|reminder|purring") { return "25" }
             if ($prompt -match "EUR|USD|valuta|currency|devise|Währung|câmbio|veksel") { return "27" }
             # Full chain = needs to create customer + order + invoice + pay
             if ($prompt -match "kunde|customer|client|Kunde|cliente" -and $prompt -match "faktura|invoice|facture|Rechnung|fatura") { return "18" }
@@ -153,6 +170,22 @@ function Truncate {
     if (-not $Text) { return "" }
     if ($Text.Length -le $Max) { return $Text }
     return $Text.Substring(0, $Max) + "..."
+}
+
+# --- Helper: Write file only if content changed ---
+$script:updatedFiles = 0
+$script:skippedFiles = 0
+function Write-IfChanged {
+    param([string]$Path, [string]$Content)
+    if (Test-Path $Path) {
+        $existing = Get-Content $Path -Raw -Encoding UTF8
+        if ($null -ne $existing -and $existing.TrimEnd() -eq $Content.TrimEnd()) {
+            $script:skippedFiles++
+            return
+        }
+    }
+    Set-Content -Path $Path -Value $Content -Encoding UTF8
+    $script:updatedFiles++
 }
 
 # --- Load all data ---
@@ -191,22 +224,22 @@ foreach ($result in $results) {
         foreach ($task in $result.tasks) {
             # Try to match task to an ID
             $fakeEntry = [pscustomobject]@{
-                task_type = $task.task_type
-                prompt = ""
-                files = @()
+                task_type  = $task.task_type
+                prompt     = ""
+                files      = @()
                 extraction = $null
             }
             $id = Get-TaskId $fakeEntry
             if ($id) {
                 if (-not $resultsByTask[$id]) { $resultsByTask[$id] = @() }
                 $resultsByTask[$id] += [pscustomobject]@{
-                    submission_id = $result.submission_id
-                    timestamp = $result.timestamp
-                    score_raw = $result.score_raw
-                    score_max = $result.score_max
+                    submission_id    = $result.submission_id
+                    timestamp        = $result.timestamp
+                    score_raw        = $result.score_raw
+                    score_max        = $result.score_max
                     normalized_score = $result.normalized_score
-                    checks = $result.checks
-                    task = $task
+                    checks           = $result.checks
+                    task             = $task
                 }
             }
         }
@@ -234,11 +267,11 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
             $hasFiles = $entry.files -and $entry.files.Count -gt 0
             $fileInfo = if ($hasFiles) { " (+ $($entry.files.Count) file(s))" } else { "" }
             $promptEntries += [pscustomobject]@{
-                Source = "competition"
+                Source    = "competition"
                 Timestamp = $entry.timestamp
-                Prompt = $p
-                FileInfo = $fileInfo
-                Language = $entry.language
+                Prompt    = $p
+                FileInfo  = $fileInfo
+                Language  = $entry.language
             }
         }
     }
@@ -248,21 +281,22 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
             $hasFiles = $entry.files -and $entry.files.Count -gt 0
             $fileInfo = if ($hasFiles) { " (+ $($entry.files.Count) file(s))" } else { "" }
             $promptEntries += [pscustomobject]@{
-                Source = "sandbox"
+                Source    = "sandbox"
                 Timestamp = $entry.timestamp
-                Prompt = $p
-                FileInfo = $fileInfo
-                Language = $entry.language
+                Prompt    = $p
+                FileInfo  = $fileInfo
+                Language  = $entry.language
             }
         }
     }
     
     $promptMd = "# prompts — task $id`n`n"
-    $promptMd += "*Auto-generated by Refresh-Tasks.ps1 — $(Get-Date -Format 'yyyy-MM-dd HH:mm')*`n`n"
+    $promptMd += "*Auto-generated by Refresh-Tasks.ps1*`n`n"
     
     if ($promptEntries.Count -eq 0) {
         $promptMd += "No prompts recorded yet.`n"
-    } else {
+    }
+    else {
         $promptMd += "$($promptEntries.Count) unique prompt(s) found.`n`n"
         $i = 0
         foreach ($pe in $promptEntries) {
@@ -273,11 +307,11 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
         }
     }
     
-    Set-Content -Path (Join-Path $dir "prompts.md") -Value $promptMd -Encoding UTF8
+    Write-IfChanged -Path (Join-Path $dir "prompts.md") -Content $promptMd
     
     # ========== runs.md ==========
     $runsMd = "# runs — task $id`n`n"
-    $runsMd += "*Auto-generated by Refresh-Tasks.ps1 — $(Get-Date -Format 'yyyy-MM-dd HH:mm')*`n`n"
+    $runsMd += "*Auto-generated by Refresh-Tasks.ps1*`n`n"
     
     # Latest competition run
     $latestComp = $subs | Sort-Object { $_.timestamp } | Select-Object -Last 1
@@ -330,7 +364,8 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
             $runsMd += "### LLM Extraction`n`n"
             $runsMd += "``````json`n$($latestComp.extraction | ConvertTo-Json -Depth 5 -Compress)`n```````n`n"
         }
-    } else {
+    }
+    else {
         $runsMd += "## Latest Competition Run`n`nNo competition runs recorded.`n`n"
     }
     
@@ -393,11 +428,11 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
         }
     }
     
-    Set-Content -Path (Join-Path $dir "runs.md") -Value $runsMd -Encoding UTF8
+    Write-IfChanged -Path (Join-Path $dir "runs.md") -Content $runsMd
     
     # ========== history.md ==========
     $historyMd = "# history — task $id`n`n"
-    $historyMd += "*Auto-generated by Refresh-Tasks.ps1 — $(Get-Date -Format 'yyyy-MM-dd HH:mm')*`n`n"
+    $historyMd += "*Auto-generated by Refresh-Tasks.ps1*`n`n"
     
     # Collect all runs for this task with scores
     $allRuns = @()
@@ -405,11 +440,11 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
     foreach ($entry in $subs) {
         $allRuns += [pscustomobject]@{
             Timestamp = $entry.timestamp
-            Source = "competition"
-            Success = $entry.success
-            Handler = $entry.handler
-            Calls = $entry.call_count
-            Errors = $entry.error_count
+            Source    = "competition"
+            Success   = $entry.success
+            Handler   = $entry.handler
+            Calls     = $entry.call_count
+            Errors    = $entry.error_count
             ElapsedMs = $entry.elapsed_ms
         }
     }
@@ -417,11 +452,11 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
     foreach ($entry in $sands) {
         $allRuns += [pscustomobject]@{
             Timestamp = $entry.timestamp
-            Source = "sandbox"
-            Success = $entry.success
-            Handler = $entry.handler
-            Calls = $entry.call_count
-            Errors = $entry.error_count
+            Source    = "sandbox"
+            Success   = $entry.success
+            Handler   = $entry.handler
+            Calls     = $entry.call_count
+            Errors    = $entry.error_count
             ElapsedMs = $entry.elapsed_ms
         }
     }
@@ -430,7 +465,8 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
     
     if ($allRuns.Count -eq 0) {
         $historyMd += "No runs recorded.`n"
-    } else {
+    }
+    else {
         $historyMd += "$($allRuns.Count) total run(s).`n`n"
         $historyMd += "| # | Timestamp | Source | Success | Handler | Calls | Errors | Time |`n"
         $historyMd += "|---|---|---|---|---|---|---|---|`n"
@@ -443,15 +479,10 @@ foreach ($id in ($taskFolders.Keys | Sort-Object)) {
         }
     }
     
-    Set-Content -Path (Join-Path $dir "history.md") -Value $historyMd -Encoding UTF8
+    Write-IfChanged -Path (Join-Path $dir "history.md") -Content $historyMd
     
     $generated++
 }
-
-Write-Host "`nGenerated files for $generated task(s)."
-Write-Host "  prompts.md  — unique prompts per task"
-Write-Host "  runs.md     — latest run details + API calls + validation"
-Write-Host "  history.md  — all runs chronologically"
 
 # ================================================================
 # PRIORITY_EXECUTION_ORDER.md — Auto-regenerated from leaderboard
@@ -475,36 +506,36 @@ if ($leaderboard.Count -gt 0) {
     # Task metadata: id → { tier, type, variant, leaderMax }
     # leaderMax = known leader best scores (manually maintained baseline)
     $taskMeta = @{
-        "01" = @{ tier=1; type="create_employee";    variant="Basic";                     leaderMax=1.50 }
-        "02" = @{ tier=1; type="create_customer";     variant="Standard";                  leaderMax=2.00 }
-        "03" = @{ tier=1; type="create_product";      variant="Standard";                  leaderMax=2.00 }
-        "04" = @{ tier=1; type="create_supplier";     variant="Standard";                  leaderMax=2.00 }
-        "05" = @{ tier=1; type="create_department";   variant="Multi";                     leaderMax=1.33 }
-        "06" = @{ tier=2; type="create_invoice";      variant="Simple";                    leaderMax=1.50 }
-        "07" = @{ tier=2; type="register_payment";    variant="Simple existing";           leaderMax=2.00 }
-        "08" = @{ tier=2; type="create_project";      variant="Basic";                     leaderMax=1.50 }
-        "09" = @{ tier=2; type="create_invoice";      variant="Multi-line";                leaderMax=3.00 }
-        "10" = @{ tier=2; type="register_payment";    variant="Create + pay";              leaderMax=2.67 }
-        "11" = @{ tier=2; type="create_voucher";      variant="Supplier invoice";          leaderMax=4.00 }
-        "12" = @{ tier=2; type="run_payroll";         variant="Standard";                  leaderMax=0.00 }
-        "13" = @{ tier=2; type="create_travel_expense";variant="With costs";               leaderMax=2.50 }
-        "14" = @{ tier=2; type="create_credit_note";  variant="Standard";                  leaderMax=4.00 }
-        "15" = @{ tier=2; type="create_project";      variant="Fixed-price";               leaderMax=2.80 }
-        "16" = @{ tier=2; type="create_project";      variant="Timesheet hours";           leaderMax=3.00 }
-        "17" = @{ tier=2; type="create_voucher";      variant="Custom dimension";          leaderMax=3.50 }
-        "18" = @{ tier=2; type="register_payment";    variant="Full chain";                leaderMax=4.00 }
-        "19" = @{ tier=3; type="create_employee";     variant="PDF contract (T3)";         leaderMax=2.45 }
-        "20" = @{ tier=3; type="create_voucher";      variant="PDF supplier inv (T3)";     leaderMax=6.00 }
-        "21" = @{ tier=3; type="create_employee";     variant="PDF offer letter (T3)";     leaderMax=2.36 }
-        "22" = @{ tier=3; type="create_voucher";      variant="PDF receipt (T3)";          leaderMax=0.00 }
-        "23" = @{ tier=3; type="bank_reconciliation"; variant="CSV (T3)";                  leaderMax=0.60 }
-        "24" = @{ tier=3; type="create_voucher";      variant="Ledger correction (T3)";    leaderMax=6.00 }
-        "25" = @{ tier=3; type="register_payment";    variant="Overdue + reminder (T3)";   leaderMax=5.25 }
-        "26" = @{ tier=3; type="???";                 variant="Unknown";                   leaderMax=3.75 }
-        "27" = @{ tier=3; type="register_payment";    variant="FX/EUR (T3)";               leaderMax=6.00 }
-        "28" = @{ tier=3; type="create_project";      variant="Cost analysis (T3)";        leaderMax=1.50 }
-        "29" = @{ tier=3; type="create_project";      variant="Full lifecycle (T3)";       leaderMax=4.91 }
-        "30" = @{ tier=3; type="create_voucher";      variant="Annual accounts (T3)";      leaderMax=1.80 }
+        "01" = @{ tier = 1; type = "create_employee"; variant = "Basic"; leaderMax = 1.50 }
+        "02" = @{ tier = 1; type = "create_customer"; variant = "Standard"; leaderMax = 2.00 }
+        "03" = @{ tier = 1; type = "create_product"; variant = "Standard"; leaderMax = 2.00 }
+        "04" = @{ tier = 1; type = "create_supplier"; variant = "Standard"; leaderMax = 2.00 }
+        "05" = @{ tier = 1; type = "create_department"; variant = "Multi"; leaderMax = 1.33 }
+        "06" = @{ tier = 2; type = "create_invoice"; variant = "Simple"; leaderMax = 1.50 }
+        "07" = @{ tier = 2; type = "register_payment"; variant = "Simple existing"; leaderMax = 2.00 }
+        "08" = @{ tier = 2; type = "create_project"; variant = "Basic"; leaderMax = 1.50 }
+        "09" = @{ tier = 2; type = "create_invoice"; variant = "Multi-line"; leaderMax = 3.00 }
+        "10" = @{ tier = 2; type = "register_payment"; variant = "Create + pay"; leaderMax = 2.67 }
+        "11" = @{ tier = 2; type = "create_voucher"; variant = "Supplier invoice"; leaderMax = 4.00 }
+        "12" = @{ tier = 2; type = "run_payroll"; variant = "Standard"; leaderMax = 0.00 }
+        "13" = @{ tier = 2; type = "create_travel_expense"; variant = "With costs"; leaderMax = 2.50 }
+        "14" = @{ tier = 2; type = "create_credit_note"; variant = "Standard"; leaderMax = 4.00 }
+        "15" = @{ tier = 2; type = "create_project"; variant = "Fixed-price"; leaderMax = 2.80 }
+        "16" = @{ tier = 2; type = "create_project"; variant = "Timesheet hours"; leaderMax = 3.00 }
+        "17" = @{ tier = 2; type = "create_voucher"; variant = "Custom dimension"; leaderMax = 3.50 }
+        "18" = @{ tier = 2; type = "register_payment"; variant = "Full chain"; leaderMax = 4.00 }
+        "19" = @{ tier = 3; type = "create_employee"; variant = "PDF contract (T3)"; leaderMax = 2.45 }
+        "20" = @{ tier = 3; type = "create_voucher"; variant = "PDF supplier inv (T3)"; leaderMax = 6.00 }
+        "21" = @{ tier = 3; type = "create_employee"; variant = "PDF offer letter (T3)"; leaderMax = 2.36 }
+        "22" = @{ tier = 3; type = "create_voucher"; variant = "PDF receipt (T3)"; leaderMax = 0.00 }
+        "23" = @{ tier = 3; type = "bank_reconciliation"; variant = "CSV (T3)"; leaderMax = 0.60 }
+        "24" = @{ tier = 3; type = "create_voucher"; variant = "Ledger correction (T3)"; leaderMax = 6.00 }
+        "25" = @{ tier = 3; type = "register_payment"; variant = "Overdue + reminder (T3)"; leaderMax = 5.25 }
+        "26" = @{ tier = 3; type = "???"; variant = "Unknown"; leaderMax = 3.75 }
+        "27" = @{ tier = 3; type = "register_payment"; variant = "FX/EUR (T3)"; leaderMax = 6.00 }
+        "28" = @{ tier = 3; type = "create_project"; variant = "Cost analysis (T3)"; leaderMax = 1.50 }
+        "29" = @{ tier = 3; type = "create_project"; variant = "Full lifecycle (T3)"; leaderMax = 4.91 }
+        "30" = @{ tier = 3; type = "create_voucher"; variant = "Annual accounts (T3)"; leaderMax = 1.80 }
     }
 
     # Build rows with gap info
@@ -517,11 +548,11 @@ if ($leaderboard.Count -gt 0) {
         $folder = $taskFolders[$id]
 
         $status = if ($gap -gt 0) { "✅ Leading" }
-                  elseif ($gap -eq 0 -and $us -gt 0) { "✅ Tied" }
-                  elseif ($gap -eq 0 -and $us -eq 0 -and $leader -eq 0) { "❌ Both fail" }
-                  elseif ($gap -ge -0.5) { "⚠️ Behind" }
-                  elseif ($us -eq 0) { "❌ Failing" }
-                  else { "❌ Failing" }
+        elseif ($gap -eq 0 -and $us -gt 0) { "✅ Tied" }
+        elseif ($gap -eq 0 -and $us -eq 0 -and $leader -eq 0) { "❌ Both fail" }
+        elseif ($gap -ge -0.5) { "⚠️ Behind" }
+        elseif ($us -eq 0) { "❌ Failing" }
+        else { "❌ Failing" }
 
         $rows += [pscustomobject]@{
             Id = $id; Tier = $meta.tier; Type = $meta.type; Variant = $meta.variant
@@ -537,7 +568,7 @@ if ($leaderboard.Count -gt 0) {
 
     # Build markdown
     $md = "# Priority Execution Order`n`n"
-    $md += "*Auto-generated by Refresh-Tasks.ps1 — $(Get-Date -Format 'yyyy-MM-dd HH:mm')*`n`n"
+    $md += "*Auto-generated by Refresh-Tasks.ps1*`n`n"
     $md += "**Current scores:** Us $ourTotal pts | Leader $leaderTotal pts | Gap $([Math]::Round($ourTotal - $leaderTotal, 2)) pts ($date)`n`n"
 
     # Priority table
@@ -600,10 +631,10 @@ if ($leaderboard.Count -gt 0) {
     $md += "| Tier | Tasks | Our Total | Leader Total | Gap |`n"
     $md += "|---|:---:|:---:|:---:|---:|`n"
     foreach ($tier in @(
-        @{ Name="Tier 1 (basic CRUD)"; Rows=$t1; Range="01-05" },
-        @{ Name="Tier 2 (multi-step)"; Rows=$t2; Range="06-18" },
-        @{ Name="Tier 3 (advanced/PDF)"; Rows=$t3; Range="19-30" }
-    )) {
+            @{ Name = "Tier 1 (basic CRUD)"; Rows = $t1; Range = "01-05" },
+            @{ Name = "Tier 2 (multi-step)"; Rows = $t2; Range = "06-18" },
+            @{ Name = "Tier 3 (advanced/PDF)"; Rows = $t3; Range = "19-30" }
+        )) {
         $usSum = [Math]::Round(($tier.Rows | Measure-Object -Property Us -Sum).Sum, 2)
         $ldSum = [Math]::Round(($tier.Rows | Measure-Object -Property Leader -Sum).Sum, 2)
         $gapSum = [Math]::Round($usSum - $ldSum, 2)
@@ -611,8 +642,11 @@ if ($leaderboard.Count -gt 0) {
     }
 
     $prioFile = Join-Path $tasksDir "PRIORITY_EXECUTION_ORDER.md"
-    Set-Content -Path $prioFile -Value $md -Encoding UTF8
-    Write-Host "  PRIORITY_EXECUTION_ORDER.md — updated from leaderboard"
-} else {
+    Write-IfChanged -Path $prioFile -Content $md
+    Write-Host "  PRIORITY_EXECUTION_ORDER.md — processed"
+}
+else {
     Write-Host "  PRIORITY_EXECUTION_ORDER.md — skipped (no leaderboard data)"
 }
+
+Write-Host "`nProcessed $generated task(s): $($script:updatedFiles) file(s) updated, $($script:skippedFiles) unchanged."
