@@ -83,30 +83,27 @@ public class EmployeeHandler : ITaskHandler
         {
             deptName = deptEntityName is JsonElement deptJe ? deptJe.ToString() : deptEntityName?.ToString();
         }
-        var deptQueryParams = new Dictionary<string, string>
+        var deptResult = await api.GetAsync("/department", new Dictionary<string, string>
         {
-            ["count"] = "1",
-            ["fields"] = "id"
-        };
-        if (!string.IsNullOrEmpty(deptName))
-            deptQueryParams["query"] = deptName;
-
-        var deptResult = await api.GetAsync("/department", deptQueryParams);
+            ["count"] = "100",
+            ["fields"] = "id,name"
+        });
         if (deptResult.TryGetProperty("values", out var depts) && depts.GetArrayLength() > 0)
         {
-            deptId = depts[0].GetProperty("id").GetInt64();
-        }
-
-        // If no department found and a specific one was searched, try without the query filter
-        if (deptId == null && !string.IsNullOrEmpty(deptName))
-        {
-            var fallbackDeptResult = await api.GetAsync("/department", new Dictionary<string, string>
+            if (!string.IsNullOrWhiteSpace(deptName))
             {
-                ["count"] = "1",
-                ["fields"] = "id"
-            });
-            if (fallbackDeptResult.TryGetProperty("values", out var fallbackDepts) && fallbackDepts.GetArrayLength() > 0)
-                deptId = fallbackDepts[0].GetProperty("id").GetInt64();
+                foreach (var department in depts.EnumerateArray())
+                {
+                    var existingDeptName = department.TryGetProperty("name", out var deptNameProp) ? deptNameProp.GetString() : null;
+                    if (string.Equals(existingDeptName, deptName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        deptId = department.GetProperty("id").GetInt64();
+                        break;
+                    }
+                }
+            }
+
+            deptId ??= depts[0].GetProperty("id").GetInt64();
         }
 
         // If still no department, create one — required when department module is active
@@ -161,8 +158,12 @@ public class EmployeeHandler : ITaskHandler
             body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"), !string.IsNullOrEmpty(startDate));
 
         var apiResult = await CreateEmployeeWithRetryAsync(api, body);
-        var employeeValue = apiResult.TryGetProperty("value", out var valueWrapper) ? valueWrapper : apiResult;
+        var reusedExistingEmployee = !apiResult.TryGetProperty("value", out var valueWrapper);
+        var employeeValue = reusedExistingEmployee ? apiResult : valueWrapper;
         var employeeId = employeeValue.GetProperty("id").GetInt64();
+
+        if (reusedExistingEmployee)
+            await EnsureEmployeeMatchesBodyAsync(api, employeeId, body);
 
         _logger.LogInformation("Created employee ID: {Id}", employeeId);
 
@@ -417,6 +418,13 @@ public class EmployeeHandler : ITaskHandler
             detailsBody["shiftDurationHours"] = workingHours.Value;
         }
 
+        var existingEmploymentDetails = await GetEmploymentDetailsForDateAsync(api, employmentId.Value, startDate);
+        if (existingEmploymentDetails != null)
+        {
+            await UpdateEmploymentDetailsAsync(api, employmentId.Value, existingEmploymentDetails.Value, detailsBody, employeeId, startDate);
+            return;
+        }
+
         await api.PostAsync("/employee/employment/details", detailsBody);
         _logger.LogInformation("Created employment details for employee {EmployeeId}", employeeId);
     }
@@ -480,9 +488,9 @@ public class EmployeeHandler : ITaskHandler
         {
             var result = await api.GetAsync("/employee/employment/occupationCode", new Dictionary<string, string>
             {
-                ["count"] = "10",
+                ["count"] = "100",
                 ["fields"] = "id,code,nameNO",
-                ["code"] = occupationCode
+                ["query"] = occupationCode
             });
 
             if (result.TryGetProperty("values", out var values))
@@ -497,6 +505,22 @@ public class EmployeeHandler : ITaskHandler
                 if (values.GetArrayLength() > 0)
                     return values[0].GetProperty("id").GetInt64();
             }
+
+            var fallback = await api.GetAsync("/employee/employment/occupationCode", new Dictionary<string, string>
+            {
+                ["count"] = "100",
+                ["fields"] = "id,code,nameNO"
+            });
+
+            if (fallback.TryGetProperty("values", out var fallbackValues))
+            {
+                foreach (var value in fallbackValues.EnumerateArray())
+                {
+                    var code = value.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : null;
+                    if (string.Equals(code, occupationCode, StringComparison.OrdinalIgnoreCase))
+                        return value.GetProperty("id").GetInt64();
+                }
+            }
         }
         catch (TripletexApiException ex)
         {
@@ -504,6 +528,80 @@ public class EmployeeHandler : ITaskHandler
         }
 
         return null;
+    }
+
+    private async Task EnsureEmployeeMatchesBodyAsync(TripletexApiClient api, long employeeId, Dictionary<string, object> desiredBody)
+    {
+        var existing = await api.GetAsync($"/employee/{employeeId}", new Dictionary<string, string>
+        {
+            ["fields"] = "id,version,firstName,lastName,dateOfBirth,userType,email,department(id)"
+        });
+
+        if (!existing.TryGetProperty("value", out var value))
+            return;
+
+        var updateBody = new Dictionary<string, object>
+        {
+            ["id"] = value.GetProperty("id").GetInt64(),
+            ["version"] = value.GetProperty("version").GetInt64(),
+        };
+
+        foreach (var field in new[] { "firstName", "lastName", "dateOfBirth", "userType", "email", "department" })
+        {
+            if (desiredBody.TryGetValue(field, out var desiredValue))
+            {
+                updateBody[field] = desiredValue;
+            }
+            else if (value.TryGetProperty(field, out var existingValue) && existingValue.ValueKind != JsonValueKind.Null)
+            {
+                updateBody[field] = existingValue;
+            }
+        }
+
+        await api.PutAsync($"/employee/{employeeId}", updateBody);
+    }
+
+    private async Task<JsonElement?> GetEmploymentDetailsForDateAsync(TripletexApiClient api, long employmentId, string date)
+    {
+        try
+        {
+            var result = await api.GetAsync($"/employee/employment/{employmentId}", new Dictionary<string, string>
+            {
+                ["fields"] = "id,employmentDetails(id,version,date,occupationCode(id,code),percentageOfFullTimeEquivalent,annualSalary,employmentType,employmentForm,remunerationType)"
+            });
+
+            if (!result.TryGetProperty("value", out var value)
+                || !value.TryGetProperty("employmentDetails", out var details)
+                || details.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var detail in details.EnumerateArray())
+            {
+                var existingDate = detail.TryGetProperty("date", out var dateProp) ? dateProp.GetString() : null;
+                if (string.Equals(existingDate, date, StringComparison.OrdinalIgnoreCase))
+                    return detail;
+            }
+        }
+        catch (TripletexApiException ex)
+        {
+            _logger.LogWarning(ex, "Failed to inspect existing employment details for employment {EmploymentId}", employmentId);
+        }
+
+        return null;
+    }
+
+    private async Task UpdateEmploymentDetailsAsync(TripletexApiClient api, long employmentId, JsonElement existingDetails, Dictionary<string, object> desiredBody, long employeeId, string startDate)
+    {
+        var updateBody = new Dictionary<string, object>(desiredBody)
+        {
+            ["id"] = existingDetails.GetProperty("id").GetInt64(),
+            ["version"] = existingDetails.GetProperty("version").GetInt64(),
+        };
+
+        await api.PutAsync($"/employee/employment/details/{updateBody["id"]}", updateBody);
+        _logger.LogInformation("Updated employment details for employee {EmployeeId} on {Date}", employeeId, startDate);
     }
 
     private async Task<long?> ResolveDivisionIdAsync(TripletexApiClient api)

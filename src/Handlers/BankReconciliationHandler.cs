@@ -230,29 +230,6 @@ public class BankReconciliationHandler : ITaskHandler
 
     private async Task<int> CreateAdjustments(TripletexApiClient api, long reconId, List<BankTransaction> transactions)
     {
-        // Resolve payment type for bank transfers
-        long? paymentTypeId = null;
-        try
-        {
-            var ptResult = await api.GetAsync("/ledger/paymentTypeOut", new Dictionary<string, string>
-            {
-                ["count"] = "5",
-                ["fields"] = "id,description"
-            });
-            if (ptResult.TryGetProperty("values", out var ptVals))
-            {
-                foreach (var v in ptVals.EnumerateArray())
-                {
-                    paymentTypeId = v.GetProperty("id").GetInt64();
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Could not resolve payment type: {Msg}", ex.Message);
-        }
-
         var adjustments = new List<Dictionary<string, object>>();
         foreach (var tx in transactions)
         {
@@ -260,10 +237,8 @@ public class BankReconciliationHandler : ITaskHandler
             {
                 ["date"] = tx.Date,
                 ["description"] = tx.Description,
-                ["amount"] = tx.Amount
+                ["amount"] = Math.Abs(tx.Amount)
             };
-            if (paymentTypeId.HasValue)
-                adj["paymentType"] = new Dictionary<string, object> { ["id"] = paymentTypeId.Value };
             adjustments.Add(adj);
         }
 
