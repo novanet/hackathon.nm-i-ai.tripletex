@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 22:59:31 |
+| Timestamp | 03/21/2026 23:39:33 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 34623 ms |
+| Elapsed | 7531 ms |
 | API Calls | 12 |
 | Errors | 0 |
 
@@ -18,23 +18,23 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=941944566&count=1&fields=id%2Cn...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=980551709&count=1&fields=id%2Cn...` | ✅  |  |
 | 2 | `GET` | `/employee?count=1&fields=id` | ✅  |  |
 | 3 | `POST` | `/project` | ✅  |  |
 | 4 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅  |  |
-| 5 | `GET` | `/employee?count=1&fields=id&firstName=Anna&lastName=Becker` | ✅  |  |
-| 6 | `GET` | `/activity?name=Testing&count=1&fields=id` | ✅  |  |
+| 5 | `GET` | `/employee?count=1&fields=id&firstName=Diego&lastName=S%C3%A1...` | ✅  |  |
+| 6 | `GET` | `/activity?name=Analyse&count=1&fields=id` | ✅  |  |
 | 7 | `POST` | `/project/projectActivity` | ✅  |  |
 | 8 | `POST` | `/timesheet/entry` | ✅  |  |
 | 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 10 | `PUT` | `/ledger/account/377794742` | ✅  |  |
+| 10 | `PUT` | `/ledger/account/478838613` | ✅  |  |
 | 11 | `POST` | `/order` | ✅  |  |
 | 12 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"de","entities":{"project":{"name":"Website-Redesign","customerName":"Windkraft GmbH","customerOrgNumber":"941944566"},"timesheet":{"hours":25,"hourlyRate":1200,"activityName":"Testing"},"employee":{"firstName":"Anna","lastName":"Becker","email":"anna.becker@example.org"}},"relationships":{"customer":"Windkraft GmbH"},"raw_amounts":["1200"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"es","entities":{"project":{"name":"Desarrollo de app","customerName":"Olivares SL","customerOrgNumber":"980551709"},"timesheet":{"hours":39,"hourlyRate":1450,"activityName":"Analyse"},"employee":{"firstName":"Diego","lastName":"Sánchez","email":"diego.sanchez@example.org"}},"relationships":{"customer":"Olivares SL"},"raw_amounts":["1450.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

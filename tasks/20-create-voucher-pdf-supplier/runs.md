@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:03:02 |
+| Timestamp | 03/21/2026 23:32:32 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 4705 ms |
+| Elapsed | 4517 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -19,7 +19,7 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6540&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6340&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
 | 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
@@ -28,6 +28,6 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"en","entities":{"voucher":{"supplierName":"Blueshore Ltd","supplierOrgNumber":"844164459","invoiceNumber":"INV-2026-9784","account":"6540","amount":97062,"date":"2026-01-06","vatRate":"25"}},"relationships":{},"raw_amounts":["77650","19412","97062"],"dates":["2026-01-06","2026-02-05"],"files_needed":true}
+{"task_type":"create_voucher","action":"create","language":"de","entities":{"voucher":{"supplierName":"Bergwerk GmbH","supplierOrgNumber":"844441010","invoiceNumber":"INV-2026-9617","account":"6340","amount":17187,"date":"2026-02-27","vatRate":"25"}},"relationships":{},"raw_amounts":["13750","3437","17187"],"dates":["2026-02-27","2026-03-29"],"files_needed":true}
 ```
 

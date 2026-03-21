@@ -6,14 +6,13 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:21:21 |
+| Timestamp | 03/21/2026 23:39:55 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
-| Success | False |
-| Elapsed | 4679 ms |
-| API Calls | 7 |
-| Errors | 3 |
-| Error | `email: Ugyldig format.` |
+| Success | True |
+| Elapsed | 5718 ms |
+| API Calls | 8 |
+| Errors | 0 |
 
 ### API Calls
 
@@ -21,16 +20,17 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=ricardo.s%C3%A1nchez%40example.org&count=10&...` | ✅  |  |
+| 3 | `GET` | `/employee?email=grace.lewis%40example.org&count=10&fields=id...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
-| 5 | `POST` | `/employee` | ✅  |  |
-| 6 | `GET` | `/employee?email=ricardo.s%C3%A1nchez%40example.org&count=10&...` | ✅  |  |
-| 7 | `POST` | `/employee` | ✅  |  |
+| 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18696425&count=1&fields=id%2...` | ✅  |  |
+| 7 | `GET` | `/employee/employment/2850495?fields=id%2CemploymentDetails%2...` | ✅  |  |
+| 8 | `POST` | `/employee/employment/details` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"es","entities":{"employee":{"firstName":"Ricardo","lastName":"Sánchez","dateOfBirth":"1990-11-04","startDate":"2026-09-29","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":750000,"workingHoursPerDay":7.5},"department":{"name":"Utvikling"}},"relationships":{},"raw_amounts":["750000"],"dates":["2026-09-29","1990-11-04"],"files_needed":false}
+{"task_type":"create_employee","action":"create","language":"nb","entities":{"employee":{"firstName":"Grace","lastName":"Lewis","dateOfBirth":"1986-08-03","startDate":"2026-04-01","employmentType":"permanent","employmentPercentage":80.0,"annualSalary":640000,"workingHoursPerDay":6.0,"department":"Drift","occupationName":"Markedsanalytiker"},"department":{"name":"Drift"}},"relationships":{},"raw_amounts":["640000"],"dates":["2026-04-01"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

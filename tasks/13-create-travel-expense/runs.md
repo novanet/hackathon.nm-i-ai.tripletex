@@ -6,24 +6,28 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/20/2026 22:57:14 |
+| Timestamp | 03/21/2026 23:40:46 |
 | Task Type | `create_travel_expense` |
 | Handler | `TravelExpenseHandler` |
 | Success | True |
-| Elapsed | 3750 ms |
-| API Calls | 6 |
+| Elapsed | 3780 ms |
+| API Calls | 4 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id&firstName=Emma&lastName=Robert` | ✅  |  |
+| 1 | `GET` | `/employee?count=1&fields=id&firstName=Noah&lastName=Weber` | ✅  |  |
 | 2 | `POST` | `/travelExpense` | ✅  |  |
 | 3 | `GET` | `/travelExpense/paymentType?count=10&fields=id%2Cdescription` | ✅  |  |
 | 4 | `POST` | `/travelExpense/cost` | ✅  |  |
-| 5 | `POST` | `/travelExpense/cost` | ✅  |  |
-| 6 | `POST` | `/travelExpense/cost` | ✅  |  |
+
+### LLM Extraction
+
+```json
+{"task_type":"create_travel_expense","action":"create","language":"de","entities":{"travelExpense":{"title":"Kundenbesuch Oslo","travelDurationDays":3,"dailyAllowanceRate":800,"expenses":[{"type":"Flight ticket","amount":4150},{"type":"Taxi","amount":650}]},"employee":{"firstName":"Noah","lastName":"Weber","email":"noah.weber@example.org"}},"relationships":{},"raw_amounts":["800","4150","650"],"dates":[],"files_needed":false}
+```
 
 ## Latest Sandbox Run
 
@@ -65,5 +69,4 @@
 | has_title | `true` | `true` | ✅ | 1 |
 | has_employee | `true` | `true` | ✅ | 1 |
 | has_costs | `> 0` | `3` | ✅ | 2 |
-
 

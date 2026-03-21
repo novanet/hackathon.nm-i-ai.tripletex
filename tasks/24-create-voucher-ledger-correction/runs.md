@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:21:38 |
+| Timestamp | 03/21/2026 23:31:46 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 5013 ms |
-| API Calls | 7 |
+| Elapsed | 4309 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
@@ -19,17 +19,16 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6500&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
+| 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Biltema","supplierOrgNumber":"905717480","invoiceNumber":"KVITTERING - 30.05.2026","account":"6800","amount":"1320.00","date":"2026-05-30","vatRate":"25"},"department":{"name":"Logistikk"}},"relationships":{},"raw_amounts":["700.00","1320.00","330.00"],"dates":["2026-05-30"],"files_needed":true}
+{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Lumière SARL","supplierOrgNumber":"944971165","invoiceNumber":"INV-2026-8741","account":"6500","amount":61200,"date":null,"vatRate":"25"}},"relationships":{},"raw_amounts":["61200"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

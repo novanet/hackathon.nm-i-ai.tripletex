@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:26:53 |
+| Timestamp | 03/21/2026 23:32:55 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 4636 ms |
-| API Calls | 7 |
+| Elapsed | 4607 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
@@ -20,16 +20,15 @@
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
 | 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=7100&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"pt","entities":{"voucher":{"supplierName":"Elkjøp","supplierOrgNumber":"909344514","invoiceNumber":"KVITTERING - 05.01.2026","account":"6800","amount":"11490.00","date":"2026-01-05","vatRate":"25"},"department":{"name":"HR"}},"relationships":{},"raw_amounts":["11490.00","1350.00"],"dates":["2026-01-05"],"files_needed":true}
+{"task_type":"create_voucher","action":"create","language":"nn","entities":{"voucher":{"supplierName":"Thon Hotels","supplierOrgNumber":"906174340","invoiceNumber":"KVITTERING - 30.01.2026","account":"7100","amount":"11400.00","date":"2026-01-30","vatRate":"25"},"department":{"name":"Regnskap"}},"relationships":{},"raw_amounts":["10900.00","500.00","11400.00","2850.00"],"dates":["2026-01-30"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

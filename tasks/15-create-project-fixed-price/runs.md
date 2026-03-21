@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:09:13 |
+| Timestamp | 03/21/2026 23:39:01 |
 | Task Type | `set_fixed_price` |
 | Handler | `FixedPriceProjectHandler` |
 | Success | True |
-| Elapsed | 3822 ms |
+| Elapsed | 3472 ms |
 | API Calls | 2 |
 | Errors | 0 |
 
@@ -18,13 +18,13 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/project?name=Infrastructure%20Upgrade&count=10&fields=id%2C...` | ✅  |  |
-| 2 | `PUT` | `/project/402044998` | ✅  |  |
+| 1 | `GET` | `/project?name=Transformaci%C3%B3n%20digital&count=10&fields=...` | ✅  |  |
+| 2 | `PUT` | `/project/402047104` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"set_fixed_price","action":"update","language":"en","entities":{"project":{"name":"Infrastructure Upgrade","fixedPrice":170500},"invoice":{"customerName":"Brightstone Ltd","customerOrgNumber":"850116091","orderLines":[{"description":"Milestone payment for project 'Infrastructure Upgrade'","quantity":1,"unitPrice":56365}]},"projectManager":{"firstName":"Charlotte","lastName":"Walker","email":"charlotte.walker@example.org"}},"relationships":{"customer":"Brightstone Ltd"},"raw_amounts":["170500","56365"],"dates":[],"files_needed":false}
+{"task_type":"set_fixed_price","action":"update","language":"es","entities":{"project":{"name":"Transformación digital","fixedPrice":313600},"invoice":{"amount":235200,"percentageOfFixedPrice":75},"projectManager":{"firstName":"Andrés","lastName":"Hernández","email":"andres.hernandez@example.org"},"customer":{"name":"Luna SL","orgNumber":"946144177"}},"relationships":{"customer":"Luna SL"},"raw_amounts":["313600","235200"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

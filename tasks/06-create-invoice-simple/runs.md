@@ -6,31 +6,27 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:24:42 |
+| Timestamp | 03/21/2026 23:40:20 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 5160 ms |
-| API Calls | 8 |
+| Elapsed | 4501 ms |
+| API Calls | 5 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `PUT` | `/ledger/account/477939768` | ✅  |  |
-| 4 | `GET` | `/product?number=6309&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/product?number=9721&count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/product?number=9844&count=1&fields=id` | ✅  |  |
-| 7 | `POST` | `/order` | ✅  |  |
-| 8 | `POST` | `/invoice` | ✅  |  |
+| 1 | `POST` | `/customer` | ✅  |  |
+| 2 | `PUT` | `/ledger/account/478887284` | ✅  |  |
+| 3 | `POST` | `/order` | ✅  |  |
+| 4 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"en","entities":{"customer":{"name":"Windmill Ltd","orgNumber":"926849395"},"invoice":{"orderLines":[{"description":"Software License","productNumber":"6309","unitPrice":5600,"vatRate":25},{"description":"Consulting Hours","productNumber":"9721","unitPrice":8350,"vatRate":15},{"description":"Data Advisory","productNumber":"9844","unitPrice":6500,"vatRate":0}]}},"relationships":{"customer":"Windmill Ltd"},"raw_amounts":["5600.00","8350.00","6500.00"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"de","entities":{"customer":{"name":"Nordlicht GmbH","orgNumber":"855854171"},"invoice":{"orderLines":[{"description":"Netzwerkdienst","account":"2450","unitPrice":28650,"vatRate":25},{"description":"Cloud-Speicher","account":"6871","unitPrice":13750,"vatRate":15},{"description":"Wartung","account":"2881","unitPrice":18000,"vatRate":0}]}},"relationships":{"customer":"Nordlicht GmbH"},"raw_amounts":["28650","13750","18000"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
