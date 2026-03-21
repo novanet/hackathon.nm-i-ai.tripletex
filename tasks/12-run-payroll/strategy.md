@@ -9,50 +9,71 @@
 | **Variant** | Standard payroll run |
 | **Tier** | 2 |
 | **Our Score** | 1.00 |
-| **Leader Score** | 0.00 |
-| **Gap** | +1.00 (we lead!) |
-| **Status** | ✅ Leading — but room to improve |
+| **Leader Score** | 4.00 |
+| **Gap** | -3.00 |
+| **Status** | ❌ Failing — sandbox passes 8/8 but competition only 1.00 |
 | **Handler** | `PayrollHandler.cs` |
-| **Priority** | #13 — MEDIUM effort, already ahead |
+| **Priority** | #5 — HIGH priority, large gap |
 
 ## What It Does
 
-Create employee if needed, set up employment, create salary transaction with correct amounts.
+Create employee if needed, set up employment + division, create salary transaction with base salary + bonus, generate payslip, then create a payroll voucher on 5000-series accounts.
 
-## API Flow
+## API Flow (current — 14 calls sandbox)
 
-1. `GET /employee?firstName=X&lastName=Y` — find or create employee
-2. `POST /employee` — create if not found (with `userType = "NO_ACCESS"`)
-3. `POST /employee/employment` — create employment (with division)
-4. `POST /employee/employment/details` — set salary details
-5. `POST /salary/transaction` — create salary transaction
-6. `POST /salary/payslip` — generate payslip
+1. `GET /employee?email=X` — find existing employee
+2. `GET /department?count=1` — resolve department
+3. `POST /employee` — create employee (if not found)
+4. `GET /division?count=1` — check for existing division
+5. `POST /employee/employment` — create employment with division
+6. `GET /salary/type?count=100` — get salary types
+7. `POST /salary/transaction?generateTaxDeduction=false` — create salary transaction
+8. `GET /salary/payslip/{id}` — verify payslip
+9. `GET /ledger/account?number=5000` — resolve salary expense account
+10. `GET /ledger/account?number=1920` — resolve bank account
+11. `GET /ledger/voucherType?name=Lønnsbilag` — resolve voucher type
+12. `POST /ledger/voucher?sendToLedger=true` — create payroll voucher
+13. `GET /salary/transaction/{id}` — verify transaction (validation)
+14. `GET /salary/payslip/{id}` — verify payslip (validation)
 
 ## Competition Checks
 
 | Check | Points | Status |
 |---|:---:|:---:|
-| `salary_transaction_found` | — | ✅ |
-| `has_employee_link` | — | ✅ |
-| `payslip_generated` | — | ⚠️ Uncertain |
-| `correct_amount` | — | ⚠️ Uncertain |
+| `salary_transaction_found` | 2 | ✅ |
+| `has_employee_link` | 2 | ✅ |
+| `payslip_generated` | 2 | ✅ |
+| `correct_amount` | 2 | ✅ |
 
-## Current State
+**Local validation: 8/8 (100%)**
 
-Scoring 1.00, leader scores 0. Key fix was STJ serialization (anonymous types → Dictionary) which fixed `has_employee_link` and `payslip_generated` (0/4 → 8/8 locally). Competition result may not reflect latest fixes yet.
+## Current State (2026-03-21)
 
-## How to Improve
+**Sandbox fully passing** at 8/8 (100%). Latest sandbox run: 14 calls, 0 errors, score 8/8.
 
-1. Submit latest code — serialization fix may not be in competition yet
-2. Verify payslip generation actually persists
-3. Check if `correct_amount` is calculated properly (baseSalary + bonus)
+**Competition failing.** Latest competition run (2026-03-21 14:44): 7 calls, 2 errors. Error was `"organizationNumber: Juridisk enhet kan ikke registreres som virksomhet/underenhet."` — the division creation failed because the company's org number can't be used as a sub-entity. Handler only made 7 of 14 calls before failing.
 
-## Effort
+**Root cause:** Division creation uses the company's own org number, which fails in competition's clean environment. In sandbox this works because a division may already exist. The handler needs to:
+1. Skip org number when creating divisions, OR
+2. Use a different org number for the division, OR  
+3. Look up the company's existing division structure first
 
-**MEDIUM** — needs a clean submission to verify. If still 1.00 after resubmit, investigate which checks fail.
+66 total runs. Sandbox consistently passes (0 errors). Competition has intermittent division creation failures.
+
+## Key Fix Applied
+
+- STJ serialization fix (Dictionary instead of anonymous types) — fixed `has_employee_link` and `payslip_generated`
+- Payroll voucher on 5000-series accounts for salary cost registration
+- `generateTaxDeduction=false` to avoid tax calculation errors
+
+## Remaining Issues
+
+1. **Division creation fails in competition** — org number conflict. This is the #1 blocker preventing competition score improvement.
+2. Competition score stuck at 1.00 despite local 8/8 — the division error aborts the handler before salary transaction is created.
 
 ## Action Required
 
-- [ ] Submit competition run with latest code
-- [ ] Compare 1.00 → hopefully higher
-- [ ] If still 1.00, analyze which 3 checks fail via `Analyze-Run.ps1`
+- [ ] Fix division creation to not use company org number (or find existing division)
+- [ ] Test with competition-like clean environment
+- [ ] Submit and verify score improves from 1.00
+- [ ] Target: 4.00 (matching leader)

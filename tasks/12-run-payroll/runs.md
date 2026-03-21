@@ -37,32 +37,31 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 16:36:47 |
+| Timestamp | 03/21/2026 22:15:56 |
 | Task Type | `run_payroll` |
 | Handler | `PayrollHandler` |
 | Success | True |
-| Elapsed | 4694 ms |
-| API Calls | 14 |
+| Elapsed | 6450 ms |
+| API Calls | 13 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=em...` | ✅  |  |
-| 2 | `GET` | `/department?count=1&fields=id` | ✅  |  |
-| 3 | `POST` | `/employee` | ✅  |  |
-| 4 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 5 | `POST` | `/employee/employment` | ✅  |  |
-| 6 | `GET` | `/salary/type?count=100&fields=id%2Cnumber%2Cname` | ✅  |  |
-| 7 | `POST` | `/salary/transaction?generateTaxDeduction=false` | ✅  |  |
-| 8 | `GET` | `/salary/payslip/32628773?fields=id%2Cemployee%28id%2CfirstNa...` | ✅  |  |
-| 9 | `GET` | `/ledger/account?number=5000&count=1&fields=id` | ✅  |  |
+| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=ma...` | ✅  |  |
+| 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 3 | `GET` | `/employee/employment?employeeId=18583642&count=1&fields=id%2...` | ✅  |  |
+| 4 | `PUT` | `/employee/employment/2803121` | ✅  |  |
+| 5 | `GET` | `/salary/type?count=100&fields=id%2Cnumber%2Cname` | ✅  |  |
+| 6 | `POST` | `/salary/transaction?generateTaxDeduction=false` | ✅  |  |
+| 7 | `GET` | `/salary/payslip/32629285?fields=id%2Cemployee%28id%2CfirstNa...` | ✅  |  |
+| 8 | `GET` | `/ledger/account?number=5000&count=1&fields=id` | ✅  |  |
+| 9 | `GET` | `/ledger/voucherType?name=L%C3%B8nnsbilag&count=1&fields=id` | ✅  |  |
 | 10 | `GET` | `/ledger/account?number=1920&count=1&fields=id` | ✅  |  |
-| 11 | `GET` | `/ledger/voucherType?name=L%C3%B8nnsbilag&count=1&fields=id` | ✅  |  |
-| 12 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 13 | `GET` | `/salary/transaction/6957755?fields=id%2Cdate%2Cyear%2Cmonth%...` | ✅  |  |
-| 14 | `GET` | `/salary/payslip/32628773?fields=id%2Cemployee%2Camount%2Cgro...` | ✅  |  |
+| 11 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 12 | `GET` | `/salary/transaction/6958267?fields=id%2Cdate%2Cyear%2Cmonth%...` | ✅  |  |
+| 13 | `GET` | `/salary/payslip/32629285?fields=id%2Cemployee%2Camount%2Cgro...` | ✅  |  |
 
 ## Latest Local Validation
 
@@ -78,6 +77,5 @@
 | salary_transaction_found | `true` | `true` | ✅ | 2 |
 | has_employee_link | `true` | `true` | ✅ | 2 |
 | payslip_generated | `> 0` | `1` | ✅ | 2 |
-| correct_amount | `74600` | `74600` | ✅ | 2 |
-
+| correct_amount | `55450` | `55450` | ✅ | 2 |
 

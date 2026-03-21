@@ -9,11 +9,11 @@
 | **Variant** | Basic employee creation |
 | **Tier** | 1 |
 | **Our Score** | 2.00 |
-| **Leader Score** | 1.50 |
-| **Gap** | +0.50 (we lead!) |
-| **Status** | ✅ FIXED — Leading |
+| **Leader Score** | 2.00 |
+| **Gap** | 0 (tied) |
+| **Status** | ✅ Tied — fully passing |
 | **Handler** | `EmployeeHandler.cs` |
-| **Priority** | None — already ahead |
+| **Priority** | None — at parity |
 
 ## What It Does
 
@@ -27,23 +27,26 @@ Languages: Norwegian, English, Spanish, Portuguese, Nynorsk, German, French.
 
 ## API Flow
 
-1. `GET /department?count=1` — resolve department (required when module active)
-2. `POST /employee` — create with firstName, lastName, email, dateOfBirth, department
-3. `PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId={id}&template=administrator` — grant admin role
+1. `GET /department?count=100` — resolve department (required when module active)
+2. `GET /employee?email=X` — check if employee already exists
+3. `POST /employee` — create with firstName, lastName, email, dateOfBirth, department
+4. `PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId={id}&template=administrator` — grant admin role
 
 ## Competition Checks
 
 | Check | Points | Status |
 |---|:---:|:---:|
-| `employee_found` | 2 | ✅ |
+| `employee_found` | 1 | ✅ |
 | `firstName` | 1 | ✅ |
 | `lastName` | 1 | ✅ |
 | `email` | 1 | ✅ |
-| `admin_role` | 5 | ✅ |
+| `administrator_role` | 2 | ✅ |
+
+**Local validation: 6/6 (100%)**
 
 ## Current State
 
-**FIXED.** We score 2.00 against the leader's 1.50. No changes needed.
+**Fully working.** Competition and sandbox both pass all checks. Latest competition run (2026-03-21): 2 API calls, 0 errors. Latest sandbox: 6 calls, 0 errors, 6/6 validation.
 
 Key fixes already applied:
 - Synthetic email generation when not provided
