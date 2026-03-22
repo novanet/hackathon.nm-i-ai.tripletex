@@ -90,14 +90,13 @@ public class LedgerCorrectionHandler : ITaskHandler
         Dictionary<string, long> numberToId,
         string date)
     {
-        List<object> postings;
+        var postings = new List<Dictionary<string, object>>();
         string description;
 
         switch (c.ErrorType)
         {
             case "wrong_account":
                 {
-                    // Both account numbers given in the prompt — no voucher lookup needed
                     var wrongId = await ResolveId(api, c.Account, numberToId);
                     var correctId = await ResolveId(api, c.CorrectAccount!, numberToId);
                     if (wrongId == null || correctId == null)
@@ -106,18 +105,13 @@ public class LedgerCorrectionHandler : ITaskHandler
                         return null;
                     }
                     description = $"Korreksjon: feil konto {c.Account}→{c.CorrectAccount}";
-                    // Reverse wrong account, add to correct account — both sum to 0
-                    postings = new List<object>
-                {
-                    new { account = new { id = correctId.Value }, amountGross = (double)c.Amount, amountGrossCurrency = (double)c.Amount, row = 1, date, description },
-                    new { account = new { id = wrongId.Value }, amountGross = -(double)c.Amount, amountGrossCurrency = -(double)c.Amount, row = 2, date, description }
-                };
+                    postings.Add(MakePosting(correctId.Value, (double)c.Amount, 1, date, description));
+                    postings.Add(MakePosting(wrongId.Value, -(double)c.Amount, 2, date, description));
                     break;
                 }
 
             case "duplicate":
                 {
-                    // Find the duplicate posting and its counter-account
                     var (ep, counterId) = FindAndGetCounter(c.Account, c.Amount, allPostings, byVoucher);
                     if (counterId == null)
                         counterId = await ResolveFallbackCounterId(api, c.Account, numberToId);
@@ -133,20 +127,13 @@ public class LedgerCorrectionHandler : ITaskHandler
                     var errorId = await ResolveId(api, c.Account, numberToId);
                     if (errorId == null) return null;
                     description = $"Korreksjon: duplikatbilag konto {c.Account}";
-                    // Reverse: counter gets +amount, error account gets -amount
-                    postings = new List<object>
-                {
-                    new { account = new { id = counterId.Value }, amountGross = (double)c.Amount, amountGrossCurrency = (double)c.Amount, row = 1, date, description },
-                    new { account = new { id = errorId.Value }, amountGross = -(double)c.Amount, amountGrossCurrency = -(double)c.Amount, row = 2, date, description }
-                };
+                    postings.Add(MakePosting(counterId.Value, (double)c.Amount, 1, date, description));
+                    postings.Add(MakePosting(errorId.Value, -(double)c.Amount, 2, date, description));
                     break;
                 }
 
             case "missing_vat":
                 {
-                    // Missing VAT correction: the stated amount is NET (excl. VAT).
-                    // Use vatType on the expense account posting so Tripletex auto-generates
-                    // the VAT line on account 2710. Manual posting to 2710 does NOT satisfy competition checks.
                     var expenseId = await ResolveId(api, c.Account, numberToId);
                     if (expenseId == null)
                     {
@@ -154,19 +141,13 @@ public class LedgerCorrectionHandler : ITaskHandler
                         return null;
                     }
 
-                    // Gross = net × 1.25 (25% VAT). When posted with vatType, Tripletex splits:
-                    // net (c.Amount) to expense account, VAT (c.Amount × 0.25) to 2710 automatically.
                     var grossAmt = Math.Round(c.Amount * 1.25m, 2);
                     description = $"Korreksjon: manglende mva konto {c.Account}";
 
-                    // Posting 1: Debit expense with vatType → Tripletex auto-splits into net + VAT(2710)
-                    // Posting 2: Credit expense without vatType → reverses the original gross-on-expense
-                    // Net effect: expense reduced by VAT portion, 2710 gains the VAT amount
-                    postings = new List<object>
-                {
-                    new { account = new { id = expenseId.Value }, amountGross = (double)grossAmt, amountGrossCurrency = (double)grossAmt, vatType = new { id = 1 }, row = 1, date, description },
-                    new { account = new { id = expenseId.Value }, amountGross = -(double)grossAmt, amountGrossCurrency = -(double)grossAmt, row = 2, date, description }
-                };
+                    var debitP = MakePosting(expenseId.Value, (double)grossAmt, 1, date, description);
+                    debitP["vatType"] = new Dictionary<string, object> { ["id"] = 1 };
+                    postings.Add(debitP);
+                    postings.Add(MakePosting(expenseId.Value, -(double)grossAmt, 2, date, description));
                     break;
                 }
 
@@ -174,7 +155,7 @@ public class LedgerCorrectionHandler : ITaskHandler
                 {
                     var posted = c.PostedAmount ?? c.Amount;
                     var correct = c.CorrectAmount ?? c.Amount;
-                    var diff = posted - correct; // positive = over-posted, negative = under-posted
+                    var diff = posted - correct;
                     if (Math.Abs(diff) < 0.01m)
                     {
                         _logger.LogWarning("Posted and correct amounts are equal for wrong_amount on {A}", c.Account);
@@ -190,12 +171,8 @@ public class LedgerCorrectionHandler : ITaskHandler
                         return null;
                     }
                     description = $"Korreksjon: feil beløp konto {c.Account}";
-                    // Reverse the excess: counter-account gets +diff, error account gets -diff
-                    postings = new List<object>
-                {
-                    new { account = new { id = counterId.Value }, amountGross = (double)diff, amountGrossCurrency = (double)diff, row = 1, date, description },
-                    new { account = new { id = errorId.Value }, amountGross = -(double)diff, amountGrossCurrency = -(double)diff, row = 2, date, description }
-                };
+                    postings.Add(MakePosting(counterId.Value, (double)diff, 1, date, description));
+                    postings.Add(MakePosting(errorId.Value, -(double)diff, 2, date, description));
                     break;
                 }
 
@@ -204,7 +181,12 @@ public class LedgerCorrectionHandler : ITaskHandler
                 return null;
         }
 
-        var body = new { date, description, postings };
+        var body = new Dictionary<string, object>
+        {
+            ["date"] = date,
+            ["description"] = description,
+            ["postings"] = postings
+        };
         var resp = await api.PostAsync("/ledger/voucher?sendToLedger=true", body);
         if (resp.TryGetProperty("value", out var val) && val.TryGetProperty("id", out var idProp))
         {
@@ -219,6 +201,21 @@ public class LedgerCorrectionHandler : ITaskHandler
     /// <summary>
     /// Find the posting matching (accountNumber, amount) and return it plus the ID of its counter-posting account.
     /// </summary>
+    private static Dictionary<string, object> MakePosting(long accountId, double amount, int row, string date, string description)
+    {
+        return new Dictionary<string, object>
+        {
+            ["account"] = new Dictionary<string, object> { ["id"] = accountId },
+            ["amount"] = amount,
+            ["amountCurrency"] = amount,
+            ["amountGross"] = amount,
+            ["amountGrossCurrency"] = amount,
+            ["row"] = row,
+            ["date"] = date,
+            ["description"] = description
+        };
+    }
+
     private (PostingInfo? posting, long? counterId) FindAndGetCounter(
         string accountNumber, decimal amount,
         List<PostingInfo> allPostings,

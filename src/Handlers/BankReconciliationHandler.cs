@@ -515,6 +515,8 @@ public class BankReconciliationHandler : ITaskHandler
                 ["date"] = tx.Date,
                 ["description"] = tx.Description,
                 ["account"] = new Dictionary<string, object> { ["id"] = accountId },
+                ["amount"] = tx.Amount,
+                ["amountCurrency"] = tx.Amount,
                 ["amountGross"] = tx.Amount,
                 ["amountGrossCurrency"] = tx.Amount
             });
@@ -525,6 +527,8 @@ public class BankReconciliationHandler : ITaskHandler
                 ["date"] = tx.Date,
                 ["description"] = tx.Description,
                 ["account"] = new Dictionary<string, object> { ["id"] = contraAccountId.Value },
+                ["amount"] = -tx.Amount,
+                ["amountCurrency"] = -tx.Amount,
                 ["amountGross"] = -tx.Amount,
                 ["amountGrossCurrency"] = -tx.Amount
             });
@@ -882,6 +886,8 @@ public class BankReconciliationHandler : ITaskHandler
                         ["date"] = statementDate,
                         ["description"] = "Bank reconciliation balance adjustment",
                         ["account"] = new Dictionary<string, object> { ["id"] = accountId },
+                        ["amount"] = delta,
+                        ["amountCurrency"] = delta,
                         ["amountGross"] = delta,
                         ["amountGrossCurrency"] = delta
                     },
@@ -891,6 +897,8 @@ public class BankReconciliationHandler : ITaskHandler
                         ["date"] = statementDate,
                         ["description"] = "Bank reconciliation balance adjustment",
                         ["account"] = new Dictionary<string, object> { ["id"] = contraAccountId.Value },
+                        ["amount"] = -delta,
+                        ["amountCurrency"] = -delta,
                         ["amountGross"] = -delta,
                         ["amountGrossCurrency"] = -delta
                     }

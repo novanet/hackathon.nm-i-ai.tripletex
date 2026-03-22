@@ -407,6 +407,15 @@ public class AnnualAccountsHandler : ITaskHandler
 
     private async Task<long> CreateVoucher(TripletexApiClient api, string date, string description, Dictionary<string, object>[] postings)
     {
+        // Ensure all 4 amount fields are set on every posting
+        foreach (var p in postings)
+        {
+            if (p.TryGetValue("amountGross", out var ag) && !p.ContainsKey("amount"))
+                p["amount"] = ag;
+            if (p.TryGetValue("amountGrossCurrency", out var agc) && !p.ContainsKey("amountCurrency"))
+                p["amountCurrency"] = agc;
+        }
+
         var body = new Dictionary<string, object>
         {
             ["date"] = date,

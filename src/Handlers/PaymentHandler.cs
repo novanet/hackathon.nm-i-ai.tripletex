@@ -242,6 +242,8 @@ public class PaymentHandler : ITaskHandler
                         ["description"] = feeDescription,
                         ["account"] = new { id = debitAccountId },
                         ["customer"] = new { id = customerId },
+                        ["amount"] = feeAmount,
+                        ["amountCurrency"] = feeAmount,
                         ["amountGross"] = feeAmount,
                         ["amountGrossCurrency"] = feeAmount,
                         ["row"] = 1
@@ -251,6 +253,8 @@ public class PaymentHandler : ITaskHandler
                         ["date"] = today,
                         ["description"] = feeDescription,
                         ["account"] = new { id = creditAccountId },
+                        ["amount"] = -feeAmount,
+                        ["amountCurrency"] = -feeAmount,
                         ["amountGross"] = -feeAmount,
                         ["amountGrossCurrency"] = -feeAmount,
                         ["row"] = 2

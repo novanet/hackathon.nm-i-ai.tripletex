@@ -198,6 +198,8 @@ public class OverdueInvoiceReminderHandler : ITaskHandler
                 ["date"] = date,
                 ["description"] = description,
                 ["account"] = new { id = receivablesId.Value },
+                ["amount"] = (double)fee,
+                ["amountCurrency"] = (double)fee,
                 ["amountGross"] = (double)fee,
                 ["amountGrossCurrency"] = (double)fee,
                 ["row"] = 1
@@ -211,6 +213,8 @@ public class OverdueInvoiceReminderHandler : ITaskHandler
                 ["date"] = date,
                 ["description"] = description,
                 ["account"] = new { id = incomeId.Value },
+                ["amount"] = -(double)fee,
+                ["amountCurrency"] = -(double)fee,
                 ["amountGross"] = -(double)fee,
                 ["amountGrossCurrency"] = -(double)fee,
                 ["row"] = 2

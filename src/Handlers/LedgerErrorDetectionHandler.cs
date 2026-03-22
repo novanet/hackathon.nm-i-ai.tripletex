@@ -159,6 +159,8 @@ public class LedgerErrorDetectionHandler : ITaskHandler
                 ["date"] = date,
                 ["description"] = description,
                 ["account"] = new { id = wrongId.Value },
+                ["amount"] = -(double)amount,
+                ["amountCurrency"] = -(double)amount,
                 ["amountGross"] = -(double)amount,
                 ["amountGrossCurrency"] = -(double)amount,
                 ["row"] = 1
@@ -168,6 +170,8 @@ public class LedgerErrorDetectionHandler : ITaskHandler
                 ["date"] = date,
                 ["description"] = description,
                 ["account"] = new { id = correctId.Value },
+                ["amount"] = (double)amount,
+                ["amountCurrency"] = (double)amount,
                 ["amountGross"] = (double)amount,
                 ["amountGrossCurrency"] = (double)amount,
                 ["row"] = 2
@@ -271,12 +275,16 @@ public class LedgerErrorDetectionHandler : ITaskHandler
             if (item.TryGetProperty("debitCredit", out var dc) && dc.ValueKind == JsonValueKind.String
                 && dc.GetString()?.Equals("credit", StringComparison.OrdinalIgnoreCase) == true)
                 amt = -Math.Abs(amt);
+            posting["amount"] = amt;
+            posting["amountCurrency"] = amt;
             posting["amountGross"] = amt;
             posting["amountGrossCurrency"] = amt;
         }
         else if (item.TryGetProperty("amount", out var am) && am.ValueKind == JsonValueKind.Number)
         {
             var amt = am.GetDouble();
+            posting["amount"] = amt;
+            posting["amountCurrency"] = amt;
             posting["amountGross"] = amt;
             posting["amountGrossCurrency"] = amt;
         }

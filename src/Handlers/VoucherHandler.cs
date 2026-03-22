@@ -284,6 +284,7 @@ public class VoucherHandler : ITaskHandler
                 postings[i][$"freeAccountingDimension{dimensionIndex.Value}"] = new { id = linkedDimensionValueId.Value };
         }
 
+        EnsureAllAmountFields(postings);
         _logger.LogInformation("Creating voucher: {Description} with {PostingCount} postings", description, postings.Count);
 
         var body = new Dictionary<string, object>
@@ -343,6 +344,8 @@ public class VoucherHandler : ITaskHandler
                 && string.Equals(dc.GetString(), "credit", StringComparison.OrdinalIgnoreCase))
                 rawAmount = -Math.Abs(rawAmount.Value);
 
+            posting["amount"] = rawAmount.Value;
+            posting["amountCurrency"] = rawAmount.Value;
             posting["amountGross"] = rawAmount.Value;
             posting["amountGrossCurrency"] = rawAmount.Value;
         }
@@ -573,6 +576,7 @@ public class VoucherHandler : ITaskHandler
             for (int i = 0; i < postings.Count; i++)
                 postings[i]["row"] = i + 1;
 
+            EnsureAllAmountFields(postings);
             _logger.LogInformation("Creating voucher {Key}: {Description} with {PostingCount} postings",
                 key, description, postings.Count);
 
@@ -731,7 +735,6 @@ public class VoucherHandler : ITaskHandler
                 ["amountGross"] = (double)netAmount,
                 ["amountGrossCurrency"] = (double)netAmount,
                 ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
-                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 1
             };
             if (invoiceNumber != null) expensePosting["invoiceNumber"] = invoiceNumber;
@@ -776,7 +779,6 @@ public class VoucherHandler : ITaskHandler
                 ["amountGross"] = amount,
                 ["amountGrossCurrency"] = amount,
                 ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
-                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 1
             };
             if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
@@ -806,11 +808,7 @@ public class VoucherHandler : ITaskHandler
         };
         if (voucherTypeId.HasValue)
             voucherBody["voucherType"] = new Dictionary<string, object> { ["id"] = voucherTypeId.Value };
-        if (invoiceNumber != null)
-        {
-            voucherBody["vendorInvoiceNumber"] = invoiceNumber;
-            voucherBody["externalVoucherNumber"] = invoiceNumber;
-        }
+        EnsureAllAmountFields(postings);
 
         _logger.LogInformation("Creating supplier voucher via POST /ledger/voucher: {Description} amount={Amount}", description, amount);
 
@@ -1187,6 +1185,18 @@ public class VoucherHandler : ITaskHandler
         }
 
         throw new InvalidOperationException($"Unable to create department '{departmentName}' for supplier voucher after multiple attempts.");
+    }
+
+    /// <summary>Ensure all 4 amount fields are present on every posting (Tripletex requires amount, amountCurrency, amountGross, amountGrossCurrency).</summary>
+    private static void EnsureAllAmountFields(List<Dictionary<string, object>> postings)
+    {
+        foreach (var p in postings)
+        {
+            if (p.TryGetValue("amountGross", out var ag) && !p.ContainsKey("amount"))
+                p["amount"] = ag;
+            if (p.TryGetValue("amountGrossCurrency", out var agc) && !p.ContainsKey("amountCurrency"))
+                p["amountCurrency"] = agc;
+        }
     }
 
     private static string? NormalizeAccountNumber(string? account, string? description)
