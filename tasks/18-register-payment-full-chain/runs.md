@@ -6,27 +6,32 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 09:48:08 |
+| Timestamp | 03/22/2026 12:23:44 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 52937 ms |
-| API Calls | 4 |
+| Elapsed | 21334 ms |
+| API Calls | 9 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=948020890&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/invoice?customerId=108571537&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
+| 1 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
 | 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 4 | `PUT` | `/invoice/2147689016/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 4 | `GET` | `/customer?organizationNumber=985301476&count=1&fields=id%2Cn...` | ✅  |  |
+| 5 | `GET` | `/product?number=8953&count=1&fields=id%2CvatType%28id%29` | ✅  |  |
+| 6 | `GET` | `/product?number=4503&count=1&fields=id%2CvatType%28id%29` | ✅  |  |
+| 7 | `POST` | `/order` | ✅  |  |
+| 8 | `POST` | `/invoice` | ✅  |  |
+| 9 | `PUT` | `/invoice/2147705505/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"en","entities":{"customer":{"name":"Ironbridge Ltd","orgNumber":"948020890"},"payment":{"amount":6300}},"relationships":{},"raw_amounts":["6300"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"de","entities":{"customer":{"name":"Nordlicht GmbH","orgNumber":"985301476"},"invoice":{"orderLines":[{"description":"Netzwerkdienst","productNumber":"8953","unitPrice":17750},{"description":"Wartung","productNumber":"4503","unitPrice":12300}]},"payment":{"amount":30050}},"relationships":{"customer":"Nordlicht GmbH"},"raw_amounts":["17750","12300","30050"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

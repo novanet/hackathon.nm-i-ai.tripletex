@@ -187,8 +187,8 @@ public class VoucherHandler : ITaskHandler
 
             if (debitAccount != null && creditAccount != null && amount != 0)
             {
-                var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
-                var (creditId, creditVatId, _) = await ResolveAccountId(api, creditAccount);
+                var (debitId, debitVatId, _, _) = await ResolveAccountId(api, debitAccount);
+                var (creditId, creditVatId, _, _) = await ResolveAccountId(api, creditAccount);
                 if (debitId.HasValue && creditId.HasValue)
                 {
                     postings.Add(new Dictionary<string, object>
@@ -218,7 +218,7 @@ public class VoucherHandler : ITaskHandler
             }
             else if (debitAccount != null && amount != 0)
             {
-                var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
+                var (debitId, debitVatId, _, _) = await ResolveAccountId(api, debitAccount);
                 if (debitId.HasValue)
                 {
                     postings.Add(new Dictionary<string, object>
@@ -244,7 +244,7 @@ public class VoucherHandler : ITaskHandler
 
             if (account != null && amount != 0)
             {
-                var (accountId, vatId, _) = await ResolveAccountId(api, account);
+                var (accountId, vatId, _, _) = await ResolveAccountId(api, account);
                 if (accountId.HasValue)
                 {
                     var debitPosting = new Dictionary<string, object>
@@ -259,7 +259,7 @@ public class VoucherHandler : ITaskHandler
                     postings.Add(debitPosting);
 
                     // Counter-account: 1920 (bank) as safe default
-                    var (counterId, _, _) = await ResolveAccountId(api, "1920");
+                    var (counterId, _, _, _) = await ResolveAccountId(api, "1920");
                     if (counterId.HasValue)
                     {
                         postings.Add(new Dictionary<string, object>
@@ -311,7 +311,7 @@ public class VoucherHandler : ITaskHandler
 
         if (accountStr != null && accountStr.Length <= 4)
         {
-            var (accId, vatId, vatLocked) = await ResolveAccountId(api, accountStr);
+            var (accId, vatId, vatLocked, _) = await ResolveAccountId(api, accountStr);
             if (accId.HasValue) posting["account"] = new { id = accId.Value };
             // vatId is null when account is locked to VAT 0 (no VAT) — ResolveAccountId filters it
             if (vatId.HasValue) posting["vatType"] = new { id = vatId.Value };
@@ -378,7 +378,7 @@ public class VoucherHandler : ITaskHandler
         return result;
     }
 
-    private async Task<(long? accountId, long? vatTypeId, bool vatLocked)> ResolveAccountId(TripletexApiClient api, string accountNumber)
+    private async Task<(long? accountId, long? vatTypeId, bool vatLocked, string? defaultVatNumber)> ResolveAccountId(TripletexApiClient api, string accountNumber)
     {
         var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
         {
@@ -392,6 +392,7 @@ public class VoucherHandler : ITaskHandler
             {
                 var id = v.GetProperty("id").GetInt64();
                 long? vatId = null;
+                string? defaultVatNum = null;
                 // Use the actual vatLocked field from the API
                 bool locked = v.TryGetProperty("vatLocked", out var vl) && vl.ValueKind == JsonValueKind.True;
                 if (v.TryGetProperty("vatType", out var vt) && vt.ValueKind == JsonValueKind.Object)
@@ -402,6 +403,9 @@ public class VoucherHandler : ITaskHandler
                         int vatNumber = 0;
                         if (vt.TryGetProperty("number", out var vtNum) && vtNum.ValueKind == JsonValueKind.Number)
                             vatNumber = vtNum.GetInt32();
+                        // Always capture the account's default VAT number for callers that need it
+                        if (vatNumber != 0)
+                            defaultVatNum = vatNumber.ToString();
                         // Only inherit VAT type when account is LOCKED to it.
                         // vatLocked=false means flexible/exempt VAT — don't force a default rate.
                         // Accounts like 7100 (Bilgodtgjørelse) reject vatType even when their
@@ -410,11 +414,11 @@ public class VoucherHandler : ITaskHandler
                             vatId = rawId;
                     }
                 }
-                return (id, vatId, locked);
+                return (id, vatId, locked, defaultVatNum);
             }
         }
         _logger.LogWarning("Account {Number} not found in chart of accounts", accountNumber);
-        return (null, null, false);
+        return (null, null, false, null);
     }
 
     private async Task<HandlerResult> HandleMultiVoucher(TripletexApiClient api, ExtractionResult extracted,
@@ -474,8 +478,8 @@ public class VoucherHandler : ITaskHandler
                 if (debitAccount != null && creditAccount != null && amount != 0)
                 {
                     // Both accounts specified — resolve both and only create if both exist
-                    var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
-                    var (creditId, creditVatId, _) = await ResolveAccountId(api, creditAccount);
+                    var (debitId, debitVatId, _, _) = await ResolveAccountId(api, debitAccount);
+                    var (creditId, creditVatId, _, _) = await ResolveAccountId(api, creditAccount);
                     if (debitId.HasValue && creditId.HasValue)
                     {
                         postings.Add(new Dictionary<string, object>
@@ -506,7 +510,7 @@ public class VoucherHandler : ITaskHandler
                 else if (debitAccount != null && amount != 0)
                 {
                     // Only debit account — will fall through to Path 3 if this also fails
-                    var (debitId, debitVatId, _) = await ResolveAccountId(api, debitAccount);
+                    var (debitId, debitVatId, _, _) = await ResolveAccountId(api, debitAccount);
                     if (debitId.HasValue)
                     {
                         postings.Add(new Dictionary<string, object>
@@ -531,7 +535,7 @@ public class VoucherHandler : ITaskHandler
                 decimal amount = ExtractAmount(voucherEntity, extracted);
                 if (account != null && amount != 0)
                 {
-                    var (accountId, vatId, _) = await ResolveAccountId(api, account);
+                    var (accountId, vatId, _, _) = await ResolveAccountId(api, account);
                     if (accountId.HasValue)
                     {
                         var debitP = new Dictionary<string, object>
@@ -545,7 +549,7 @@ public class VoucherHandler : ITaskHandler
                         if (vatId.HasValue) debitP["vatType"] = new { id = vatId.Value };
                         postings.Add(debitP);
 
-                        var (counterId, _, _) = await ResolveAccountId(api, "1920");
+                        var (counterId, _, _, _) = await ResolveAccountId(api, "1920");
                         if (counterId.HasValue)
                             postings.Add(new Dictionary<string, object>
                             {
@@ -630,12 +634,12 @@ public class VoucherHandler : ITaskHandler
         var departmentId = await ResolveDepartmentIdAsync(api, extracted, voucher);
 
         // 3. Resolve expense account (with vatLocked check)
-        var (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
+        var (accountId, lockedVatId, acctVatLocked, acctDefaultVatNumber) = await ResolveAccountId(api, account);
         if (!accountId.HasValue && account != "6800")
         {
             _logger.LogWarning("Primary expense account {Account} was not found, falling back to 6800", account);
             account = "6800";
-            (accountId, lockedVatId, acctVatLocked) = await ResolveAccountId(api, account);
+            (accountId, lockedVatId, acctVatLocked, acctDefaultVatNumber) = await ResolveAccountId(api, account);
         }
 
         if (!accountId.HasValue)
@@ -666,7 +670,8 @@ public class VoucherHandler : ITaskHandler
         }
         else if (!acctVatLocked)
         {
-            var vatNumber = "1"; // Default: inbound 25%
+            // Use the account's default VAT number when available (e.g. "13" for 12% transport on 7140)
+            var vatNumber = acctDefaultVatNumber ?? "1"; // Fallback: inbound 25%
             if (vatRateStr != null)
             {
                 if (vatRateStr.Contains("15")) vatNumber = "11";
@@ -704,7 +709,7 @@ public class VoucherHandler : ITaskHandler
         }
 
         // 6. Create voucher directly via POST /ledger/voucher
-        var (creditorId, _, _) = await ResolveAccountId(api, "2400");
+        var (creditorId, _, _, _) = await ResolveAccountId(api, "2400");
         if (!creditorId.HasValue)
             throw new InvalidOperationException("Unable to resolve creditor account 2400 for supplier voucher.");
 
@@ -718,7 +723,7 @@ public class VoucherHandler : ITaskHandler
             var vatAmount = amount - netAmount;
 
             // Resolve input VAT account (2710)
-            var (inputVatAcctId, _, _) = await ResolveAccountId(api, "2710");
+            var (inputVatAcctId, _, _, _) = await ResolveAccountId(api, "2710");
             if (!inputVatAcctId.HasValue)
                 throw new InvalidOperationException("Unable to resolve input VAT account 2710 for manual VAT split.");
 

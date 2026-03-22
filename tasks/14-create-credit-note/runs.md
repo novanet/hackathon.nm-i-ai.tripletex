@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 09:36:25 |
+| Timestamp | 03/22/2026 12:18:00 |
 | Task Type | `create_credit_note` |
 | Handler | `CreditNoteHandler` |
 | Success | True |
-| Elapsed | 49901 ms |
+| Elapsed | 15660 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -18,17 +18,17 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `POST` | `/customer` | ✅  |  |
-| 2 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 1 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 2 | `GET` | `/customer?name=Brightstone%20Ltd&count=1&fields=id%2Cname` | ✅  |  |
 | 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
 | 4 | `POST` | `/order` | ✅  |  |
 | 5 | `POST` | `/invoice` | ✅  |  |
-| 6 | `PUT` | `/invoice/2147689371/:createCreditNote?date=2026-03-22&sendTo...` | ✅  |  |
+| 6 | `PUT` | `/invoice/2147704867/:createCreditNote?date=2026-03-22&sendTo...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_credit_note","action":"reverse","language":"nb","entities":{"creditNote":{"customerName":"Nordhav AS","customerOrgNumber":"996887898","description":"Vedlikehold","amount":19200}},"relationships":{},"raw_amounts":["19200"],"dates":[],"files_needed":false}
+{"task_type":"create_credit_note","action":"reverse","language":"en","entities":{"creditNote":{"customerName":"Brightstone Ltd","customerOrgNumber":"846305157","description":"Data Advisory","amount":38000,"vatIncluded":false}},"relationships":{"customer":"Brightstone Ltd"},"raw_amounts":["38000.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

@@ -69,7 +69,7 @@ public class LlmExtractor
         - For employee creation tasks based on contracts, offer letters, onboarding forms, or PDF attachments, also extract employment detail fields when present into the top-level "employee" entity: "startDate", "occupationCode" (or exact job code such as STYRK/ISCO code), "occupationName" (Norwegian job title corresponding to the occupation code, e.g. "Regnskapsfører" for STYRK 3323, "Sykepleier" for 2223 — always provide this when occupationCode is present), "employmentPercentage" (numeric percent, e.g. 100), "annualSalary" (numeric yearly salary), "workingHoursPerDay" (numeric hours per day), "employmentType" (e.g. permanent, temporary, ordinary), "employmentForm", and "salaryType" or "remunerationType" (e.g. monthly salary, hourly wage). If a department is stated, also extract a separate top-level "department" entity with {"name": "..."}.
         - For vouchers with custom accounting dimensions, extract the dimension in a separate "dimension" entity: {"name": "Region", "values": ["Vestlandet", "Sør-Norge"]}. In the voucher entity, include "dimensionValue": "Vestlandet" for the value to link to the posting, plus "account": "6300" and "amount": 35500. If the prompt specifies debit/credit accounts explicitly, use "debitAccount" and "creditAccount" in the voucher entity instead.
         - For supplier invoices (incoming invoices from suppliers), use task_type "create_voucher". In the voucher entity, include: "supplierName", "supplierOrgNumber", "invoiceNumber", "account" (expense account number), "amount" (gross amount incl. VAT), "date", and "vatRate" (e.g. "25") if specified.
-        - For expense receipts (kvittering, Quittung, receipt, recibo, reçu) posted to a department: use task_type "create_voucher". The "account" field MUST be a numeric account number (e.g. "6800", "7100", "7140"). NEVER use a text description like "HR expense account" or "office supplies account". Infer the correct Norwegian standard account number from the expense type: office equipment/headsets = "6800", transportation/train = "7140", travel/accommodation = "7100", food/entertainment/coffee = "7140", general operating costs = "6000". Also extract "department": {"name": "..."} from the prompt.
+        - For expense receipts (kvittering, Quittung, receipt, recibo, reçu) posted to a department: use task_type "create_voucher". The "account" field MUST be a numeric account number (e.g. "6800", "7100", "7140"). NEVER use a text description like "HR expense account" or "office supplies account". Infer the correct Norwegian standard account number from the expense type: office equipment/headsets = "6800", transportation/train = "7140", travel/accommodation = "7100", food/entertainment/coffee = "7140", general operating costs = "6000". Also extract "department": {"name": "..."} from the prompt. IMPORTANT: When the prompt asks for a SPECIFIC expense item from a receipt (e.g. "the Togbillett expense from this receipt", "el gasto de Togbillett de este recibo"), extract ONLY that item's amount — NOT the receipt total. Set "amount" to that specific line item's amount. Do NOT set vatRate unless the prompt explicitly states a VAT percentage — let the system determine the correct rate from the expense account.
         - For bank reconciliation tasks (reconcile bank statement, close accounting period, bankavstемming, bankutskrift, reconciliar cuenta bancaria, rapprochement bancaire, Kontenabstimmung), use task_type "bank_reconciliation". Extract into a "reconciliation" entity: "accountNumber" (e.g. "1920" for main bank account), "closingBalance" (the bank statement closing balance as a number), "date" (YYYY-MM-DD — the statement date or period end). Also set "dates": [date] and "raw_amounts": [balance].
         - For timesheet / hour logging tasks (registrere timer, log hours, timeregnstest, registrar horas, enregistrer heures, Stunden erfassen) that do NOT involve creating an invoice, use task_type "create_timesheet". Extract into a "timesheet" entity: "hours" (number), "activityName" (name of the activity), "date" (YYYY-MM-DD). Also extract "employee": {"firstName", "lastName", "email"} and "project": {"name"} if mentioned.
         - For creating a contact person for an existing customer (kontaktperson, contact person, persona de contacto, personne de contact, Ansprechpartner), use task_type "create_contact". Extract into a "contact" entity: "firstName", "lastName", "email", "phoneNumberMobile". Also extract "customer": {"name"} in relationships.
@@ -153,7 +153,7 @@ public class LlmExtractor
                 var result = SafeDeserialize(content);
                 var final = result ?? new ExtractionResult { TaskType = "unknown" };
                 final.RawPrompt = prompt;
-                    NormalizeEmployeeAdminRole(final);
+                NormalizeEmployeeAdminRole(final);
                 NormalizeFileBasedVoucherAmounts(final, fileContext.Text);
                 ValidateDates(final);
                 ValidateExtraction(final);
@@ -261,7 +261,7 @@ public class LlmExtractor
 
     private void NormalizeFileBasedVoucherAmounts(ExtractionResult extracted, string fileText)
     {
-        if (extracted.TaskType != "create_voucher" || string.IsNullOrWhiteSpace(fileText))
+        if (extracted.TaskType != "create_voucher")
             return;
 
         if (!extracted.Entities.TryGetValue("voucher", out var voucher))
@@ -270,9 +270,14 @@ public class LlmExtractor
         if (!voucher.ContainsKey("supplierName") && !voucher.ContainsKey("supplierOrgNumber"))
             return;
 
-        var receiptDescription = ResolveReceiptDescription(extracted, voucher, fileText);
+        // Resolve receipt description from prompt even when PDF text extraction fails
+        var receiptDescription = ResolveReceiptDescription(extracted, voucher, fileText ?? "");
         if (!string.IsNullOrWhiteSpace(receiptDescription))
             voucher["receiptDescription"] = receiptDescription;
+
+        // Amount normalization requires file text
+        if (string.IsNullOrWhiteSpace(fileText))
+            return;
 
         var labeledTotal = TryExtractLabeledTotal(fileText);
         if (!labeledTotal.HasValue || labeledTotal.Value <= 0)
@@ -284,6 +289,13 @@ public class LlmExtractor
 
         if (currentAmount.HasValue && Math.Abs(currentAmount.Value - labeledTotal.Value) < 0.01m)
             return;
+
+        // Don't override with receipt total when prompt asks for a specific line item
+        if (!string.IsNullOrWhiteSpace(receiptDescription))
+        {
+            _logger.LogInformation("Skipping labeled total override — prompt asks for specific item '{Description}'", receiptDescription);
+            return;
+        }
 
         voucher["amount"] = labeledTotal.Value.ToString("F2", CultureInfo.InvariantCulture);
 
@@ -587,7 +599,7 @@ public class LlmExtractor
             if (sdMatch.Success) { var d = TryParseDate(sdMatch); if (d != null) emp["startDate"] = d; }
 
             // Check for admin role
-                if (IsAdminPrompt(lower))
+            if (IsAdminPrompt(lower))
                 emp["roles"] = new List<string> { "admin" };
 
             result.Entities["employee"] = emp;

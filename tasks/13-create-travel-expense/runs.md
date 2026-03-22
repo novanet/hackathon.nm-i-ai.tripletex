@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 10:44:23 |
+| Timestamp | 03/22/2026 12:29:20 |
 | Task Type | `create_travel_expense` |
 | Handler | `TravelExpenseHandler` |
 | Success | True |
-| Elapsed | 16779 ms |
+| Elapsed | 60201 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -18,7 +18,7 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id&firstName=Sigurd&lastName=Hansen` | ✅  |  |
+| 1 | `GET` | `/employee?count=1&fields=id&firstName=Thomas&lastName=Lewis` | ✅  |  |
 | 2 | `POST` | `/travelExpense` | ✅  |  |
 | 3 | `GET` | `/travelExpense/paymentType?count=10&fields=id%2Cdescription` | ✅  |  |
 | 4 | `POST` | `/travelExpense/cost` | ✅  |  |
@@ -28,7 +28,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_travel_expense","action":"create","language":"nb","entities":{"travelExpense":{"title":"Kundebesøk Trondheim","travelDetails":{"durationDays":4,"dailyAllowanceRate":800},"costItems":[{"description":"Flybillett","amount":6150},{"description":"Taxi","amount":500}]},"employee":{"firstName":"Sigurd","lastName":"Hansen","email":"sigurd.hansen@example.org"}},"relationships":{},"raw_amounts":["800","6150","500"],"dates":[],"files_needed":false}
+{"task_type":"create_travel_expense","action":"create","language":"en","entities":{"travelExpense":{"title":"Client visit Oslo","travelDetails":{"durationDays":4,"dailyAllowanceRate":800},"costItems":[{"description":"Flight ticket","amount":7250},{"description":"Taxi","amount":600}]},"employee":{"firstName":"Thomas","lastName":"Lewis","email":"thomas.lewis@example.org"}},"relationships":{},"raw_amounts":["800","7250","600"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
