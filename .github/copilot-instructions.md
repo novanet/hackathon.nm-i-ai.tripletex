@@ -94,7 +94,7 @@ Always return `{"status": "completed"}` after executing the task. The platform v
 These are the #1 source of failures. See `opening-strategy.md` §8 for the full graph.
 
 - **Invoice**: Customer → Order (with OrderLines + VatType) → Invoice. You CANNOT create an invoice without an order.
-- **Employee admin role**: `POST /employee` then `PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId={id}&template=administrator`. Worth 50% of employee scoring points.
+- **Employee admin role**: `POST /employee` then `PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId={id}&template=ALL_PRIVILEGES`. Worth 50% of employee scoring points.
 - **Payment**: Full invoice chain + `PUT /invoice/{id}/:payment` (query params, not body)
 - **Travel expense**: `POST /travelExpense` then `POST /travelExpense/cost` for each cost line
 

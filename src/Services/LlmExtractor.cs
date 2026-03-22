@@ -153,6 +153,7 @@ public class LlmExtractor
                 var result = SafeDeserialize(content);
                 var final = result ?? new ExtractionResult { TaskType = "unknown" };
                 final.RawPrompt = prompt;
+                    NormalizeEmployeeAdminRole(final);
                 NormalizeFileBasedVoucherAmounts(final, fileContext.Text);
                 ValidateDates(final);
                 ValidateExtraction(final);
@@ -337,6 +338,51 @@ public class LlmExtractor
         };
     }
 
+    private void NormalizeEmployeeAdminRole(ExtractionResult result)
+    {
+        if (result.TaskType is not ("create_employee" or "update_employee"))
+            return;
+
+        var employee = result.Entities.GetValueOrDefault("employee");
+        if (employee == null)
+            return;
+
+        var normalizedRoles = GetStringList(employee.GetValueOrDefault("roles"));
+        if (normalizedRoles.Any(IsAdminPrompt))
+        {
+            employee["roles"] = new List<string> { "admin" };
+            return;
+        }
+
+        if (IsAdminPrompt(result.RawPrompt))
+            employee["roles"] = new List<string> { "admin" };
+    }
+
+    private static List<string> GetStringList(object? value)
+    {
+        if (value is null)
+            return new List<string>();
+
+        return value switch
+        {
+            string stringValue => new List<string> { stringValue },
+            IEnumerable<string> strings => strings.ToList(),
+            JsonElement { ValueKind: JsonValueKind.String } stringElement => new List<string> { stringElement.GetString() ?? string.Empty },
+            JsonElement { ValueKind: JsonValueKind.Array } arrayElement => arrayElement.EnumerateArray()
+                .Select(static item => item.ValueKind == JsonValueKind.String ? item.GetString() ?? string.Empty : item.ToString())
+                .ToList(),
+            IEnumerable<object> objects => objects.Select(static item => item?.ToString() ?? string.Empty).ToList(),
+            _ => new List<string>()
+        };
+    }
+
+    private static bool IsAdminPrompt(string? text)
+        => !string.IsNullOrWhiteSpace(text)
+            && Regex.IsMatch(text, AdminPromptPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private const string AdminPromptPattern =
+        @"\b(administrator|admin|account administrator|kontoadministrator|administratortilgang|administratortilgong|administrator access|admin access|grant administrator|grant admin|special privileges|elevated privileges|full privileges|all privileges|administrador|administrateur|administratorrettigheter|administrator-rettigheter|administrator role)\b";
+
     /// <summary>Regex-based fallback when LLM is unavailable (content filter, rate limit, etc.)</summary>
     private ExtractionResult RegexFallbackExtract(string prompt)
     {
@@ -412,7 +458,7 @@ public class LlmExtractor
             if (sdMatch.Success) { var d = TryParseDate(sdMatch); if (d != null) emp["startDate"] = d; }
 
             // Check for admin role
-            if (Regex.IsMatch(lower, @"administrator|admin|kontoadministrator|administratortilgang|elevated|privileges"))
+                if (IsAdminPrompt(lower))
                 emp["roles"] = new List<string> { "admin" };
 
             result.Entities["employee"] = emp;

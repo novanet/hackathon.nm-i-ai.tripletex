@@ -159,7 +159,7 @@ Key fields: `firstName`, `lastName`, `email`, `dateOfBirth`, `phoneNumberMobile`
 **Assign administrator role:**
 ```
 PUT /employee/entitlement/:grantEntitlementsByTemplate
-  ?employeeId={id}&template=administrator
+  ?employeeId={id}&template=ALL_PRIVILEGES
 ```
 This is a separate call after creating the employee. The `template` parameter determines the role. **This is likely the highest-value field check** (5/10 points in the example).
 

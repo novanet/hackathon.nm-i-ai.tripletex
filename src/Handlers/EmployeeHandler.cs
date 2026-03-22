@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TripletexAgent.Models;
 using TripletexAgent.Services;
 
@@ -99,8 +100,7 @@ public class EmployeeHandler : ITaskHandler
         // Determine if admin role is needed
         var hasRoles = emp.TryGetValue("roles", out var rolesObj);
         var roles = ParseStringList(rolesObj);
-        var needsAdmin = roles.Any(r => r.Equals("administrator", StringComparison.OrdinalIgnoreCase)
-            || r.Equals("admin", StringComparison.OrdinalIgnoreCase));
+        var needsAdmin = IsAdminRoleRequested(roles, extracted.RawPrompt);
 
         body["userType"] = needsAdmin ? "EXTENDED" : "STANDARD";
 
@@ -930,4 +930,30 @@ public class EmployeeHandler : ITaskHandler
         if (val is IEnumerable<string> strList) return strList.ToList();
         return new();
     }
+
+    private static bool IsAdminRoleRequested(IEnumerable<string> roles, string? rawPrompt)
+    {
+        if (roles.Any(IsAdminRoleToken))
+            return true;
+
+        return !string.IsNullOrWhiteSpace(rawPrompt)
+            && Regex.IsMatch(rawPrompt, AdminPromptPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsAdminRoleToken(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+            return false;
+
+        var normalized = role.Trim().ToLowerInvariant();
+        return normalized is "admin"
+            or "administrator"
+            or "account administrator"
+            or "kontoadministrator"
+            or "administrador"
+            or "administrateur";
+    }
+
+    private const string AdminPromptPattern =
+        @"\b(administrator|admin|account administrator|kontoadministrator|administratortilgang|administratortilgong|administrator access|admin access|grant administrator|grant admin|special privileges|elevated privileges|full privileges|all privileges|administrador|administrateur)\b";
 }

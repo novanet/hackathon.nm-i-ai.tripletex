@@ -30,7 +30,7 @@ Languages: Norwegian, English, Spanish, Portuguese, Nynorsk, German, French.
 1. `GET /department?count=100` — resolve department (required when module active)
 2. `GET /employee?email=X` — check if employee already exists
 3. `POST /employee` — create with firstName, lastName, email, dateOfBirth, department
-4. `PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId={id}&template=administrator` — grant admin role
+4. `PUT /employee/entitlement/:grantEntitlementsByTemplate?employeeId={id}&template=ALL_PRIVILEGES` — grant admin role
 
 ## Competition Checks
 
@@ -52,7 +52,8 @@ Key fixes already applied:
 - Synthetic email generation when not provided
 - Department auto-resolution
 - `dateOfBirth` defaults to `1990-01-01` if not in prompt
-- Admin role always granted via `template=administrator`
+- Admin role granted via `template=ALL_PRIVILEGES` (matches historical successful runs)
+- Admin intent is normalized from raw prompt keywords when the LLM omits or varies the `roles` field
 - STJ serialization fix (Dictionary instead of anonymous types)
 
 ## Action Required
