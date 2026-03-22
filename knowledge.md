@@ -8,6 +8,8 @@ Keep entries short (1–2 lines). Include the date discovered.
 
 ## Tripletex API Quirks
 
+- **`/ledger` endpoint does NOT return `account.number` or `account.name` by default** — must explicitly request `fields=account(id,number,name),sumAmount`. Without this, `account.number` defaults to 0 and all expense account filtering fails silently. This was the root cause of task 28 (cost_analysis) scoring 0/5 in competition. _(2026-03-22)_
+
 - **Employee `startDate` is NOT a field on `/employee`** — use `POST /employee/employment` as a separate call after creating the employee. The employee POST will 422 with "Feltet eksisterer ikke i objektet" if you include `startDate`. _(2026-03-20)_
 - **Employee `dateOfBirth` must be set** before creating employment — otherwise 422 "Feltet må fylles ut". Always extract DOB from prompt. EmployeeHandler now defaults to `1990-01-01` if not provided. _(2026-03-20, UPDATED 2026-03-21)_
 - **Employee `userType` must not be `"0"` or empty** — use `"STANDARD"`. Error: "Brukertype kan ikke være «0» eller tom." Must be set when creating employees anywhere (specifically in TravelExpenseHandler and other handlers, not just EmployeeHandler). _(2026-03-20)_

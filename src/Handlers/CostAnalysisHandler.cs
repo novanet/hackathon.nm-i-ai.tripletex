@@ -56,7 +56,10 @@ public class CostAnalysisHandler : ITaskHandler
 
         if (top3.Count == 0)
         {
-            _logger.LogWarning("No expense accounts with positive increase found");
+            _logger.LogError("COST ANALYSIS FAILED: No expense accounts with positive increase found. " +
+                "Month1 had {M1Count} expense accounts, Month2 had {M2Count} expense accounts. " +
+                "This likely means the /ledger endpoint did not return account fields.",
+                month1Sums.Count, month2Sums.Count);
             return handlerResult;
         }
 
@@ -133,7 +136,8 @@ public class CostAnalysisHandler : ITaskHandler
                 ["dateFrom"] = dateFrom,
                 ["dateTo"] = dateTo,
                 ["from"] = from.ToString(),
-                ["count"] = pageSize.ToString()
+                ["count"] = pageSize.ToString(),
+                ["fields"] = "account(id,number,name),sumAmount"
             });
 
             if (result.TryGetProperty("values", out var values))

@@ -59,6 +59,9 @@ public class SandboxValidator
                 case "create_project":
                     await ValidateProject(api, extracted, handlerResult, report);
                     break;
+                case "cost_analysis":
+                    await ValidateCostAnalysis(api, handlerResult, report);
+                    break;
                 case "create_travel_expense":
                     await ValidateTravelExpense(api, extracted, handlerResult, report);
                     break;
@@ -1091,6 +1094,47 @@ public class SandboxValidator
 
         currencyCode = currencyCode.Trim().ToUpperInvariant();
         return currencyCode.Length == 3 ? currencyCode : null;
+    }
+
+    private async Task ValidateCostAnalysis(TripletexApiClient api,
+        HandlerResult result, ValidationReport report)
+    {
+        // Check that projects were created
+        var allIds = new List<long>();
+        if (result.EntityId.HasValue) allIds.Add(result.EntityId.Value);
+        allIds.AddRange(result.AdditionalEntityIds);
+
+        report.Checks.Add(new ValidationCheck("projects_created", ">=1",
+            allIds.Count.ToString(), allIds.Count >= 1));
+
+        int withActivity = 0;
+        foreach (var pid in allIds)
+        {
+            try
+            {
+                var proj = await api.GetAsync($"/project/{pid}", new Dictionary<string, string>
+                {
+                    ["fields"] = "id,name,isInternal"
+                });
+                var val = proj.GetProperty("value");
+                var isInternal = val.TryGetProperty("isInternal", out var ip) && ip.GetBoolean();
+                report.Checks.Add(new ValidationCheck($"project_{pid}_internal", "true",
+                    isInternal.ToString(), isInternal));
+
+                // Check activity linkage
+                var activities = await api.GetAsync("/project/projectActivity", new Dictionary<string, string>
+                {
+                    ["projectId"] = pid.ToString(),
+                    ["count"] = "10"
+                });
+                var hasActivity = activities.TryGetProperty("values", out var acts) && acts.GetArrayLength() > 0;
+                if (hasActivity) withActivity++;
+            }
+            catch { /* project may not exist */ }
+        }
+
+        report.Checks.Add(new ValidationCheck("has_activities", ">=1",
+            withActivity.ToString(), withActivity >= 1));
     }
 
     private async Task ValidateProject(TripletexApiClient api, ExtractionResult extracted,
