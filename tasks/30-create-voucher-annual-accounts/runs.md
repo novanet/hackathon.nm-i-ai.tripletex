@@ -43,12 +43,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 15:54:36 |
+| Timestamp | 03/22/2026 08:35:42 |
 | Task Type | `annual_accounts` |
 | Handler | `AnnualAccountsHandler` |
 | Success | True |
-| Elapsed | 5529 ms |
-| API Calls | 19 |
+| Elapsed | 6092 ms |
+| API Calls | 18 |
 | Errors | 0 |
 
 ### API Calls
@@ -56,31 +56,30 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1209&count=1&fields=id%2Cnumber` | ✅  |  |
-| 2 | `POST` | `/ledger/account` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber` | ✅  |  |
-| 4 | `POST` | `/ledger/account` | ✅  |  |
-| 5 | `GET` | `/ledger/account?number=6010&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=1209&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 7 | `GET` | `/ledger/account?number=1700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 8 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 9 | `GET` | `/ledger/account?number=2920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 10 | `GET` | `/ledger/account?number=1230&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 11 | `GET` | `/ledger/account?number=1240&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 12 | `GET` | `/ledger/account?number=1250&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=6010&count=1&fields=id%2Cnumber` | ✅  |  |
+| 4 | `GET` | `/ledger/account?number=6010&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=1209&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `GET` | `/ledger/account?number=1700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 7 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 8 | `GET` | `/ledger/account?number=2920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 9 | `GET` | `/ledger/account?number=1210&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 10 | `GET` | `/ledger/account?number=1240&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 11 | `GET` | `/ledger/account?number=1250&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 12 | `GET` | `/ledger/posting?dateFrom=2025-01-01&dateTo=2026-01-01&accoun...` | ✅  |  |
 | 13 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 | 14 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 | 15 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 | 16 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 17 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 18 | `GET` | `/ledger/posting?dateFrom=2025-01-01&dateTo=2026-01-01&accoun...` | ✅  |  |
-| 19 | `GET` | `/ledger/voucher/609017252?fields=id%2Cdate%2Cdescription%2Cp...` | ✅  |  |
+| 18 | `GET` | `/ledger/voucher/609357500?fields=id%2Cdate%2Cdescription%2Cp...` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 10 / 10 |
+| Points | 12 / 12 |
 
 ### Checks
 
@@ -90,4 +89,5 @@
 | multiple_vouchers_found | `≥3` | `4` | ✅ | 2 |
 | voucher_valid | `valid` | `valid` | ✅ | 3 |
 | has_postings | `≥2` | `2` | ✅ | 2 |
+| provision_voucher_found | `true` | `true` | ✅ | 2 |
 

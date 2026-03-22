@@ -65,11 +65,12 @@ public class AnnualAccountsHandler : ITaskHandler
             }
         }
 
-        // Extract provisions from numbered entities (provision1, provision2, ...)
+        // Extract provisions from numbered entities (provision1, provision2, journalEntry1, ...)
         var provisions = new List<ProvisionInfo>();
         foreach (var (key, entity) in extracted.Entities)
         {
-            if (!key.StartsWith("provision", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!key.StartsWith("provision", StringComparison.OrdinalIgnoreCase) &&
+                !key.StartsWith("journalEntry", StringComparison.OrdinalIgnoreCase)) continue;
             var debitAccount = GetStringField(entity, "debitAccount") ?? GetStringField(entity, "expenseAccount") ?? "";
             var creditAccount = GetStringField(entity, "creditAccount") ?? GetStringField(entity, "liabilityAccount") ?? "";
             var amount = GetDecimalField(entity, "amount");
@@ -80,9 +81,10 @@ public class AnnualAccountsHandler : ITaskHandler
         _logger.LogInformation("Annual accounts: {AssetCount} assets, {ProvisionCount} provisions, prepaid={Prepaid}, taxRate={TaxRate}, date={Date}",
             assets.Count, provisions.Count, prepaidAmount, taxRate, date);
 
-        // Step 1: Ensure required accounts exist (1209, 8700 are often missing)
+        // Step 1: Ensure required accounts exist (1209, 8700, depExpenseAccount are often missing)
         await EnsureAccountExists(api, accumDepAccount, "Akkumulerte avskrivninger", "Driftsmidler");
         await EnsureAccountExists(api, taxExpenseAccount, "Skattekostnad", "Skattekostnad");
+        await EnsureAccountExists(api, depExpenseAccount, $"Avskrivningskostnad", "Driftskostnader");
 
         // Also ensure provision accounts exist (5000, 2900 may be missing in some environments)
         foreach (var prov in provisions)
@@ -114,15 +116,45 @@ public class AnnualAccountsHandler : ITaskHandler
                 _logger.LogWarning("Account {Account} not found — voucher creation may fail", acctNum);
         }
 
+        // Step 2.5: Query existing P&L BEFORE posting our vouchers (for accurate tax computation)
+        double existingPnLSum = 0;
+        {
+            var pnlYear = date.Length >= 4 ? date[..4] : DateTime.Now.Year.ToString();
+            var pnlDateFrom = $"{pnlYear}-01-01";
+            var pnlDateTo = $"{int.Parse(pnlYear) + 1}-01-01";
+            var pnlResult = await api.GetAsync("/ledger/posting", new Dictionary<string, string>
+            {
+                ["dateFrom"] = pnlDateFrom,
+                ["dateTo"] = pnlDateTo,
+                ["accountNumberFrom"] = "3000",
+                ["accountNumberTo"] = "8699",
+                ["count"] = "10000",
+                ["fields"] = "amount"
+            });
+            if (pnlResult.TryGetProperty("values", out var pnlValues))
+            {
+                foreach (var v in pnlValues.EnumerateArray())
+                {
+                    if (v.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Number)
+                        existingPnLSum += amt.GetDouble();
+                }
+            }
+            _logger.LogInformation("Pre-existing P&L sum (before our adjustments): {Sum:F2}", existingPnLSum);
+        }
+
         // Step 3: Create depreciation vouchers (one per asset)
+        // Detect if year-end (December 31) → annual depreciation, otherwise → monthly
+        var isYearEnd = date.EndsWith("-12-31");
         foreach (var asset in assets)
         {
-            // Monthly depreciation = bookValue / usefulLife / 12
-            var depreciation = Math.Round(asset.BookValue / asset.UsefulLife / 12m, 2);
+            var depreciation = isYearEnd
+                ? Math.Round(asset.BookValue / asset.UsefulLife, 2)          // Annual
+                : Math.Round(asset.BookValue / asset.UsefulLife / 12m, 2);   // Monthly
             var description = $"Avskrivning {asset.Name}";
 
-            _logger.LogInformation("Monthly depreciation for {Name}: {BookValue} / {Life} years / 12 = {Depreciation}",
-                asset.Name, asset.BookValue, asset.UsefulLife, depreciation);
+            _logger.LogInformation("{Period} depreciation for {Name}: {BookValue} / {Life} years{Monthly} = {Depreciation}",
+                isYearEnd ? "Annual" : "Monthly", asset.Name, asset.BookValue, asset.UsefulLife,
+                isYearEnd ? "" : " / 12", depreciation);
 
             if (!accountCache.TryGetValue(depExpenseAccount, out var depExpId) ||
                 !accountCache.TryGetValue(accumDepAccount, out var accumDepId))
@@ -213,7 +245,7 @@ public class AnnualAccountsHandler : ITaskHandler
         // Step 4.5: Provision vouchers (salary provisions, etc.)
         foreach (var prov in provisions)
         {
-            var provAmount = prov.Amount ?? prepaidAmount; // fallback to prepaidAmount if LLM didn't extract
+            var provAmount = (prov.Amount.HasValue && prov.Amount.Value > 0) ? prov.Amount.Value : prepaidAmount; // fallback to prepaidAmount
             if (provAmount <= 0)
             {
                 _logger.LogWarning("Provision {Key} has no amount and no fallback — skipping", prov.Key);
@@ -260,11 +292,39 @@ public class AnnualAccountsHandler : ITaskHandler
             }
         }
 
-        // Step 5: Tax calculation and voucher
+        // Step 5: Tax calculation and voucher (analytical — based on pre-existing P&L + our known expenses)
         if (accountCache.TryGetValue(taxExpenseAccount, out var taxExpId) &&
             accountCache.TryGetValue(taxPayableAccount, out var taxPayId))
         {
-            var taxAmount = await ComputeTaxAmount(api, date, (double)taxRate);
+            // Calculate total expenses we're adding to P&L accounts (3000-8699 range)
+            double totalDepreciation = 0;
+            foreach (var asset in assets)
+            {
+                var dep = isYearEnd
+                    ? (double)Math.Round(asset.BookValue / asset.UsefulLife, 2)
+                    : (double)Math.Round(asset.BookValue / asset.UsefulLife / 12m, 2);
+                totalDepreciation += dep;
+            }
+            double prepaidExpense = (double)prepaidAmount; // goes to 6800 (in P&L range)
+            double provisionExpense = 0;
+            foreach (var prov in provisions)
+            {
+                // Only count provisions whose debit account is in P&L range (3000-8699)
+                if (int.TryParse(prov.DebitAccount, out var debitNum) && debitNum >= 3000 && debitNum <= 8699)
+                {
+                    var provAmt = (prov.Amount.HasValue && prov.Amount.Value > 0) ? prov.Amount.Value : prepaidAmount;
+                    provisionExpense += (double)provAmt;
+                }
+            }
+
+            double ourAdditionalExpenses = totalDepreciation + prepaidExpense + provisionExpense;
+            double adjustedPnL = existingPnLSum + ourAdditionalExpenses;
+            double taxableResult = -adjustedPnL; // negative P&L sum = income > expense = profit
+            double taxAmount = taxableResult > 0 ? Math.Round(taxableResult * (double)taxRate, 2) : 0;
+
+            _logger.LogInformation("Tax analytical: existingPnL={Existing:F2}, ourExpenses={Ours:F2} (dep={Dep:F2}+prepaid={Pre:F2}+prov={Prov:F2}), adjusted={Adj:F2}, taxable={Tax:F2}, rate={Rate}%, tax={TaxAmt:F2}",
+                existingPnLSum, ourAdditionalExpenses, totalDepreciation, prepaidExpense, provisionExpense,
+                adjustedPnL, taxableResult, (double)taxRate * 100, taxAmount);
 
             if (taxAmount > 0)
             {
@@ -399,43 +459,6 @@ public class AnnualAccountsHandler : ITaskHandler
         }
         _logger.LogWarning("Account {Number} not found", accountNumber);
         return (null, null, false);
-    }
-
-    private async Task<double> ComputeTaxAmount(TripletexApiClient api, string date, double taxRate)
-    {
-        var year = date.Length >= 4 ? date[..4] : DateTime.Now.Year.ToString();
-        var dateFrom = $"{year}-01-01";
-        var dateTo = $"{int.Parse(year) + 1}-01-01";
-
-        var result = await api.GetAsync("/ledger/posting", new Dictionary<string, string>
-        {
-            ["dateFrom"] = dateFrom,
-            ["dateTo"] = dateTo,
-            ["accountNumberFrom"] = "3000",
-            ["accountNumberTo"] = "8699",
-            ["count"] = "10000",
-            ["fields"] = "amount"
-        });
-
-        double totalPnL = 0;
-        if (result.TryGetProperty("values", out var values))
-        {
-            foreach (var v in values.EnumerateArray())
-            {
-                if (v.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Number)
-                    totalPnL += amt.GetDouble();
-            }
-        }
-
-        // Income is credit (negative), expense is debit (positive)
-        // Taxable result = -(sum) → positive when profitable
-        var taxableResult = -totalPnL;
-        var taxCost = taxableResult > 0 ? Math.Round(taxableResult * taxRate, 2) : 0;
-
-        _logger.LogInformation("Tax: P&L sum={PnL:F2}, taxable={Taxable:F2}, rate={Rate}%, tax={Tax:F2}",
-            totalPnL, taxableResult, taxRate * 100, taxCost);
-
-        return taxCost;
     }
 
     private static string? GetStringField(Dictionary<string, object> dict, string key)
