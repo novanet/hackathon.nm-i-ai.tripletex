@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:48:29 |
+| Timestamp | 03/22/2026 00:03:25 |
 | Task Type | `create_credit_note` |
 | Handler | `CreditNoteHandler` |
 | Success | True |
-| Elapsed | 4364 ms |
+| Elapsed | 4411 ms |
 | API Calls | 5 |
 | Errors | 0 |
 
@@ -22,12 +22,12 @@
 | 2 | `POST` | `/customer` | ✅  |  |
 | 3 | `POST` | `/order` | ✅  |  |
 | 4 | `POST` | `/invoice` | ✅  |  |
-| 5 | `PUT` | `/invoice/2147653730/:createCreditNote?date=2026-03-22&sendTo...` | ✅  |  |
+| 5 | `PUT` | `/invoice/2147655845/:createCreditNote?date=2026-03-22&sendTo...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_credit_note","action":"create","language":"fr","entities":{"creditNote":{"customerName":"Cascade SARL","customerOrgNumber":"862852745","description":"Développement système","amount":15200,"vatIncluded":false}},"relationships":{"customer":"Cascade SARL"},"raw_amounts":["15200.00"],"dates":[],"files_needed":false}
+{"task_type":"create_credit_note","action":"reverse","language":"es","entities":{"creditNote":{"customerName":"Río Verde SL","customerOrgNumber":"802788037","description":"Asesoría de datos","amount":8550,"vatIncluded":false}},"relationships":{"customer":"Río Verde SL"},"raw_amounts":["8550.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

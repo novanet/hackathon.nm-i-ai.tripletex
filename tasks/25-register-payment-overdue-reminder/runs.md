@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:36:23 |
+| Timestamp | 03/22/2026 00:04:05 |
 | Task Type | `overdue_invoice_reminder` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 5439 ms |
+| Elapsed | 5739 ms |
 | API Calls | 9 |
 | Errors | 0 |
 
@@ -20,18 +20,18 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/invoice?invoiceDateFrom=2020-01-01&invoiceDateTo=2026-03-22...` | ✅  |  |
 | 2 | `GET` | `/ledger/account?number=1500&count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=3400&count=1&fields=id` | ✅  |  |
-| 4 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 4 | `GET` | `/ledger/account?number=3400&count=1&fields=id` | ✅  |  |
 | 5 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 | 6 | `POST` | `/order` | ✅  |  |
 | 7 | `POST` | `/invoice` | ✅  |  |
-| 8 | `PUT` | `/invoice/2147652313/:send?sendType=EMAIL` | ✅  |  |
-| 9 | `PUT` | `/invoice/2147652301/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 8 | `PUT` | `/invoice/2147655905/:send?sendType=EMAIL` | ✅  |  |
+| 9 | `PUT` | `/invoice/2147655895/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"overdue_invoice_reminder","action":"create","language":"pt","entities":{"reminderFee":{"amount":35,"debitAccount":"1500","creditAccount":"3400","partialPaymentAmount":5000}},"relationships":{},"raw_amounts":["35","5000"],"dates":[],"files_needed":false}
+{"task_type":"overdue_invoice_reminder","action":"create","language":"en","entities":{"reminderFee":{"amount":55,"debitAccount":"1500","creditAccount":"3400","partialPaymentAmount":5000}},"relationships":{},"raw_amounts":["55","5000"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

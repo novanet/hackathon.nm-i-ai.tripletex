@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:56:18 |
+| Timestamp | 03/22/2026 00:02:06 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 4902 ms |
+| Elapsed | 5125 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -18,17 +18,17 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 3 | `POST` | `/customer` | ✅  |  |
+| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 2 | `POST` | `/customer` | ✅  |  |
+| 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
 | 4 | `POST` | `/order` | ✅  |  |
 | 5 | `POST` | `/invoice` | ✅  |  |
-| 6 | `PUT` | `/invoice/2147654913/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 6 | `PUT` | `/invoice/2147655715/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"es","entities":{"payment":{"amount":155000.21,"currency":"NOK","exchangeRate":11.13,"agioAccount":"8070"},"customer":{"name":"Montaña SL","orgNumber":"960849922"}},"relationships":{},"raw_amounts":["13917","10.70","11.13"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"nn","entities":{"invoice":{"amount":11400,"currency":"EUR","exchangeRateAtInvoice":10.22,"exchangeRateAtPayment":10.7},"payment":{"amount":121980,"currency":"NOK"},"exchangeRateDifference":{"amount":5472,"account":"8070"}},"relationships":{"customer":"Fjelltopp AS"},"raw_amounts":["11400","10.22","10.70","121980","5472"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

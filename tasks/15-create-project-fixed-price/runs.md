@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:39:01 |
+| Timestamp | 03/22/2026 00:02:56 |
 | Task Type | `set_fixed_price` |
 | Handler | `FixedPriceProjectHandler` |
 | Success | True |
-| Elapsed | 3472 ms |
+| Elapsed | 3368 ms |
 | API Calls | 2 |
 | Errors | 0 |
 
@@ -18,13 +18,13 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/project?name=Transformaci%C3%B3n%20digital&count=10&fields=...` | ✅  |  |
-| 2 | `PUT` | `/project/402047104` | ✅  |  |
+| 1 | `GET` | `/project?name=Desenvolvimento%20e-commerce&count=10&fields=i...` | ✅  |  |
+| 2 | `PUT` | `/project/402049395` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"set_fixed_price","action":"update","language":"es","entities":{"project":{"name":"Transformación digital","fixedPrice":313600},"invoice":{"amount":235200,"percentageOfFixedPrice":75},"projectManager":{"firstName":"Andrés","lastName":"Hernández","email":"andres.hernandez@example.org"},"customer":{"name":"Luna SL","orgNumber":"946144177"}},"relationships":{"customer":"Luna SL"},"raw_amounts":["313600","235200"],"dates":[],"files_needed":false}
+{"task_type":"set_fixed_price","action":"update","language":"pt","entities":{"project":{"name":"Desenvolvimento e-commerce","fixedPrice":240750},"invoice":{"customerName":"Cascata Lda","customerOrgNumber":"908648579","orderLines":[{"description":"Pagamento por etapa (33% do preço fixo)","count":1,"unitPrice":79447.5}]},"projectManager":{"firstName":"João","lastName":"Almeida","email":"joao.almeida@example.org"}},"relationships":{"customer":"Cascata Lda"},"raw_amounts":["240750","79447.5"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

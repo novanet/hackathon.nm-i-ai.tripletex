@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:30:34 |
+| Timestamp | 03/22/2026 00:00:06 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 3691 ms |
+| Elapsed | 3981 ms |
 | API Calls | 4 |
 | Errors | 0 |
 
@@ -18,15 +18,15 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=887870462&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/employee?count=1&fields=id&firstName=Lars&lastName=Johansen` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=842138248&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=Jules&lastName=Martin` | ✅  |  |
 | 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
 | 4 | `POST` | `/project` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"nb","entities":{"project":{"name":"Integrasjon Tindra","customerName":"Tindra AS","customerOrgNumber":"887870462","projectManager":{"firstName":"Lars","lastName":"Johansen","email":"lars.johansen@example.org"}}},"relationships":{"customer":"Tindra AS"},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"fr","entities":{"project":{"name":"Implémentation Montagne","customerName":"Montagne SARL","customerOrgNumber":"842138248","projectManager":{"firstName":"Jules","lastName":"Martin","email":"jules.martin@example.org"}}},"relationships":{"customer":"Montagne SARL"},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

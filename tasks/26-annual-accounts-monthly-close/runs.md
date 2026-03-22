@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:49:18 |
+| Timestamp | 03/22/2026 00:01:01 |
 | Task Type | `annual_accounts` |
 | Handler | `AnnualAccountsHandler` |
 | Success | True |
-| Elapsed | 7893 ms |
+| Elapsed | 9543 ms |
 | API Calls | 14 |
 | Errors | 0 |
 
@@ -22,7 +22,7 @@
 | 2 | `POST` | `/ledger/account` | ✅  |  |
 | 3 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber` | ✅  |  |
 | 4 | `POST` | `/ledger/account` | ✅  |  |
-| 5 | `GET` | `/ledger/account?number=6010&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=6020&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 6 | `GET` | `/ledger/account?number=1209&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 7 | `GET` | `/ledger/account?number=1700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 8 | `GET` | `/ledger/account?number=8700&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
@@ -36,7 +36,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"annual_accounts","action":"create","language":"es","entities":{"annualAccounts":{"date":"2026-03-31","depreciationExpenseAccount":"6010","accumulatedDepreciationAccount":"1209","prepaidAccount":"1700","prepaidAmount":11900,"taxExpenseAccount":"8700","taxPayableAccount":"2920","taxRate":0.22},"asset1":{"name":"Activo fijo","bookValue":107950,"usefulLife":6,"assetAccount":"1210"},"provision1":{"debitAccount":"5000","creditAccount":"2900","amount":11900}},"relationships":{},"raw_amounts":["11900.00","107950.00"],"dates":["2026-03-31"],"files_needed":false}
+{"task_type":"annual_accounts","action":"create","language":"fr","entities":{"annualAccounts":{"date":"2026-03-31","depreciationExpenseAccount":"6020","accumulatedDepreciationAccount":"1209","prepaidAccount":"1700","prepaidAmount":10750,"taxExpenseAccount":"8700","taxPayableAccount":"2920","taxRate":0.22},"asset1":{"name":"Immobilisation","bookValue":121350,"usefulLife":10,"assetAccount":"1210"},"provision1":{"debitAccount":"5000","creditAccount":"2900","amount":null}},"relationships":{},"raw_amounts":["10750.00","121350.00"],"dates":["2026-03-31"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
