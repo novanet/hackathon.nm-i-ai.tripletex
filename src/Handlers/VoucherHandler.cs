@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Text.Json;
 using TripletexAgent.Models;
@@ -605,11 +606,12 @@ public class VoucherHandler : ITaskHandler
     {
         var supplierName = GetStringField(voucher, "supplierName");
         var supplierOrgNumber = GetStringField(voucher, "supplierOrgNumber");
-        var invoiceNumber = GetStringField(voucher, "invoiceNumber");
+        var invoiceNumber = ResolveSupplierInvoiceReference(voucher)
+            ?? TryExtractInvoiceReferenceFromPrompt(extracted.RawPrompt);
         var receiptDescription = GetStringField(voucher, "receiptDescription");
-        var description = receiptDescription
+        var description = invoiceNumber
+            ?? receiptDescription
             ?? GetStringField(voucher, "description")
-            ?? invoiceNumber
             ?? "Leverandørfaktura";
         var rawAccount = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber");
         var account = NormalizeAccountNumber(rawAccount, $"{description} {supplierName} {invoiceNumber}") ?? "6500";
@@ -620,15 +622,10 @@ public class VoucherHandler : ITaskHandler
         if (!string.Equals(rawAccount, account, StringComparison.OrdinalIgnoreCase))
             _logger.LogWarning("Normalized non-numeric supplier voucher account '{RawAccount}' to '{Account}'", rawAccount, account);
 
-        // 1. Create supplier
-        var supplierBody = new Dictionary<string, object> { ["name"] = supplierName! };
-        if (supplierOrgNumber != null) supplierBody["organizationNumber"] = supplierOrgNumber;
         var email = GetStringField(voucher, "supplierEmail") ?? GetStringField(voucher, "email");
-        if (email != null) supplierBody["email"] = email;
 
-        var supplierResult = await api.PostAsync("/supplier", supplierBody);
-        var supplierId = supplierResult.GetProperty("value").GetProperty("id").GetInt64();
-        _logger.LogInformation("Created supplier '{Name}' ID: {Id}", supplierName, supplierId);
+        // 1. Resolve or create supplier
+        var (supplierId, supplierResolution) = await ResolveOrCreateSupplierAsync(api, supplierName, supplierOrgNumber, email);
 
         // 2. Resolve optional department for receipt-style vouchers.
         var departmentId = await ResolveDepartmentIdAsync(api, extracted, voucher);
@@ -748,9 +745,11 @@ public class VoucherHandler : ITaskHandler
                 ["amountGross"] = (double)vatAmount,
                 ["amountGrossCurrency"] = (double)vatAmount,
                 ["account"] = new Dictionary<string, object> { ["id"] = inputVatAcctId.Value },
+                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 2
             };
             if (invoiceNumber != null) vatPosting["invoiceNumber"] = invoiceNumber;
+            if (departmentId.HasValue) vatPosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
             postings.Add(vatPosting);
 
             var creditorPosting = new Dictionary<string, object>
@@ -818,7 +817,51 @@ public class VoucherHandler : ITaskHandler
         var vResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
         var voucherId = vResult.GetProperty("value").GetProperty("id").GetInt64();
         _logger.LogInformation("Created supplier voucher ID: {Id}", voucherId);
-        return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
+
+        var supplierInvoiceId = await TryFindCreatedSupplierInvoiceAsync(api, supplierId, date, amount, invoiceNumber);
+
+        var metadata = new Dictionary<string, string>
+        {
+            ["supplierId"] = supplierId.ToString(CultureInfo.InvariantCulture),
+            ["supplierResolution"] = supplierResolution,
+            ["account"] = account,
+            ["manualVatSplit"] = manualVatSplit ? "true" : "false",
+            ["invoiceReference"] = invoiceNumber ?? string.Empty,
+            ["voucherVerified"] = "true",
+            ["supplierInvoiceVerified"] = supplierInvoiceId.HasValue ? "true" : "false"
+        };
+
+        var extraIds = new Dictionary<string, long>
+        {
+            ["voucherId"] = voucherId,
+            ["supplierId"] = supplierId
+        };
+
+        if (supplierInvoiceId.HasValue)
+        {
+            extraIds["supplierInvoiceId"] = supplierInvoiceId.Value;
+            _logger.LogInformation("Verified supplier invoice ID {SupplierInvoiceId} for supplier {SupplierId} and reference {InvoiceNumber}",
+                supplierInvoiceId.Value, supplierId, invoiceNumber);
+
+            return new HandlerResult
+            {
+                EntityType = "supplierInvoice",
+                EntityId = supplierInvoiceId.Value,
+                ExtraIds = extraIds,
+                Metadata = metadata
+            };
+        }
+
+        _logger.LogWarning("Supplier voucher {VoucherId} was created, but no supplier invoice could be verified for supplier {SupplierId} and reference {InvoiceNumber}",
+            voucherId, supplierId, invoiceNumber);
+
+        return new HandlerResult
+        {
+            EntityType = "voucher",
+            EntityId = voucherId,
+            ExtraIds = extraIds,
+            Metadata = metadata
+        };
     }
 
     /// <summary>
@@ -871,6 +914,194 @@ public class VoucherHandler : ITaskHandler
             return val.ToString();
         }
         return null;
+    }
+
+    private static string? ResolveSupplierInvoiceReference(Dictionary<string, object> voucher)
+    {
+        var candidates = new[]
+        {
+            "invoiceNumber",
+            "invoiceNo",
+            "vendorInvoiceNumber",
+            "externalVoucherNumber",
+            "referenceNumber",
+            "receiptNumber"
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var value = GetStringField(voucher, candidate);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+
+        var fallback = GetStringField(voucher, "receiptDescription") ?? GetStringField(voucher, "description");
+        if (LooksLikeInvoiceReference(fallback))
+            return fallback;
+
+        return null;
+    }
+
+    private static bool LooksLikeInvoiceReference(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return value.Any(char.IsDigit)
+            || value.Contains("invoice", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("faktura", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("kvittering", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("receipt", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("recu", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryExtractInvoiceReferenceFromPrompt(string? rawPrompt)
+    {
+        if (string.IsNullOrWhiteSpace(rawPrompt))
+            return null;
+
+        var match = Regex.Match(rawPrompt, @"\b[A-Z]{1,6}-\d{2,6}-\d{2,8}\b", RegexOptions.CultureInvariant);
+        if (match.Success)
+            return match.Value;
+
+        return null;
+    }
+
+    private async Task<(long supplierId, string resolution)> ResolveOrCreateSupplierAsync(
+        TripletexApiClient api,
+        string? supplierName,
+        string? supplierOrgNumber,
+        string? email)
+    {
+        if (!string.IsNullOrWhiteSpace(supplierOrgNumber))
+        {
+            var byOrgResult = await api.GetAsync("/supplier", new Dictionary<string, string>
+            {
+                ["organizationNumber"] = supplierOrgNumber,
+                ["count"] = "5",
+                ["fields"] = "id,name,organizationNumber"
+            });
+
+            if (TryGetSupplierId(byOrgResult, supplierName, supplierOrgNumber, out var existingByOrgId))
+            {
+                _logger.LogInformation("Resolved supplier '{Name}' by organization number {OrganizationNumber} to ID {Id}",
+                    supplierName, supplierOrgNumber, existingByOrgId);
+                return (existingByOrgId, "organizationNumber");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(supplierName))
+        {
+            var byNameResult = await api.GetAsync("/supplier", new Dictionary<string, string>
+            {
+                ["name"] = supplierName,
+                ["count"] = "10",
+                ["fields"] = "id,name,organizationNumber"
+            });
+
+            if (TryGetSupplierId(byNameResult, supplierName, supplierOrgNumber, out var existingByNameId))
+            {
+                _logger.LogInformation("Resolved supplier '{Name}' by name to ID {Id}", supplierName, existingByNameId);
+                return (existingByNameId, "name");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(supplierName))
+            throw new InvalidOperationException("Supplier invoice requires a supplier name when no existing supplier can be resolved.");
+
+        var supplierBody = new Dictionary<string, object> { ["name"] = supplierName };
+        if (!string.IsNullOrWhiteSpace(supplierOrgNumber)) supplierBody["organizationNumber"] = supplierOrgNumber;
+        if (!string.IsNullOrWhiteSpace(email)) supplierBody["email"] = email;
+
+        var supplierResult = await api.PostAsync("/supplier", supplierBody);
+        var supplierId = supplierResult.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created supplier '{Name}' ID: {Id}", supplierName, supplierId);
+        return (supplierId, "created");
+    }
+
+    private static bool TryGetSupplierId(JsonElement supplierResult, string? supplierName, string? supplierOrgNumber, out long supplierId)
+    {
+        supplierId = 0;
+
+        if (!supplierResult.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
+            return false;
+
+        foreach (var candidate in values.EnumerateArray())
+        {
+            var candidateId = candidate.TryGetProperty("id", out var idProp) ? idProp.GetInt64() : 0;
+            var candidateName = candidate.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
+            var candidateOrgNumber = candidate.TryGetProperty("organizationNumber", out var orgProp) ? orgProp.GetString() : null;
+
+            if (!string.IsNullOrWhiteSpace(supplierOrgNumber)
+                && string.Equals(candidateOrgNumber, supplierOrgNumber, StringComparison.OrdinalIgnoreCase))
+            {
+                supplierId = candidateId;
+                return supplierId != 0;
+            }
+
+            if (!string.IsNullOrWhiteSpace(supplierName)
+                && string.Equals(candidateName, supplierName, StringComparison.OrdinalIgnoreCase))
+            {
+                supplierId = candidateId;
+                return supplierId != 0;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<long?> TryFindCreatedSupplierInvoiceAsync(
+        TripletexApiClient api,
+        long supplierId,
+        string voucherDate,
+        decimal amount,
+        string? invoiceNumber)
+    {
+        var year = voucherDate.Length >= 4 ? voucherDate[..4] : DateTime.UtcNow.Year.ToString(CultureInfo.InvariantCulture);
+        var yearStart = $"{year}-01-01";
+        var yearEnd = $"{year}-12-31";
+
+        var invoiceResult = await api.GetAsync("/supplierInvoice", new Dictionary<string, string>
+        {
+            ["supplierId"] = supplierId.ToString(CultureInfo.InvariantCulture),
+            ["invoiceDateFrom"] = yearStart,
+            ["invoiceDateTo"] = yearEnd,
+            ["from"] = "0",
+            ["count"] = "100",
+            ["fields"] = "id,amount,amountCurrency,invoiceNumber"
+        });
+
+        if (!invoiceResult.TryGetProperty("values", out var invoiceValues) || invoiceValues.ValueKind != JsonValueKind.Array)
+            return null;
+
+        long? amountMatch = null;
+        foreach (var candidate in invoiceValues.EnumerateArray())
+        {
+            if (!candidate.TryGetProperty("id", out var idProp))
+                continue;
+
+            var candidateId = idProp.GetInt64();
+            var candidateInvoiceNumber = candidate.TryGetProperty("invoiceNumber", out var invoiceNumberProp)
+                ? invoiceNumberProp.GetString()
+                : null;
+
+            if (!string.IsNullOrWhiteSpace(invoiceNumber)
+                && string.Equals(candidateInvoiceNumber, invoiceNumber, StringComparison.OrdinalIgnoreCase))
+            {
+                return candidateId;
+            }
+
+            var candidateAmount = 0m;
+            if (candidate.TryGetProperty("amount", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number)
+                candidateAmount = amountProp.GetDecimal();
+            else if (candidate.TryGetProperty("amountCurrency", out var amountCurrencyProp) && amountCurrencyProp.ValueKind == JsonValueKind.Number)
+                candidateAmount = amountCurrencyProp.GetDecimal();
+
+            if (Math.Abs(Math.Abs(candidateAmount) - amount) < 0.01m)
+                amountMatch ??= candidateId;
+        }
+
+        return amountMatch;
     }
 
     private async Task<long?> ResolveDepartmentIdAsync(TripletexApiClient api, ExtractionResult extracted, Dictionary<string, object> voucher)
