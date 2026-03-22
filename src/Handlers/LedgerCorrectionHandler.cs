@@ -144,9 +144,9 @@ public class LedgerCorrectionHandler : ITaskHandler
 
             case "missing_vat":
                 {
-                    // Missing VAT correction: the expense was posted at gross (VAT included).
-                    // We need to move the VAT portion from the expense account to the VAT account.
-                    // Debit VAT account (2710), credit expense account (reduce it by VAT amount).
+                    // Missing VAT correction: the expense was posted at gross (VAT included in amount but not split out).
+                    // The stated amount IS the posting amount (gross). Extract the VAT portion from it.
+                    // Formula: vatAmt = amount - amount / (1 + vatRate), default 25%.
                     var vatAcct = c.VatAccount ?? "2710";
                     var vatId = await ResolveId(api, vatAcct, numberToId);
                     var expenseId = await ResolveId(api, c.Account, numberToId);
@@ -155,7 +155,9 @@ public class LedgerCorrectionHandler : ITaskHandler
                         _logger.LogWarning("Cannot resolve VAT account {V} or expense account {A} for missing_vat", vatAcct, c.Account);
                         return null;
                     }
-                    var vatAmt = Math.Round(c.Amount * 0.25m, 2);
+                    // The amount is the gross posting that should have had VAT treatment.
+                    // Extract VAT: for 25% rate, vatAmt = amount - amount/1.25 = amount * 0.2
+                    var vatAmt = Math.Round(c.Amount - c.Amount / 1.25m, 2);
                     description = $"Korreksjon: manglende mva konto {c.Account}";
                     // Debit VAT account, credit expense account
                     postings = new List<object>

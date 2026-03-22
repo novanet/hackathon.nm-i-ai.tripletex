@@ -715,6 +715,7 @@ public class VoucherHandler : ITaskHandler
                 ["amountGross"] = (double)netAmount,
                 ["amountGrossCurrency"] = (double)netAmount,
                 ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
+                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 1
             };
             if (departmentId.HasValue) expensePosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
@@ -749,6 +750,7 @@ public class VoucherHandler : ITaskHandler
                 ["amountGross"] = amount,
                 ["amountGrossCurrency"] = amount,
                 ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
+                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 1
             };
             if (inputVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
@@ -775,7 +777,7 @@ public class VoucherHandler : ITaskHandler
         if (voucherTypeId.HasValue)
             voucherBody["voucherType"] = new Dictionary<string, object> { ["id"] = voucherTypeId.Value };
         if (invoiceNumber != null)
-            voucherBody["externalVoucherNumber"] = invoiceNumber;
+            voucherBody["vendorInvoiceNumber"] = invoiceNumber;
 
         _logger.LogInformation("Creating supplier voucher via POST /ledger/voucher: {Description} amount={Amount}", description, amount);
 

@@ -371,39 +371,48 @@ public class InvoiceHandler : ITaskHandler
             ?? GetStringField(invoice, "customerOrgNumber")
             ?? GetStringField(invoice, "organizationNumber");
 
-        // POST-first: in competition clean envs, customer never exists — skip the GET
+        // GET-first: competition environments may pre-create customers (just like products).
+        // Search by org number first, then by name. GET requests are free.
+        if (!string.IsNullOrEmpty(orgNumber))
+        {
+            var result = await api.GetAsync("/customer", new Dictionary<string, string>
+            {
+                ["organizationNumber"] = orgNumber,
+                ["count"] = "1",
+                ["fields"] = "id,name"
+            });
+            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+            {
+                var existingId = vals[0].GetProperty("id").GetInt64();
+                _logger.LogInformation("Found existing customer by orgNumber {OrgNum}: ID {Id}", orgNumber, existingId);
+                return existingId;
+            }
+        }
+        else if (!string.IsNullOrEmpty(custName))
+        {
+            var result = await api.GetAsync("/customer", new Dictionary<string, string>
+            {
+                ["name"] = custName,
+                ["count"] = "1",
+                ["fields"] = "id,name"
+            });
+            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
+            {
+                var existingId = vals[0].GetProperty("id").GetInt64();
+                _logger.LogInformation("Found existing customer by name '{Name}': ID {Id}", custName, existingId);
+                return existingId;
+            }
+        }
+
+        // Customer not found — create new
         var custBody = new Dictionary<string, object> { ["isCustomer"] = true };
         if (!string.IsNullOrEmpty(custName)) custBody["name"] = custName;
         else custBody["name"] = "Kunde";
         if (!string.IsNullOrEmpty(orgNumber)) custBody["organizationNumber"] = orgNumber;
         SetIfPresent(custBody, cust, "email");
 
-        try
-        {
-            var custResult = await api.PostAsync("/customer", custBody);
-            return custResult.GetProperty("value").GetProperty("id").GetInt64();
-        }
-        catch (TripletexApiException ex) when (ex.StatusCode == 422)
-        {
-            // Duplicate or validation error in reused sandbox — fall back to search
-            _logger.LogInformation("POST /customer failed ({Msg}), falling back to GET search", ex.Message);
-        }
-
-        // Fallback: search by org number or name
-        var searchParams = new Dictionary<string, string> { ["count"] = "1", ["fields"] = "id,name" };
-        if (!string.IsNullOrEmpty(orgNumber))
-            searchParams["organizationNumber"] = orgNumber;
-        else if (!string.IsNullOrEmpty(custName))
-            searchParams["name"] = custName;
-
-        if (searchParams.Count > 2)
-        {
-            var result = await api.GetAsync("/customer", searchParams);
-            if (result.TryGetProperty("values", out var vals) && vals.GetArrayLength() > 0)
-                return vals[0].GetProperty("id").GetInt64();
-        }
-
-        throw new InvalidOperationException($"Could not create or find customer '{custName}'");
+        var custResult = await api.PostAsync("/customer", custBody);
+        return custResult.GetProperty("value").GetProperty("id").GetInt64();
     }
 
     private async Task SendInvoice(TripletexApiClient api, long invoiceId)
@@ -764,6 +773,9 @@ public class InvoiceHandler : ITaskHandler
                 productCode = pc.ValueKind == JsonValueKind.String ? pc.GetString() : pc.GetRawText();
             else if (rawLine.TryGetProperty("productNumber", out var pn))
                 productCode = pn.ValueKind == JsonValueKind.String ? pn.GetString() : pn.GetRawText();
+            // LLM sometimes puts product numbers in "account" field for invoices — treat as product number
+            else if (rawLine.TryGetProperty("account", out var acct))
+                productCode = acct.ValueKind == JsonValueKind.String ? acct.GetString() : acct.GetRawText();
 
             if (string.IsNullOrEmpty(productCode)) continue;
 

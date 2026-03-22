@@ -237,8 +237,22 @@ public class PaymentHandler : ITaskHandler
         {
             try
             {
-                // Proactive VAT resolution (GET is free) to avoid 422 errors
-                var (vatTypeId, _) = await _invoiceHandler.ResolveVatTypesFull(api);
+                // Resolve VAT types to find the 0% exempt type for reminder fees
+                // Reminder fees (purregebyr) are exempt from Norwegian VAT
+                var (_, vatTypes) = await _invoiceHandler.ResolveVatTypesFull(api);
+                long reminderVatTypeId = 6; // Default: exempt (0%)
+                if (vatTypes.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var vt in vatTypes.EnumerateArray())
+                    {
+                        if (vt.TryGetProperty("id", out var idp) && vt.TryGetProperty("percentage", out var pct)
+                            && pct.GetDouble() == 0.0)
+                        {
+                            reminderVatTypeId = idp.GetInt64();
+                            break;
+                        }
+                    }
+                }
                 var orderBody = new Dictionary<string, object>
                 {
                     ["customer"] = new { id = customerId },
@@ -250,11 +264,10 @@ public class PaymentHandler : ITaskHandler
                         {
                             ["description"] = feeDescription,
                             ["count"] = 1,
-                            ["unitPriceIncludingVatCurrency"] = feeAmount,
-                            ["vatType"] = new { id = vatTypeId }
+                            ["unitPriceExcludingVatCurrency"] = feeAmount,
+                            ["vatType"] = new { id = reminderVatTypeId }
                         }
-                    },
-                    ["isPrioritizeAmountsIncludingVat"] = true
+                    }
                 };
 
                 var orderResult = await api.PostAsync("/order", orderBody);
