@@ -6,31 +6,32 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:45:08 |
+| Timestamp | 03/22/2026 07:20:21 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 7465 ms |
-| API Calls | 8 |
+| Elapsed | 7684 ms |
+| API Calls | 9 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=957527353&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/employee?count=1&fields=id&firstName=Beatriz&lastName=Sousa` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=814740536&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=Henry&lastName=Harris` | ✅  |  |
 | 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
 | 4 | `POST` | `/project` | ✅  |  |
 | 5 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 6 | `PUT` | `/ledger/account/479166615` | ✅  |  |
-| 7 | `POST` | `/order` | ✅  |  |
-| 8 | `POST` | `/invoice` | ✅  |  |
+| 6 | `PUT` | `/ledger/account/492295252` | ✅  |  |
+| 7 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 8 | `POST` | `/order` | ✅  |  |
+| 9 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"pt","entities":{"project":{"name":"Implementação ERP Rio","customerName":"Rio Azul Lda","customerOrgNumber":"957527353","budget":386350,"projectManager":{"firstName":"Beatriz","lastName":"Sousa","email":"beatriz.sousa@example.org"}},"timesheet1":{"hours":79,"activityName":"Gestão de Projeto","employee":{"firstName":"Beatriz","lastName":"Sousa","email":"beatriz.sousa@example.org"}},"timesheet2":{"hours":127,"activityName":"Consultoria","employee":{"firstName":"Rita","lastName":"Sousa","email":"rita.sousa@example.org"}},"voucher":{"supplierName":"Oceano Lda","supplierOrgNumber":"979736673","invoiceNumber":null,"account":"6000","amount":28350,"date":null},"invoice":{"customerName":"Rio Azul Lda","customerOrgNumber":"957527353","projectName":"Implementação ERP Rio","orderLines":[{"description":"Serviços do projeto Implementação ERP Rio","count":1,"unitPrice":386350}]}},"relationships":{"customer":"Rio Azul Lda"},"raw_amounts":["386350","28350"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"en","entities":{"project":{"name":"ERP Implementation Silveroak","customerName":"Silveroak Ltd","customerOrgNumber":"814740536","budget":364650,"projectManager":{"firstName":"Henry","lastName":"Harris","email":"henry.harris@example.org"}},"timesheet1":{"employee":{"firstName":"Henry","lastName":"Harris","email":"henry.harris@example.org"},"hours":61,"activityName":"ERP Implementation","projectName":"ERP Implementation Silveroak"},"timesheet2":{"employee":{"firstName":"Sarah","lastName":"Smith","email":"sarah.smith@example.org"},"hours":108,"activityName":"ERP Implementation","projectName":"ERP Implementation Silveroak"},"voucher":{"supplierName":"Northwave Ltd","supplierOrgNumber":"938190984","invoiceNumber":null,"account":"6000","amount":34850,"date":null,"vatRate":null},"invoice":{"customerName":"Silveroak Ltd","customerOrgNumber":"814740536","projectName":"ERP Implementation Silveroak","orderLines":[{"description":"ERP Implementation Silveroak","quantity":1,"unitPrice":364650}]}},"relationships":{"customer":"Silveroak Ltd"},"raw_amounts":["364650","34850"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

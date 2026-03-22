@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 03:28:58 |
+| Timestamp | 03/22/2026 07:18:50 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 20083 ms |
+| Elapsed | 5414 ms |
 | API Calls | 8 |
 | Errors | 0 |
 
@@ -23,14 +23,14 @@
 | 3 | `GET` | `/ledger/accountingDimensionValue/search?dimensionIndex=1&cou...` | ✅  |  |
 | 4 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
 | 5 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=6590&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `GET` | `/ledger/account?number=6340&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 7 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 8 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"nb","entities":{"dimension":{"name":"Prosjekttype","values":["Forskning","Utvikling"]},"voucher":{"account":"6590","amount":10800,"dimensionValue":"Forskning"}},"relationships":{},"raw_amounts":["10800"],"dates":[],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"nn","entities":{"dimension":{"name":"Prosjekttype","values":["Internt","Utvikling"]},"voucher":{"account":"6340","amount":25700,"dimensionValue":"Utvikling"}},"relationships":{},"raw_amounts":["25700"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 03:34:16 |
+| Timestamp | 03/22/2026 07:20:47 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 22394 ms |
+| Elapsed | 6999 ms |
 | API Calls | 10 |
 | Errors | 0 |
 
@@ -20,19 +20,19 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=leo.petit%40example.org&count=10&fields=id%2...` | ✅  |  |
+| 3 | `GET` | `/employee?email=maximilian.fischer%40example.org&count=10&fi...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
 | 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/employee/employment?employeeId=18730948&count=1&fields=id%2...` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18756469&count=1&fields=id%2...` | ✅  |  |
 | 7 | `GET` | `/employee/employment/occupationCode?from=0&count=1000&fields...` | ✅  |  |
-| 8 | `GET` | `/employee/employment/occupationCode?nameNO=Kontorarbeider&co...` | ✅  |  |
-| 9 | `GET` | `/employee/employment/2866157?fields=id%2CemploymentDetails%2...` | ✅  |  |
+| 8 | `GET` | `/employee/employment/occupationCode?nameNO=Ledende%20funksjo...` | ✅  |  |
+| 9 | `GET` | `/employee/employment/2878103?fields=id%2CemploymentDetails%2...` | ✅  |  |
 | 10 | `POST` | `/employee/employment/details` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"fr","entities":{"employee":{"firstName":"Léo","lastName":"Petit","dateOfBirth":"1984-06-26","nationalIdentityNumber":"26068459795","email":"leo.petit@example.org","bankAccountNumber":"32505468863","startDate":"2026-10-18","occupationCode":"4110","occupationName":"Kontorarbeider","employmentPercentage":80.0,"annualSalary":620000,"employmentType":"permanent","salaryType":"monthly salary"},"department":{"name":"Utvikling"}},"relationships":{},"raw_amounts":["620000"],"dates":["2026-10-18","1984-06-26"],"files_needed":true}
+{"task_type":"create_employee","action":"create","language":"de","entities":{"employee":{"firstName":"Maximilian","lastName":"Fischer","dateOfBirth":"1987-10-19","nationalIdentityNumber":"19108715467","email":"maximilian.fischer@example.org","bankAccountNumber":"94000111575","startDate":"2026-08-20","occupationCode":"1211","occupationName":"Ledende funksjonærer","employmentType":"permanent","salaryType":"monthly salary","employmentPercentage":100.0,"annualSalary":530000,"department":"Kvalitetskontroll"},"department":{"name":"Kvalitetskontroll"}},"relationships":{},"raw_amounts":["530000"],"dates":["2026-08-20","1987-10-19"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

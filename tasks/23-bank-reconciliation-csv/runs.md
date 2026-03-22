@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 03:27:36 |
+| Timestamp | 03/22/2026 07:17:46 |
 | Task Type | `bank_reconciliation` |
 | Handler | `BankReconciliationHandler` |
 | Success | True |
-| Elapsed | 16374 ms |
+| Elapsed | 5640 ms |
 | API Calls | 7 |
 | Errors | 0 |
 
@@ -19,17 +19,17 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber` | ✅  |  |
-| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-02-08&endFrom=2026-02-...` | ✅  |  |
-| 3 | `GET` | `/bank/reconciliation?accountId=463356953&accountingPeriodId=...` | ✅  |  |
+| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-02-02&endFrom=2026-02-...` | ✅  |  |
+| 3 | `GET` | `/bank/reconciliation?accountId=492193151&accountingPeriodId=...` | ✅  |  |
 | 4 | `POST` | `/bank/reconciliation` | ✅  |  |
-| 5 | `GET` | `/bank/statement?accountId=463356953&count=100&fields=id` | ✅  |  |
-| 6 | `POST` | `/bank/statement/import?bankId=0&accountId=463356953&fromDate...` | ✅  |  |
+| 5 | `GET` | `/bank/statement?accountId=492193151&count=100&fields=id` | ✅  |  |
+| 6 | `POST` | `/bank/statement/import?bankId=0&accountId=492193151&fromDate...` | ✅  |  |
 | 7 | `PUT` | `/bank/reconciliation/match/:suggest?bankReconciliationId=127...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"bank_reconciliation","action":"update","language":"de","entities":{"reconciliation":{"accountNumber":"1920","closingBalance":178626.91,"date":"2026-02-08"}},"relationships":{},"raw_amounts":["18000.00","27562.50","6937.50","29812.50","30562.50","-10950.00","-9950.00","-13200.00","-1022.08","1437.29","-563.30"],"dates":["2026-01-17","2026-01-20","2026-01-23","2026-01-26","2026-01-29","2026-01-30","2026-02-02","2026-02-04","2026-02-05","2026-02-07","2026-02-08"],"files_needed":true}
+{"task_type":"bank_reconciliation","action":"create","language":"en","entities":{"reconciliation":{"accountNumber":"1920","closingBalance":139317.05,"date":"2026-02-02"}},"relationships":{},"raw_amounts":["2750.00","12562.50","30062.50","11812.50","14250.00","-11100.00","-16350.00","-6450.00","499.76","1279.79"],"dates":["2026-01-16","2026-01-19","2026-01-21","2026-01-23","2026-01-25","2026-01-28","2026-01-29","2026-01-30","2026-01-31","2026-02-02"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

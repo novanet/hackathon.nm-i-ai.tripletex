@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 03:30:03 |
+| Timestamp | 03/22/2026 07:21:10 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 11434 ms |
-| API Calls | 6 |
+| Elapsed | 5478 ms |
+| API Calls | 9 |
 | Errors | 0 |
 
 ### API Calls
@@ -20,15 +20,18 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
 | 2 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
-| 3 | `GET` | `/customer?organizationNumber=844876831&count=1&fields=id%2Cn...` | ✅  |  |
-| 4 | `PUT` | `/ledger/account/455179710` | ✅  |  |
-| 5 | `POST` | `/order` | ✅  |  |
-| 6 | `POST` | `/invoice` | ✅  |  |
+| 3 | `GET` | `/customer?organizationNumber=807508474&count=1&fields=id%2Cn...` | ✅  |  |
+| 4 | `PUT` | `/ledger/account/492329110` | ✅  |  |
+| 5 | `GET` | `/product?number=5947&count=1&fields=id%2CvatType%28id%29` | ✅  |  |
+| 6 | `GET` | `/product?number=8528&count=1&fields=id%2CvatType%28id%29` | ✅  |  |
+| 7 | `GET` | `/product?number=9002&count=1&fields=id%2CvatType%28id%29` | ✅  |  |
+| 8 | `POST` | `/order` | ✅  |  |
+| 9 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"es","entities":{"customer":{"name":"Viento SL","orgNumber":"844876831"},"invoice":{"orderLines":[{"description":"Licencia de software","unitPrice":35350,"quantity":1}]}},"relationships":{"customer":"Viento SL"},"raw_amounts":["35350"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"nb","entities":{"customer":{"name":"Bergvik AS","orgNumber":"807508474"},"invoice":{"orderLines":[{"description":"Konsulenttimer","productCode":"5947","unitPrice":29950,"vatRate":25},{"description":"Webdesign","productCode":"8528","unitPrice":2900,"vatRate":15},{"description":"Systemutvikling","productCode":"9002","unitPrice":17350,"vatRate":0}]}},"relationships":{"customer":"Bergvik AS"},"raw_amounts":["29950","2900","17350"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

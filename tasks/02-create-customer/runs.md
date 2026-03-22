@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 06:42:58 |
+| Timestamp | 03/22/2026 07:17:15 |
 | Task Type | `create_customer` |
 | Handler | `CustomerHandler` |
 | Success | True |
-| Elapsed | 2529 ms |
+| Elapsed | 2777 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_customer","action":"create","language":"nb","entities":{"customer":{"name":"Fjordkraft AS","orgNumber":"843216285","addressLine1":"Fjordveien 129","postalCode":"2317","city":"Hamar","email":"post@fjordkraft.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_customer","action":"create","language":"de","entities":{"customer":{"name":"Sonnental GmbH","orgNumber":"929940016","addressLine1":"Solveien 21","postalCode":"9008","city":"Tromsø","email":"post@sonnental.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
