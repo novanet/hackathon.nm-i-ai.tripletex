@@ -357,21 +357,14 @@ public class PaymentHandler : ITaskHandler
         var extractedRateAtPayment = ParseDecimalField(payment, "exchangeRateAtPayment")
             ?? ParseDecimalField(invoice, "exchangeRateAtPayment");
 
-        var rateAtInvoice = extractedRateAtInvoice.HasValue && extractedRateAtInvoice.Value > 1m
-            ? extractedRateAtInvoice.Value
-            : promptRateAtInvoice ?? extractedRateAtInvoice ?? 1m;
-        var rateAtPayment = extractedRateAtPayment.HasValue && extractedRateAtPayment.Value > 1m
-            ? extractedRateAtPayment.Value
-            : promptRateAtPayment ?? extractedRateAtPayment ?? rateAtInvoice;
-
-        // Compute NOK amounts using prompt-specified rates
-        var invoiceNokAmount = Math.Round(foreignAmount * rateAtInvoice, 2, MidpointRounding.AwayFromZero);
-        var paymentNokAmount = Math.Round(foreignAmount * rateAtPayment, 2, MidpointRounding.AwayFromZero);
+        // Prefer prompt-parsed rates (deterministic positional regex) over LLM-extracted rates
+        var rateAtInvoice = promptRateAtInvoice
+            ?? (extractedRateAtInvoice.HasValue && extractedRateAtInvoice.Value > 1m ? extractedRateAtInvoice.Value : 1m);
+        var rateAtPayment = promptRateAtPayment
+            ?? (extractedRateAtPayment.HasValue && extractedRateAtPayment.Value > 1m ? extractedRateAtPayment.Value : rateAtInvoice);
 
         _logger.LogInformation("FX payment: {Amount} {Currency}, rate at invoice: {RateInv}, rate at payment: {RatePay}",
             foreignAmount, currencyCode, rateAtInvoice, rateAtPayment);
-        _logger.LogInformation("FX NOK: invoice={InvNok}, payment={PayNok}, diff={Diff}",
-            invoiceNokAmount, paymentNokAmount, Math.Abs(invoiceNokAmount - paymentNokAmount));
 
         // Resolve payment type and foreign currency (GETs are free)
         var paymentTypeTask = ResolvePaymentTypeId(api);
@@ -383,8 +376,17 @@ public class PaymentHandler : ITaskHandler
         if (currencyId <= 0)
             throw new InvalidOperationException($"Could not resolve currency ID for {currencyCode}");
 
-        var (invoiceId, _) = await _invoiceHandler.CreateInvoiceChainAsync(api, fxInvoiceExtraction, currencyId);
+        var (invoiceId, tripletexNokAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, fxInvoiceExtraction, currencyId);
         var paymentTypeId = await paymentTypeTask;
+
+        // Anchor paidAmount to Tripletex's actual NOK invoice amount + the FX difference from prompt rates.
+        // This guarantees Tripletex posts to the correct account (8060 agio vs 8160 disagio)
+        // regardless of Tripletex's internal daily exchange rate.
+        var fxDiff = Math.Round(foreignAmount * (rateAtPayment - rateAtInvoice), 2, MidpointRounding.AwayFromZero);
+        var paymentNokAmount = Math.Round(tripletexNokAmount + fxDiff, 2, MidpointRounding.AwayFromZero);
+
+        _logger.LogInformation("FX NOK: tripletexInvoice={TxNok}, fxDiff={FxDiff}, anchoredPayment={PayNok}",
+            tripletexNokAmount, fxDiff, paymentNokAmount);
 
         // Register the actual cash receipt in NOK and the foreign amount paid by the customer.
         var paymentDate = ResolvePaymentDate(extracted);
