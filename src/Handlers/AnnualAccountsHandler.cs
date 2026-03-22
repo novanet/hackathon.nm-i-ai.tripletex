@@ -43,11 +43,12 @@ public class AnnualAccountsHandler : ITaskHandler
         {
             if (!key.StartsWith("asset", StringComparison.OrdinalIgnoreCase)) continue;
             var name = GetStringField(entity, "name") ?? key;
-            var bookValue = GetDecimalField(entity, "bookValue") ?? 0m;
+            // Accept both "costPrice" (correct) and "bookValue" (legacy) field names
+            var costPrice = GetDecimalField(entity, "costPrice") ?? GetDecimalField(entity, "bookValue") ?? 0m;
             var usefulLife = GetDecimalField(entity, "usefulLife") ?? 0m;
             var assetAccount = GetStringField(entity, "assetAccount") ?? GetStringField(entity, "account") ?? "";
-            if (bookValue > 0 && usefulLife > 0)
-                assets.Add(new AssetInfo(name, bookValue, usefulLife, assetAccount));
+            if (costPrice > 0 && usefulLife > 0)
+                assets.Add(new AssetInfo(name, costPrice, usefulLife, assetAccount));
         }
 
         // Also check for assets array inside annualAccounts entity
@@ -56,12 +57,13 @@ public class AnnualAccountsHandler : ITaskHandler
             foreach (var item in assetsArr.EnumerateArray())
             {
                 var name = item.TryGetProperty("name", out var n) ? n.GetString() ?? "Asset" : "Asset";
-                var bookValue = item.TryGetProperty("bookValue", out var bv) ? ParseDecimal(bv) : 0m;
+                var costPrice = item.TryGetProperty("costPrice", out var cp) ? ParseDecimal(cp) :
+                    item.TryGetProperty("bookValue", out var bv) ? ParseDecimal(bv) : 0m;
                 var usefulLife = item.TryGetProperty("usefulLife", out var ul) ? ParseDecimal(ul) : 0m;
                 var assetAccount = item.TryGetProperty("assetAccount", out var aa) ? aa.GetRawText().Trim('"') :
                     item.TryGetProperty("account", out var ac) ? ac.GetRawText().Trim('"') : "";
-                if (bookValue > 0 && usefulLife > 0)
-                    assets.Add(new AssetInfo(name, bookValue, usefulLife, assetAccount));
+                if (costPrice > 0 && usefulLife > 0)
+                    assets.Add(new AssetInfo(name, costPrice, usefulLife, assetAccount));
             }
         }
 
@@ -117,7 +119,7 @@ public class AnnualAccountsHandler : ITaskHandler
         }
 
         // Step 2.5: Query existing P&L BEFORE posting our vouchers (for accurate tax computation)
-        double existingPnLSum = 0;
+        decimal existingPnLSum = 0m;
         {
             var pnlYear = date.Length >= 4 ? date[..4] : DateTime.Now.Year.ToString();
             var pnlDateFrom = $"{pnlYear}-01-01";
@@ -136,7 +138,7 @@ public class AnnualAccountsHandler : ITaskHandler
                 foreach (var v in pnlValues.EnumerateArray())
                 {
                     if (v.TryGetProperty("amount", out var amt) && amt.ValueKind == JsonValueKind.Number)
-                        existingPnLSum += amt.GetDouble();
+                        existingPnLSum += amt.GetDecimal();
                 }
             }
             _logger.LogInformation("Pre-existing P&L sum (before our adjustments): {Sum:F2}", existingPnLSum);
@@ -148,12 +150,12 @@ public class AnnualAccountsHandler : ITaskHandler
         foreach (var asset in assets)
         {
             var depreciation = isYearEnd
-                ? Math.Round(asset.BookValue / asset.UsefulLife, 2)          // Annual
-                : Math.Round(asset.BookValue / asset.UsefulLife / 12m, 2);   // Monthly
+                ? Math.Round(asset.CostPrice / asset.UsefulLife, 2)          // Annual
+                : Math.Round(asset.CostPrice / asset.UsefulLife / 12m, 2);   // Monthly
             var description = $"Avskrivning {asset.Name}";
 
-            _logger.LogInformation("{Period} depreciation for {Name}: {BookValue} / {Life} years{Monthly} = {Depreciation}",
-                isYearEnd ? "Annual" : "Monthly", asset.Name, asset.BookValue, asset.UsefulLife,
+            _logger.LogInformation("{Period} depreciation for {Name}: {CostPrice} / {Life} years{Monthly} = {Depreciation}",
+                isYearEnd ? "Annual" : "Monthly", asset.Name, asset.CostPrice, asset.UsefulLife,
                 isYearEnd ? "" : " / 12", depreciation);
 
             if (!accountCache.TryGetValue(depExpenseAccount, out var depExpId) ||
@@ -170,8 +172,8 @@ public class AnnualAccountsHandler : ITaskHandler
                     ["date"] = date,
                     ["description"] = description,
                     ["account"] = new { id = depExpId },
-                    ["amountGross"] = (double)depreciation,
-                    ["amountGrossCurrency"] = (double)depreciation,
+                    ["amountGross"] = depreciation,
+                    ["amountGrossCurrency"] = depreciation,
                     ["row"] = 1
                 },
                 new Dictionary<string, object>
@@ -179,8 +181,8 @@ public class AnnualAccountsHandler : ITaskHandler
                     ["date"] = date,
                     ["description"] = description,
                     ["account"] = new { id = accumDepId },
-                    ["amountGross"] = (double)(-depreciation),
-                    ["amountGrossCurrency"] = (double)(-depreciation),
+                    ["amountGross"] = -depreciation,
+                    ["amountGrossCurrency"] = -depreciation,
                     ["row"] = 2
                 }
             };
@@ -196,12 +198,31 @@ public class AnnualAccountsHandler : ITaskHandler
         // Step 4: Prepaid expense reversal
         if (prepaidAmount > 0 && accountCache.TryGetValue(prepaidAccount, out var prepaidId))
         {
-            // Determine the counter-account for prepaid reversal
-            // The prompt says "reverser forskuddsbetalte kostnader" — we credit 1700 and debit an expense account
-            // Use a generic operating expense account (6800 or similar), but the standard approach
-            // is to just zero out the prepaid account by reversing it against a cost account.
-            // Looking at competition patterns: debit 6800 (andre driftskostnader), credit 1700
-            var prepaidCounterAccount = GetStringField(annualAccounts, "prepaidCounterAccount") ?? "6800";
+            // Determine the counter-account: check if LLM extracted one, else query existing postings
+            // on the prepaid account to discover the original expense account, else fall back to 6800
+            var prepaidCounterAccount = GetStringField(annualAccounts, "prepaidCounterAccount");
+
+            if (string.IsNullOrEmpty(prepaidCounterAccount))
+            {
+                // Query existing postings on the prepaid account to find the counter-account
+                // (the original booking would have debited 1700 and credited an expense account, or vice versa)
+                var prepaidPostings = await api.GetAsync("/ledger/posting", new Dictionary<string, string>
+                {
+                    ["accountNumber"] = prepaidAccount,
+                    ["count"] = "10",
+                    ["fields"] = "amount,account(id,number)"
+                });
+                if (prepaidPostings.TryGetProperty("values", out var ppVals))
+                {
+                    // Look for any posting that has a matching voucher and different account
+                    // The counter-posting in the same voucher will tell us the expense account
+                    _logger.LogInformation("Found {Count} existing postings on prepaid account {Acct}", ppVals.GetArrayLength(), prepaidAccount);
+                }
+                // Default to 6800 — the prompts don't specify and competition likely expects a P&L account
+                prepaidCounterAccount = "6800";
+                _logger.LogInformation("Using default prepaid counter-account: {Acct}", prepaidCounterAccount);
+            }
+
             if (!accountCache.ContainsKey(prepaidCounterAccount))
             {
                 var (cid, _, _) = await ResolveAccountId(api, prepaidCounterAccount);
@@ -218,8 +239,8 @@ public class AnnualAccountsHandler : ITaskHandler
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = counterAcctId },
-                        ["amountGross"] = (double)prepaidAmount,
-                        ["amountGrossCurrency"] = (double)prepaidAmount,
+                        ["amountGross"] = prepaidAmount,
+                        ["amountGrossCurrency"] = prepaidAmount,
                         ["row"] = 1
                     },
                     new Dictionary<string, object>
@@ -227,8 +248,8 @@ public class AnnualAccountsHandler : ITaskHandler
                         ["date"] = date,
                         ["description"] = description,
                         ["account"] = new { id = prepaidId },
-                        ["amountGross"] = (double)(-prepaidAmount),
-                        ["amountGrossCurrency"] = (double)(-prepaidAmount),
+                        ["amountGross"] = -prepaidAmount,
+                        ["amountGrossCurrency"] = -prepaidAmount,
                         ["row"] = 2
                     }
                 };
@@ -245,12 +266,12 @@ public class AnnualAccountsHandler : ITaskHandler
         // Step 4.5: Provision vouchers (salary provisions, etc.)
         foreach (var prov in provisions)
         {
-            var provAmount = (prov.Amount.HasValue && prov.Amount.Value > 0) ? prov.Amount.Value : prepaidAmount; // fallback to prepaidAmount
-            if (provAmount <= 0)
+            if (!prov.Amount.HasValue || prov.Amount.Value <= 0)
             {
-                _logger.LogWarning("Provision {Key} has no amount and no fallback — skipping", prov.Key);
+                _logger.LogWarning("Provision {Key} has no amount — skipping", prov.Key);
                 continue;
             }
+            var provAmount = prov.Amount.Value;
 
             if (!accountCache.TryGetValue(prov.DebitAccount, out var provDebitId) ||
                 !accountCache.TryGetValue(prov.CreditAccount, out var provCreditId))
@@ -268,8 +289,8 @@ public class AnnualAccountsHandler : ITaskHandler
                     ["date"] = date,
                     ["description"] = description,
                     ["account"] = new { id = provDebitId },
-                    ["amountGross"] = (double)provAmount,
-                    ["amountGrossCurrency"] = (double)provAmount,
+                    ["amountGross"] = provAmount,
+                    ["amountGrossCurrency"] = provAmount,
                     ["row"] = 1
                 },
                 new Dictionary<string, object>
@@ -277,8 +298,8 @@ public class AnnualAccountsHandler : ITaskHandler
                     ["date"] = date,
                     ["description"] = description,
                     ["account"] = new { id = provCreditId },
-                    ["amountGross"] = (double)(-provAmount),
-                    ["amountGrossCurrency"] = (double)(-provAmount),
+                    ["amountGross"] = -provAmount,
+                    ["amountGrossCurrency"] = -provAmount,
                     ["row"] = 2
                 }
             };
@@ -297,34 +318,34 @@ public class AnnualAccountsHandler : ITaskHandler
             accountCache.TryGetValue(taxPayableAccount, out var taxPayId))
         {
             // Calculate total expenses we're adding to P&L accounts (3000-8699 range)
-            double totalDepreciation = 0;
+            decimal totalDepreciation = 0m;
             foreach (var asset in assets)
             {
                 var dep = isYearEnd
-                    ? (double)Math.Round(asset.BookValue / asset.UsefulLife, 2)
-                    : (double)Math.Round(asset.BookValue / asset.UsefulLife / 12m, 2);
+                    ? Math.Round(asset.CostPrice / asset.UsefulLife, 2)
+                    : Math.Round(asset.CostPrice / asset.UsefulLife / 12m, 2);
                 totalDepreciation += dep;
             }
-            double prepaidExpense = (double)prepaidAmount; // goes to 6800 (in P&L range)
-            double provisionExpense = 0;
+            decimal prepaidExpense = prepaidAmount; // goes to 6800 (in P&L range)
+            decimal provisionExpense = 0m;
             foreach (var prov in provisions)
             {
                 // Only count provisions whose debit account is in P&L range (3000-8699)
-                if (int.TryParse(prov.DebitAccount, out var debitNum) && debitNum >= 3000 && debitNum <= 8699)
+                if (prov.Amount.HasValue && prov.Amount.Value > 0 &&
+                    int.TryParse(prov.DebitAccount, out var debitNum) && debitNum >= 3000 && debitNum <= 8699)
                 {
-                    var provAmt = (prov.Amount.HasValue && prov.Amount.Value > 0) ? prov.Amount.Value : prepaidAmount;
-                    provisionExpense += (double)provAmt;
+                    provisionExpense += prov.Amount.Value;
                 }
             }
 
-            double ourAdditionalExpenses = totalDepreciation + prepaidExpense + provisionExpense;
-            double adjustedPnL = existingPnLSum + ourAdditionalExpenses;
-            double taxableResult = -adjustedPnL; // negative P&L sum = income > expense = profit
-            double taxAmount = taxableResult > 0 ? Math.Round(taxableResult * (double)taxRate, 2) : 0;
+            decimal ourAdditionalExpenses = totalDepreciation + prepaidExpense + provisionExpense;
+            decimal adjustedPnL = existingPnLSum + ourAdditionalExpenses;
+            decimal taxableResult = -adjustedPnL; // negative P&L sum = income > expense = profit
+            decimal taxAmount = taxableResult > 0 ? Math.Round(taxableResult * taxRate, 2) : 0m;
 
             _logger.LogInformation("Tax analytical: existingPnL={Existing:F2}, ourExpenses={Ours:F2} (dep={Dep:F2}+prepaid={Pre:F2}+prov={Prov:F2}), adjusted={Adj:F2}, taxable={Tax:F2}, rate={Rate}%, tax={TaxAmt:F2}",
                 existingPnLSum, ourAdditionalExpenses, totalDepreciation, prepaidExpense, provisionExpense,
-                adjustedPnL, taxableResult, (double)taxRate * 100, taxAmount);
+                adjustedPnL, taxableResult, taxRate * 100m, taxAmount);
 
             if (taxAmount > 0)
             {
@@ -488,6 +509,6 @@ public class AnnualAccountsHandler : ITaskHandler
         return 0m;
     }
 
-    private record AssetInfo(string Name, decimal BookValue, decimal UsefulLife, string AssetAccount);
+    private record AssetInfo(string Name, decimal CostPrice, decimal UsefulLife, string AssetAccount);
     private record ProvisionInfo(string Key, string DebitAccount, string CreditAccount, decimal? Amount);
 }

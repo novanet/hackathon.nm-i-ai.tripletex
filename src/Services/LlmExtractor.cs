@@ -84,9 +84,9 @@ public class LlmExtractor
           - "vatAccount": ONLY for "missing_vat" — VAT account number, typically "2710"
         - For simplified annual accounts / year-end closing tasks (forenklet årsoppgjør, simplified annual accounts, cierre contable anual, clôture annuelle, Jahresabschluss, fechamento contábil) that involve depreciation (avskrivninger, depreciation), prepaid reversals (forskuddsbetalte kostnader, prepaid), and/or tax calculations, use task_type "annual_accounts". Extract as follows:
           - Create an "annualAccounts" entity with: "date" (YYYY-MM-DD, typically Dec 31 of the year), "depreciationExpenseAccount" (e.g. "6010"), "accumulatedDepreciationAccount" (e.g. "1209"), "prepaidAccount" (e.g. "1700"), "prepaidAmount" (number), "taxExpenseAccount" (e.g. "8700"), "taxPayableAccount" (e.g. "2920"), "taxRate" (e.g. 0.22).
-          - For each fixed asset to depreciate, create a separate entity "asset1", "asset2", "asset3" etc. with: "name" (asset name), "bookValue" (current book value as number), "usefulLife" (remaining useful life in years as number), "assetAccount" (the asset's balance sheet account number, e.g. "1210").
+          - For each fixed asset to depreciate, create a separate entity "asset1", "asset2", "asset3" etc. with: "name" (asset name), "costPrice" (original acquisition cost / kostpris as number), "usefulLife" (useful life in years as number), "assetAccount" (the asset's balance sheet account number, e.g. "1210").
           - IMPORTANT: Each asset gets its OWN entity key (asset1, asset2, asset3) — do NOT nest them under annualAccounts.
-          - Example: asset1: {"name": "IT-utstyr", "bookValue": 382900, "usefulLife": 5, "assetAccount": "1210"}
+          - Example: asset1: {"name": "IT-utstyr", "costPrice": 382900, "usefulLife": 5, "assetAccount": "1210"}
           - For each provision (avsetning, provision, provisión, provision, Rückstellung) mentioned in the prompt, create a separate entity "provision1", "provision2", etc. with: "debitAccount" (the expense/cost account number string, e.g. "5000"), "creditAccount" (the liability/payable account number string, e.g. "2900"), "amount" (number, if stated in the prompt).
           - Example: provision1: {"debitAccount": "5000", "creditAccount": "2900", "amount": 15000}
         """;
