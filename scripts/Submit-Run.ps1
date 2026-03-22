@@ -244,7 +244,7 @@ for ($runNum = 1; $runNum -le $Runs; $runNum++) {
     # --- Poll for completion (2 minutes) ---
     Write-Host "Polling for results (2 min, Ctrl+C to stop)..." -ForegroundColor Gray
     $pollInterval = 10
-    $maxPolls = 12  # 2 minutes
+    $maxPolls = 60  # 2 minutes
 
     $finalState = $null
     for ($i = 0; $i -lt $maxPolls; $i++) {
