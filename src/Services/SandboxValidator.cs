@@ -915,6 +915,10 @@ public class SandboxValidator
 
     private static string? GetExpectedFxExchangeAccountNumber(ExtractionResult extracted)
     {
+        var canonicalAccount = InferCanonicalFxExchangeAccountNumber(extracted);
+        if (!string.IsNullOrWhiteSpace(canonicalAccount))
+            return canonicalAccount;
+
         string? candidate = null;
 
         if (extracted.Entities.TryGetValue("exchangeRateDifference", out var exchangeRateDifference)
@@ -969,6 +973,50 @@ public class SandboxValidator
         var match = Regex.Match(candidate, @"\b8\d{3}\b");
         return match.Success ? match.Value : null;
     }
+
+    private static string? InferCanonicalFxExchangeAccountNumber(ExtractionResult extracted)
+    {
+        var prompt = extracted.RawPrompt ?? string.Empty;
+        if (ContainsAny(prompt, "disagio", "valutatap", "loss on exchange", "currency loss", "perte de change", "pérdida de cambio", "tap på valuta", "tap ved valutakurs"))
+            return "8160";
+
+        if (ContainsAny(prompt, "agio", "valutagevinst", "profit on exchange", "gain on exchange", "currency gain", "gain de change", "ganancia de cambio", "gevinst på valuta", "gevinst ved valutakurs"))
+            return "8060";
+
+        var (rateAtInvoice, rateAtPayment) = InferExpectedFxRates(extracted);
+        if (rateAtInvoice.HasValue && rateAtPayment.HasValue)
+        {
+            if (rateAtPayment.Value < rateAtInvoice.Value)
+                return "8160";
+            if (rateAtPayment.Value > rateAtInvoice.Value)
+                return "8060";
+        }
+
+        return null;
+    }
+
+    private static (decimal? RateAtInvoice, decimal? RateAtPayment) InferExpectedFxRates(ExtractionResult extracted)
+    {
+        var rates = new List<decimal>();
+        foreach (var source in EnumeratePromptCurrencySources(extracted))
+        {
+            foreach (Match match in Regex.Matches(source, @"(?<rate>\d+(?:[.,]\d+)?)\s*NOK\s*/\s*[A-Z]{3}"))
+            {
+                if (decimal.TryParse(match.Groups["rate"].Value.Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out var rate))
+                    rates.Add(rate);
+            }
+        }
+
+        return rates.Count switch
+        {
+            >= 2 => (rates[0], rates[1]),
+            1 => (rates[0], rates[0]),
+            _ => (null, null)
+        };
+    }
+
+    private static bool ContainsAny(string text, params string[] values)
+        => values.Any(value => text.Contains(value, StringComparison.OrdinalIgnoreCase));
 
     private static bool IsFxPayment(ExtractionResult extracted)
     {
