@@ -270,6 +270,10 @@ public class LlmExtractor
         if (!voucher.ContainsKey("supplierName") && !voucher.ContainsKey("supplierOrgNumber"))
             return;
 
+        var receiptDescription = ResolveReceiptDescription(extracted, voucher, fileText);
+        if (!string.IsNullOrWhiteSpace(receiptDescription))
+            voucher["receiptDescription"] = receiptDescription;
+
         var labeledTotal = TryExtractLabeledTotal(fileText);
         if (!labeledTotal.HasValue || labeledTotal.Value <= 0)
             return;
@@ -292,6 +296,117 @@ public class LlmExtractor
         _logger.LogInformation("Normalized voucher amount from {Current} to labeled total {Total} based on attached file text",
             currentAmount?.ToString("F2", CultureInfo.InvariantCulture) ?? "<missing>",
             labeledTotal.Value.ToString("F2", CultureInfo.InvariantCulture));
+    }
+
+    private string? ResolveReceiptDescription(ExtractionResult extracted, Dictionary<string, object> voucher, string fileText)
+    {
+        var currentDescription = GetStringField(voucher, "description");
+        if (!string.IsNullOrWhiteSpace(currentDescription) && !LooksLikeReceiptNumber(currentDescription))
+            return currentDescription;
+
+        var invoiceNumber = GetStringField(voucher, "invoiceNumber");
+        var promptDescription = TryExtractReceiptDescriptionFromPrompt(extracted.RawPrompt, invoiceNumber);
+        if (!string.IsNullOrWhiteSpace(promptDescription))
+            return promptDescription;
+
+        var fileDescription = TryExtractReceiptDescriptionFromFile(fileText, invoiceNumber);
+        if (!string.IsNullOrWhiteSpace(fileDescription))
+            return fileDescription;
+
+        return currentDescription;
+    }
+
+    private static string? TryExtractReceiptDescriptionFromPrompt(string? prompt, string? invoiceNumber)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return null;
+
+        var patterns = new[]
+        {
+            @"(?:vi\s+)?treng(?:er)?\s+(.+?)\s+fra denne kvitter(?:inga|ingen)",
+            @"need(?:s|ed)?\s+the\s+(.+?)\s+expense\s+from this receipt",
+            @"need(?:s|ed)?\s+(.+?)\s+from this receipt",
+            @"necesitamos\s+el\s+gasto\s+de\s+(.+?)\s+de este recibo",
+            @"precisamos\s+da\s+despesa\s+de\s+(.+?)\s+deste recibo",
+            @"nous avons besoin de la depense\s+(.+?)\s+de ce recu",
+            @"wir brauchen\s+die\s+ausgabe\s+(.+?)\s+aus dieser quittung",
+            @"for\s+(.+?)\s+from this receipt",
+            @"for\s+the\s+(.+?)\s+from this receipt",
+            @"f[oø]r\s+(.+?)\s+fra denne kvitter(?:inga|ingen)",
+            @"gjelder\s+(.+?)\s+fra denne kvitter(?:inga|ingen)",
+            @"para\s+(.+?)\s+de este recibo",
+            @"pour\s+(.+?)\s+de ce re[çc]u",
+            @"f[üu]r\s+(.+?)\s+aus dieser quittung"
+        };
+
+        foreach (var pattern in patterns)
+        {
+            var match = Regex.Match(prompt, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!match.Success)
+                continue;
+
+            var candidate = CleanupReceiptDescription(match.Groups[1].Value, invoiceNumber);
+            if (!string.IsNullOrWhiteSpace(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static string? TryExtractReceiptDescriptionFromFile(string fileText, string? invoiceNumber)
+    {
+        var lines = fileText
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line => line.Trim())
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToList();
+
+        foreach (var line in lines)
+        {
+            if (LooksLikeReceiptNumber(line) || LooksLikeTotalLine(line, invoiceNumber))
+                continue;
+
+            var amountMatch = Regex.Match(line, @"^(?<desc>.+?)(?<amount>\d[\d\s.,]*)\s*(kr)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!amountMatch.Success)
+                continue;
+
+            var candidate = CleanupReceiptDescription(amountMatch.Groups["desc"].Value, invoiceNumber);
+            if (!string.IsNullOrWhiteSpace(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static string CleanupReceiptDescription(string? value, string? invoiceNumber)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var cleaned = value.Trim().Trim('"', '\'', '.', ',', ';', ':');
+        if (string.IsNullOrWhiteSpace(cleaned))
+            return string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(invoiceNumber) && cleaned.Contains(invoiceNumber, StringComparison.OrdinalIgnoreCase))
+            cleaned = cleaned.Replace(invoiceNumber, string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+
+        return LooksLikeReceiptNumber(cleaned) ? string.Empty : cleaned;
+    }
+
+    private static bool LooksLikeReceiptNumber(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return Regex.IsMatch(value.Trim(), @"^(KVITTERING|RECEIPT|QUITTUNG|RECIBO|RE[ÇC]U|INVOICE)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool LooksLikeTotalLine(string line, string? invoiceNumber)
+    {
+        if (!string.IsNullOrWhiteSpace(invoiceNumber) && line.Contains(invoiceNumber, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return Regex.IsMatch(line, @"^(Totalt|Total|Totalsum|Sum|Summe|Gesamt|Monto total|Montant total|Valor total|Total a pagar|MVA|VAT|TVA)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static decimal? TryExtractLabeledTotal(string text)
@@ -335,6 +450,20 @@ public class LlmExtractor
             JsonElement { ValueKind: JsonValueKind.String } stringElement when decimal.TryParse(stringElement.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
             _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
             _ => null
+        };
+    }
+
+    private static string? GetStringField(Dictionary<string, object> dict, string key)
+    {
+        if (!dict.TryGetValue(key, out var value) || value is null)
+            return null;
+
+        return value switch
+        {
+            string stringValue => stringValue,
+            JsonElement { ValueKind: JsonValueKind.String } stringElement => stringElement.GetString(),
+            JsonElement jsonElement => jsonElement.GetRawText().Trim('"'),
+            _ => value.ToString()
         };
     }
 

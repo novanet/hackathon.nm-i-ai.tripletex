@@ -23,6 +23,12 @@ public class VoucherHandler : ITaskHandler
     public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var voucher = extracted.Entities.GetValueOrDefault("voucher") ?? new();
+        var numberedVouchers = extracted.Entities
+            .Where(kv => kv.Key.StartsWith("voucher", StringComparison.OrdinalIgnoreCase)
+                      && kv.Key.Length > 7
+                      && char.IsDigit(kv.Key[7]))
+            .OrderBy(kv => kv.Key)
+            .ToList();
 
         // --- Supplier invoice detection ---
         var supplierName = GetStringField(voucher, "supplierName");
@@ -30,13 +36,16 @@ public class VoucherHandler : ITaskHandler
         if (supplierName != null || supplierOrgNumber != null)
             return await HandleSupplierInvoice(api, extracted, voucher);
 
+        if (voucher.Count == 0 && numberedVouchers.Count == 1)
+        {
+            var numberedVoucher = numberedVouchers[0].Value;
+            var numberedSupplierName = GetStringField(numberedVoucher, "supplierName");
+            var numberedSupplierOrgNumber = GetStringField(numberedVoucher, "supplierOrgNumber");
+            if (numberedSupplierName != null || numberedSupplierOrgNumber != null)
+                return await HandleSupplierInvoice(api, extracted, numberedVoucher);
+        }
+
         // --- Multi-voucher detection (voucher1, voucher2, ...) ---
-        var numberedVouchers = extracted.Entities
-            .Where(kv => kv.Key.StartsWith("voucher", StringComparison.OrdinalIgnoreCase)
-                      && kv.Key.Length > 7
-                      && char.IsDigit(kv.Key[7]))
-            .OrderBy(kv => kv.Key)
-            .ToList();
         if (numberedVouchers.Count > 0 && voucher.Count == 0)
             return await HandleMultiVoucher(api, extracted, numberedVouchers);
 
@@ -593,7 +602,11 @@ public class VoucherHandler : ITaskHandler
         var supplierName = GetStringField(voucher, "supplierName");
         var supplierOrgNumber = GetStringField(voucher, "supplierOrgNumber");
         var invoiceNumber = GetStringField(voucher, "invoiceNumber");
-        var description = GetStringField(voucher, "description") ?? invoiceNumber ?? "Leverandørfaktura";
+        var receiptDescription = GetStringField(voucher, "receiptDescription");
+        var description = receiptDescription
+            ?? GetStringField(voucher, "description")
+            ?? invoiceNumber
+            ?? "Leverandørfaktura";
         var rawAccount = GetStringField(voucher, "account") ?? GetStringField(voucher, "accountNumber");
         var account = NormalizeAccountNumber(rawAccount, $"{description} {supplierName} {invoiceNumber}") ?? "6500";
         decimal amount = ExtractAmount(voucher, extracted);
@@ -740,33 +753,41 @@ public class VoucherHandler : ITaskHandler
             var expensePosting = new Dictionary<string, object>
             {
                 ["date"] = date,
+                ["description"] = description,
                 ["amountGross"] = (double)netAmount,
                 ["amountGrossCurrency"] = (double)netAmount,
                 ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
                 ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 1
             };
+            if (invoiceNumber != null) expensePosting["invoiceNumber"] = invoiceNumber;
             if (departmentId.HasValue) expensePosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
             postings.Add(expensePosting);
 
-            postings.Add(new Dictionary<string, object>
+            var vatPosting = new Dictionary<string, object>
             {
                 ["date"] = date,
+                ["description"] = description,
                 ["amountGross"] = (double)vatAmount,
                 ["amountGrossCurrency"] = (double)vatAmount,
                 ["account"] = new Dictionary<string, object> { ["id"] = inputVatAcctId.Value },
                 ["row"] = 2
-            });
+            };
+            if (invoiceNumber != null) vatPosting["invoiceNumber"] = invoiceNumber;
+            postings.Add(vatPosting);
 
-            postings.Add(new Dictionary<string, object>
+            var creditorPosting = new Dictionary<string, object>
             {
                 ["date"] = date,
+                ["description"] = description,
                 ["amountGross"] = (double)(-amount),
                 ["amountGrossCurrency"] = (double)(-amount),
                 ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
                 ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 3
-            });
+            };
+            if (invoiceNumber != null) creditorPosting["invoiceNumber"] = invoiceNumber;
+            postings.Add(creditorPosting);
 
             _logger.LogInformation("Manual VAT split: net={Net} vat={Vat} gross={Gross}", netAmount, vatAmount, amount);
         }
@@ -775,25 +796,30 @@ public class VoucherHandler : ITaskHandler
             var debitPosting = new Dictionary<string, object>
             {
                 ["date"] = date,
+                ["description"] = description,
                 ["amountGross"] = amount,
                 ["amountGrossCurrency"] = amount,
                 ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
                 ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 1
             };
+            if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
             if (inputVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
             if (departmentId.HasValue) debitPosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
             postings.Add(debitPosting);
 
-            postings.Add(new Dictionary<string, object>
+            var creditorPosting = new Dictionary<string, object>
             {
                 ["date"] = date,
+                ["description"] = description,
                 ["amountGross"] = -amount,
                 ["amountGrossCurrency"] = -amount,
                 ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
                 ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
                 ["row"] = 2
-            });
+            };
+            if (invoiceNumber != null) creditorPosting["invoiceNumber"] = invoiceNumber;
+            postings.Add(creditorPosting);
         }
 
         var voucherBody = new Dictionary<string, object>
@@ -849,6 +875,7 @@ public class VoucherHandler : ITaskHandler
             ["accountId"] = accountId,
             ["amountInclVat"] = (double)amount,
         };
+        if (invoiceNumber != null) orderLine["invoiceNumber"] = invoiceNumber;
         if (inputVatId.HasValue) orderLine["vatTypeId"] = inputVatId.Value;
         if (departmentId.HasValue) orderLine["departmentId"] = departmentId.Value;
 
