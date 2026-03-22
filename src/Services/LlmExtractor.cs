@@ -155,11 +155,12 @@ public class LlmExtractor
                 final.RawPrompt = prompt;
                 NormalizeFileBasedVoucherAmounts(final, fileContext.Text);
                 ValidateDates(final);
+                ValidateExtraction(final);
                 return final;
             }
             catch (Exception ex)
             {
-                var isRetryable = ex.Message.Contains("content management policy") || ex.Message.Contains("content_filter") || ex.Message.Contains("429");
+                var isRetryable = ex.Message.Contains("content management policy") || ex.Message.Contains("content_filter") || ex.Message.Contains("429") || ex.Message.Contains("Incomplete employee extraction");
                 if (attempt < 3 && isRetryable)
                 {
                     _logger.LogWarning("LLM attempt {Attempt} failed ({Error}), retrying...", attempt, ex.Message.Split('\n')[0]);
@@ -622,6 +623,23 @@ public class LlmExtractor
     }
 
     /// <summary>Validate and fix dates in extraction result. Snaps invalid dates (e.g. Feb 29 on non-leap year) to last valid day of month.</summary>
+    private void ValidateExtraction(ExtractionResult result)
+    {
+        // Detect incomplete employee extraction (LLM sometimes omits name fields) and force retry
+        if (result.TaskType == "create_employee")
+        {
+            var emp = result.Entities.GetValueOrDefault("employee");
+            if (emp != null
+                && !emp.ContainsKey("firstName")
+                && !emp.ContainsKey("lastName")
+                && !emp.ContainsKey("name"))
+            {
+                _logger.LogWarning("Incomplete employee extraction — missing firstName, lastName, and name. Forcing retry.");
+                throw new InvalidOperationException("Incomplete employee extraction: missing name fields");
+            }
+        }
+    }
+
     private void ValidateDates(ExtractionResult result)
     {
         // Fix dates in the dates list

@@ -33,6 +33,23 @@ public class EmployeeHandler : ITaskHandler
             emp["lastName"] = parts2.Length > 1 ? parts2[1] : parts2[0];
         }
 
+        // Last-resort fallback: extract name from raw prompt if LLM omitted all name fields
+        if (!emp.ContainsKey("firstName") && !emp.ContainsKey("lastName"))
+        {
+            var nameMatch = System.Text.RegularExpressions.Regex.Match(
+                extracted.RawPrompt ?? "",
+                @"(?:named|namens|llamado|llamada|chamado|chamada|nommé|nommée|ved navn|med namn|Nome)\s+([A-ZÆØÅÄÖÜÉÈÊËÀÂÎÏÔÙÛÇ][a-zæøåäöüéèêëàâîïôùûçñ]+(?:\s+[A-ZÆØÅÄÖÜÉÈÊËÀÂÎÏÔÙÛÇ][a-zæøåäöüéèêëàâîïôùûçñ]+)+)",
+                System.Text.RegularExpressions.RegexOptions.None);
+            if (nameMatch.Success)
+            {
+                var nameParts = nameMatch.Groups[1].Value.Trim().Split(' ', 2);
+                emp["firstName"] = nameParts[0];
+                emp["lastName"] = nameParts.Length > 1 ? nameParts[1] : nameParts[0];
+                _logger.LogWarning("Used regex fallback to extract name from prompt: {First} {Last}",
+                    nameParts[0], nameParts.Length > 1 ? nameParts[1] : nameParts[0]);
+            }
+        }
+
         SetIfPresent(body, emp, "firstName");
         SetIfPresent(body, emp, "lastName");
         SetIfPresent(body, emp, "email");
