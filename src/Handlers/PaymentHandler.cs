@@ -343,7 +343,7 @@ public class PaymentHandler : ITaskHandler
         return result;
     }
 
-    /// <summary>FX payment: create invoice in foreign currency, register payment with exchange rate diff (agio/disagio)</summary>
+    /// <summary>FX payment: create NOK invoice at invoice-time rate, register full payment, post exchange diff voucher (agio/disagio)</summary>
     private async Task<HandlerResult> HandleFxPaymentAsync(TripletexApiClient api, ExtractionResult extracted)
     {
         var payment = extracted.Entities.GetValueOrDefault("payment") ?? new();
@@ -364,32 +364,41 @@ public class PaymentHandler : ITaskHandler
             ? extractedRateAtPayment.Value
             : promptRateAtPayment ?? extractedRateAtPayment ?? rateAtInvoice;
 
+        // Compute NOK amounts using prompt-specified rates
+        var invoiceNokAmount = Math.Round(foreignAmount * rateAtInvoice, 2, MidpointRounding.AwayFromZero);
+        var paymentNokAmount = Math.Round(foreignAmount * rateAtPayment, 2, MidpointRounding.AwayFromZero);
+        var exchangeDiff = Math.Abs(invoiceNokAmount - paymentNokAmount);
+        var isDisagio = rateAtPayment < rateAtInvoice; // loss: customer pays less NOK than invoiced
+
         _logger.LogInformation("FX payment: {Amount} {Currency}, rate at invoice: {RateInv}, rate at payment: {RatePay}",
             foreignAmount, currencyCode, rateAtInvoice, rateAtPayment);
+        _logger.LogInformation("FX NOK: invoice={InvNok}, payment={PayNok}, diff={Diff}, disagio={IsDisagio}",
+            invoiceNokAmount, paymentNokAmount, exchangeDiff, isDisagio);
 
-        // Resolve currency ID, payment type, and create invoice chain concurrently
-        var currencyTask = ResolveCurrencyId(api, currencyCode);
+        // Resolve payment type (start early, GET is free)
         var paymentTypeTask = ResolvePaymentTypeId(api);
 
-        var currencyId = await currencyTask;
-
-        // Create invoice chain with foreign currency
-        var fxInvoiceExtraction = PrepareFxInvoiceExtraction(extracted, currencyCode, foreignAmount);
-        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, fxInvoiceExtraction, currencyId);
+        // Create NOK-denominated invoice at the invoice-time rate (no foreign currency)
+        var fxInvoiceExtraction = PrepareFxInvoiceExtraction(extracted, invoiceNokAmount);
+        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, fxInvoiceExtraction);
         var paymentTypeId = await paymentTypeTask;
 
-        // paidAmount = NOK amount (foreign × rate at payment)
-        // paidAmountCurrency = foreign amount (what the customer actually paid in their currency)
-        var nokAmount = foreignAmount * rateAtPayment;
+        // Register payment for full invoice NOK amount — zeroes out amountOutstanding
         var paymentDate = ResolvePaymentDate(extracted);
+        await RegisterPayment(api, invoiceId, paymentTypeId, invoiceNokAmount, paymentDate);
 
-        _logger.LogInformation("FX payment: NOK amount = {Nok}, foreign amount = {Foreign} {Currency}", nokAmount, foreignAmount, currencyCode);
+        _logger.LogInformation("FX payment registered: invoice {Id}, paid {Amount} NOK", invoiceId, invoiceNokAmount);
 
-        await RegisterPayment(api, invoiceId, paymentTypeId, nokAmount, paymentDate, paidAmountCurrency: foreignAmount);
-        return PaymentResult(invoiceId, nokAmount);
+        // Post exchange rate difference voucher (agio/disagio)
+        if (exchangeDiff > 0.005m)
+        {
+            await PostExchangeDiffVoucher(api, exchangeDiff, isDisagio, paymentDate, invoiceId);
+        }
+
+        return PaymentResult(invoiceId, invoiceNokAmount);
     }
 
-    private ExtractionResult PrepareFxInvoiceExtraction(ExtractionResult extracted, string currencyCode, decimal foreignAmount)
+    private ExtractionResult PrepareFxInvoiceExtraction(ExtractionResult extracted, decimal invoiceNokAmount)
     {
         var clone = CloneExtractionResult(extracted);
 
@@ -399,16 +408,98 @@ public class PaymentHandler : ITaskHandler
             clone.Entities["invoice"] = invoice;
         }
 
-        if (string.IsNullOrWhiteSpace(GetStringField(invoice, "currency")))
-            invoice["currency"] = currencyCode;
-
-        if (ParseDecimalField(invoice, "amount") is null && foreignAmount > 0m)
-            invoice["amount"] = foreignAmount;
-
-        if (ShouldDefaultFxAmountToVatInclusive(clone))
-            invoice["vatIncluded"] = true;
+        // NOK invoice — remove any foreign currency, set NOK amount
+        invoice.Remove("currency");
+        invoice["amount"] = invoiceNokAmount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // FX export invoices use 0% VAT (utførsel), so amount = amount incl. VAT
+        invoice["vatIncluded"] = true;
+        invoice["vatRate"] = 0;
 
         return clone;
+    }
+
+    /// <summary>Post exchange rate difference voucher: disagio (loss) on 8160, agio (gain) on 8060</summary>
+    private async Task PostExchangeDiffVoucher(TripletexApiClient api, decimal exchangeDiff, bool isDisagio, string voucherDate, long invoiceId)
+    {
+        // Resolve accounts in parallel (GETs are free)
+        var fxAccountNumber = isDisagio ? "8160" : "8060"; // 8160=valutatap(loss), 8060=valutagevinst(gain)
+        var fxAccountTask = ResolveAccountIdByNumber(api, fxAccountNumber);
+        var bankAccountTask = ResolveAccountIdByNumber(api, "1920");
+
+        var fxAccountId = await fxAccountTask;
+        var bankAccountId = await bankAccountTask;
+
+        if (fxAccountId == null)
+        {
+            _logger.LogWarning("FX account {Number} not found, skipping exchange diff voucher", fxAccountNumber);
+            return;
+        }
+        if (bankAccountId == null)
+        {
+            _logger.LogWarning("Bank account 1920 not found, skipping exchange diff voucher");
+            return;
+        }
+
+        // Build voucher postings
+        // Disagio (loss): Debit 8160 (expense) +diff, Credit 1920 (bank) -diff
+        // Agio (gain):    Debit 1920 (bank) +diff, Credit 8060 (income) -diff
+        var postings = new List<object>();
+        if (isDisagio)
+        {
+            postings.Add(new { account = new { id = fxAccountId.Value }, amount = exchangeDiff, row = 1 });
+            postings.Add(new { account = new { id = bankAccountId.Value }, amount = -exchangeDiff, row = 2 });
+        }
+        else
+        {
+            postings.Add(new { account = new { id = bankAccountId.Value }, amount = exchangeDiff, row = 1 });
+            postings.Add(new { account = new { id = fxAccountId.Value }, amount = -exchangeDiff, row = 2 });
+        }
+
+        // Fetch invoice number for voucher description
+        string voucherDesc = "Valutadifferanse";
+        try
+        {
+            var invResp = await api.GetAsync($"/invoice/{invoiceId}", new Dictionary<string, string> { ["fields"] = "invoiceNumber" });
+            if (invResp.TryGetProperty("value", out var invVal) && invVal.TryGetProperty("invoiceNumber", out var invNum))
+                voucherDesc = $"Valutadifferanse faktura nummer {invNum.GetInt64()}";
+        }
+        catch { /* non-fatal */ }
+
+        var voucherBody = new
+        {
+            date = voucherDate,
+            description = voucherDesc,
+            postings
+        };
+
+        try
+        {
+            var result = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+            var voucherId = result.TryGetProperty("value", out var val) && val.TryGetProperty("id", out var vid)
+                ? vid.GetInt64() : 0;
+            _logger.LogInformation("Posted exchange diff voucher {Id}: {Amount} NOK on account {Account} ({Type})",
+                voucherId, exchangeDiff, fxAccountNumber, isDisagio ? "disagio/loss" : "agio/gain");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to post exchange diff voucher (non-fatal)");
+        }
+    }
+
+    private async Task<long?> ResolveAccountIdByNumber(TripletexApiClient api, string accountNumber)
+    {
+        var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+        {
+            ["number"] = accountNumber,
+            ["count"] = "1",
+            ["fields"] = "id"
+        });
+        if (result.TryGetProperty("values", out var vals))
+        {
+            foreach (var v in vals.EnumerateArray())
+                return v.GetProperty("id").GetInt64();
+        }
+        return null;
     }
 
     private static ExtractionResult CloneExtractionResult(ExtractionResult extracted)

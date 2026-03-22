@@ -442,6 +442,22 @@ public class InvoiceHandler : ITaskHandler
     {
         var lines = new List<Dictionary<string, object>>();
 
+        // If invoice entity specifies vatRate=0 (e.g. FX export), override default VAT type
+        var invoiceForVatRate = extracted.Entities.GetValueOrDefault("invoice");
+        if (invoiceForVatRate != null && invoiceForVatRate.TryGetValue("vatRate", out var vrObj))
+        {
+            int vr = vrObj switch
+            {
+                int i => i,
+                long l => (int)l,
+                decimal d => (int)d,
+                JsonElement je when je.ValueKind == JsonValueKind.Number => (int)je.GetDecimal(),
+                _ => -1
+            };
+            if (vr == 0 && outputRateMap != null && outputRateMap.TryGetValue(0, out var zeroVatId))
+                vatTypeId = zeroVatId;
+        }
+
         // Determine if the stated amounts include VAT.
         // vatIncluded=true  → amounts include VAT, use unitPriceIncludingVatCurrency
         // vatIncluded=false → amounts exclude VAT, use unitPriceExcludingVatCurrency (default)
