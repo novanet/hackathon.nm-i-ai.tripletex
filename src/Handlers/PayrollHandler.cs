@@ -538,7 +538,7 @@ public class PayrollHandler : ITaskHandler
         {
             ["employeeId"] = employeeId.ToString(),
             ["count"] = "20",
-            ["fields"] = "id,division(id)"
+            ["fields"] = "id,version,division(id)"
         });
 
         if (!employments.TryGetProperty("values", out var values))
@@ -558,7 +558,49 @@ public class PayrollHandler : ITaskHandler
             if (isLinked)
                 return;
 
-            throw new InvalidOperationException($"Employment {employmentId} was created without the payroll division attached.");
+            // Division not linked after POST — fix via PUT (belt-and-suspenders)
+            var version = employment.TryGetProperty("version", out var vProp) ? vProp.GetInt32() : 1;
+            _logger.LogWarning("Employment {EmpId} missing division link, fixing via PUT (version={Version})", employmentId, version);
+
+            await api.PutAsync($"/employee/employment/{employmentId}", new Dictionary<string, object>
+            {
+                ["id"] = employmentId,
+                ["version"] = version,
+                ["employee"] = new Dictionary<string, object> { ["id"] = employeeId },
+                ["division"] = new Dictionary<string, object> { ["id"] = divisionId },
+                ["taxDeductionCode"] = "loennFraHovedarbeidsgiver"
+            });
+
+            // Re-verify after PUT
+            var recheck = await api.GetAsync("/employee/employment", new Dictionary<string, string>
+            {
+                ["employeeId"] = employeeId.ToString(),
+                ["count"] = "20",
+                ["fields"] = "id,division(id)"
+            });
+
+            if (recheck.TryGetProperty("values", out var recheckValues))
+            {
+                foreach (var recheckEmp in recheckValues.EnumerateArray())
+                {
+                    if (!recheckEmp.TryGetProperty("id", out var recheckId) || recheckId.GetInt64() != employmentId)
+                        continue;
+
+                    var recheckLinked = recheckEmp.TryGetProperty("division", out var recheckDiv)
+                        && recheckDiv.ValueKind == JsonValueKind.Object
+                        && recheckDiv.TryGetProperty("id", out var recheckDivId)
+                        && recheckDivId.ValueKind == JsonValueKind.Number
+                        && recheckDivId.GetInt64() == divisionId;
+
+                    if (recheckLinked)
+                    {
+                        _logger.LogInformation("Employment {EmpId} division link fixed via PUT", employmentId);
+                        return;
+                    }
+                }
+            }
+
+            throw new InvalidOperationException($"Employment {employmentId} division link could not be fixed via PUT.");
         }
 
         throw new InvalidOperationException($"Employment {employmentId} could not be found for employee {employeeId} after update.");
