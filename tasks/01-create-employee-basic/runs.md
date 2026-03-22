@@ -33,12 +33,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 19:52:46 |
+| Timestamp | 03/22/2026 09:05:21 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 4581 ms |
-| API Calls | 6 |
+| Elapsed | 3517 ms |
+| API Calls | 7 |
 | Errors | 0 |
 
 ### API Calls
@@ -46,11 +46,12 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
-| 2 | `GET` | `/employee?email=anne.solberg.maxscore.20260321%40example.org...` | ✅  |  |
-| 3 | `POST` | `/employee` | ✅  |  |
-| 4 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
-| 5 | `GET` | `/employee/18658267?fields=id%2CfirstName%2ClastName%2Cemail%...` | ✅  |  |
-| 6 | `GET` | `/employee/entitlement?employeeId=18658267&count=100&fields=i...` | ✅  |  |
+| 2 | `GET` | `/employee?email=lucia.rodriguez%40example.org&count=10&field...` | ✅  |  |
+| 3 | `GET` | `/employee/18512698?fields=id%2Cversion%2CfirstName%2ClastNam...` | ✅  |  |
+| 4 | `PUT` | `/employee/18512698` | ✅  |  |
+| 5 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
+| 6 | `GET` | `/employee/18512698?fields=id%2CfirstName%2ClastName%2Cemail%...` | ✅  |  |
+| 7 | `GET` | `/employee/entitlement?employeeId=18512698&count=100&fields=i...` | ✅  |  |
 
 ## Latest Local Validation
 
@@ -64,8 +65,8 @@
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
 | employee_found | `true` | `true` | ✅ | 1 |
-| firstName | `Anne` | `Anne` | ✅ | 1 |
-| lastName | `Solberg` | `Solberg` | ✅ | 1 |
-| email | `anne.solberg.maxscore.20260321@example.org` | `anne.solberg.maxscore.20260321@example.org` | ✅ | 1 |
+| firstName | `Lucía` | `Lucía` | ✅ | 1 |
+| lastName | `Rodríguez` | `Rodríguez` | ✅ | 1 |
+| email | `lucia.rodriguez@example.org` | `lucia.rodriguez@example.org` | ✅ | 1 |
 | administrator_role | `true` | `true` | ✅ | 2 |
 

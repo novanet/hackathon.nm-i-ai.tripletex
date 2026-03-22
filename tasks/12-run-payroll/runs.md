@@ -39,11 +39,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 22:15:56 |
+| Timestamp | 03/22/2026 09:16:10 |
 | Task Type | `run_payroll` |
 | Handler | `PayrollHandler` |
 | Success | True |
-| Elapsed | 6450 ms |
+| Elapsed | 5127 ms |
 | API Calls | 13 |
 | Errors | 0 |
 
@@ -51,19 +51,19 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=ma...` | ✅  |  |
+| 1 | `GET` | `/employee?count=1&fields=id%2CdateOfBirth%2Cversion&email=wi...` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee/employment?employeeId=18583642&count=1&fields=id%2...` | ✅  |  |
-| 4 | `PUT` | `/employee/employment/2803121` | ✅  |  |
+| 3 | `GET` | `/employee/employment?employeeId=18696562&count=1&fields=id%2...` | ✅  |  |
+| 4 | `GET` | `/employee/employment?employeeId=18696562&count=20&fields=id%...` | ✅  |  |
 | 5 | `GET` | `/salary/type?count=100&fields=id%2Cnumber%2Cname` | ✅  |  |
 | 6 | `POST` | `/salary/transaction?generateTaxDeduction=false` | ✅  |  |
-| 7 | `GET` | `/salary/payslip/32629285?fields=id%2Cemployee%28id%2CfirstNa...` | ✅  |  |
+| 7 | `GET` | `/salary/payslip/32630317?fields=id%2Cemployee%28id%2CfirstNa...` | ✅  |  |
 | 8 | `GET` | `/ledger/account?number=5000&count=1&fields=id` | ✅  |  |
-| 9 | `GET` | `/ledger/voucherType?name=L%C3%B8nnsbilag&count=1&fields=id` | ✅  |  |
-| 10 | `GET` | `/ledger/account?number=1920&count=1&fields=id` | ✅  |  |
+| 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id` | ✅  |  |
+| 10 | `GET` | `/ledger/voucherType?name=L%C3%B8nnsbilag&count=1&fields=id` | ✅  |  |
 | 11 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 12 | `GET` | `/salary/transaction/6958267?fields=id%2Cdate%2Cyear%2Cmonth%...` | ✅  |  |
-| 13 | `GET` | `/salary/payslip/32629285?fields=id%2Cemployee%2Camount%2Cgro...` | ✅  |  |
+| 12 | `GET` | `/salary/transaction/6959299?fields=id%2Cdate%2Cyear%2Cmonth%...` | ✅  |  |
+| 13 | `GET` | `/salary/payslip/32630317?fields=id%2Cemployee%2Camount%2Cgro...` | ✅  |  |
 
 ## Latest Local Validation
 
@@ -79,5 +79,5 @@
 | salary_transaction_found | `true` | `true` | ✅ | 2 |
 | has_employee_link | `true` | `true` | ✅ | 2 |
 | payslip_generated | `> 0` | `1` | ✅ | 2 |
-| correct_amount | `55450` | `55450` | ✅ | 2 |
+| correct_amount | `51200` | `51200` | ✅ | 2 |
 
