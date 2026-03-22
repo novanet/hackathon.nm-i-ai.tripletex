@@ -38,7 +38,7 @@ public class EmployeeHandler : ITaskHandler
         {
             var nameMatch = System.Text.RegularExpressions.Regex.Match(
                 extracted.RawPrompt ?? "",
-                @"(?:named|namens|llamado|llamada|chamado|chamada|nommé|nommée|ved navn|med namn|Nome)\s+([A-ZÆØÅÄÖÜÉÈÊËÀÂÎÏÔÙÛÇ][a-zæøåäöüéèêëàâîïôùûçñ]+(?:\s+[A-ZÆØÅÄÖÜÉÈÊËÀÂÎÏÔÙÛÇ][a-zæøåäöüéèêëàâîïôùûçñ]+)+)",
+                @"(?:named|namens|llamado|llamada|chamado|chamada|nommé|nommée|heiter|heter|ved navn|med navn|med namn|Nome)\s+([A-ZÆØÅÄÖÜÉÈÊËÀÂÎÏÔÙÛÇ][a-zæøåäöüéèêëàâîïôùûçñ]+(?:\s+[A-ZÆØÅÄÖÜÉÈÊËÀÂÎÏÔÙÛÇ][a-zæøåäöüéèêëàâîïôùûçñ]+)+)",
                 System.Text.RegularExpressions.RegexOptions.None);
             if (nameMatch.Success)
             {
