@@ -29,3 +29,4 @@ logs/sandbox.jsonl
 # OS
 .DS_Store
 Thumbs.db
+src/secrets.json

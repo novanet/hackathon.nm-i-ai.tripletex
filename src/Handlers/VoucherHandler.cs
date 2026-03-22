@@ -772,32 +772,96 @@ public class VoucherHandler : ITaskHandler
         }
         else
         {
-            var debitPosting = new Dictionary<string, object>
+            // Always use 3-posting structure: expense(net) + VAT(vatAmount) + creditor(-gross)
+            // 2-posting with vatType fails because Tripletex can't balance net + (-gross) ≠ 0
+            if (inputVatId.HasValue)
             {
-                ["date"] = date,
-                ["description"] = description,
-                ["amountGross"] = amount,
-                ["amountGrossCurrency"] = amount,
-                ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
-                ["row"] = 1
-            };
-            if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
-            if (inputVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
-            if (departmentId.HasValue) debitPosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
-            postings.Add(debitPosting);
+                // Determine VAT percentage from resolved vatRate or default 25%
+                if (vatRateStr != null)
+                {
+                    if (vatRateStr.Contains("15")) vatPercent = 0.15m;
+                    else if (vatRateStr.Contains("12")) vatPercent = 0.12m;
+                    else vatPercent = 0.25m;
+                }
 
-            var creditorPosting = new Dictionary<string, object>
+                var netAmount = Math.Round(amount / (1 + vatPercent), 2, MidpointRounding.AwayFromZero);
+                var vatAmount = amount - netAmount;
+
+                // Resolve input VAT account (2710)
+                var (inputVatAcctId, _, _, _) = await ResolveAccountId(api, "2710");
+
+                var expensePosting = new Dictionary<string, object>
+                {
+                    ["date"] = date,
+                    ["description"] = description,
+                    ["amountGross"] = (double)netAmount,
+                    ["amountGrossCurrency"] = (double)netAmount,
+                    ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
+                    ["row"] = 1
+                };
+                if (invoiceNumber != null) expensePosting["invoiceNumber"] = invoiceNumber;
+                if (departmentId.HasValue) expensePosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
+                postings.Add(expensePosting);
+
+                if (inputVatAcctId.HasValue)
+                {
+                    var vatPosting = new Dictionary<string, object>
+                    {
+                        ["date"] = date,
+                        ["description"] = description,
+                        ["amountGross"] = (double)vatAmount,
+                        ["amountGrossCurrency"] = (double)vatAmount,
+                        ["account"] = new Dictionary<string, object> { ["id"] = inputVatAcctId.Value },
+                        ["row"] = 2
+                    };
+                    if (invoiceNumber != null) vatPosting["invoiceNumber"] = invoiceNumber;
+                    postings.Add(vatPosting);
+                }
+
+                var creditorPosting = new Dictionary<string, object>
+                {
+                    ["date"] = date,
+                    ["description"] = description,
+                    ["amountGross"] = (double)(-amount),
+                    ["amountGrossCurrency"] = (double)(-amount),
+                    ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
+                    ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
+                    ["row"] = inputVatAcctId.HasValue ? 3 : 2
+                };
+                if (invoiceNumber != null) creditorPosting["invoiceNumber"] = invoiceNumber;
+                postings.Add(creditorPosting);
+
+                _logger.LogInformation("3-posting supplier voucher: net={Net} vat={Vat} gross={Gross}", netAmount, vatAmount, amount);
+            }
+            else
             {
-                ["date"] = date,
-                ["description"] = description,
-                ["amountGross"] = -amount,
-                ["amountGrossCurrency"] = -amount,
-                ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
-                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
-                ["row"] = 2
-            };
-            if (invoiceNumber != null) creditorPosting["invoiceNumber"] = invoiceNumber;
-            postings.Add(creditorPosting);
+                // No VAT — simple 2-posting (expense + creditor)
+                var debitPosting = new Dictionary<string, object>
+                {
+                    ["date"] = date,
+                    ["description"] = description,
+                    ["amountGross"] = amount,
+                    ["amountGrossCurrency"] = amount,
+                    ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
+                    ["row"] = 1
+                };
+                if (invoiceNumber != null) debitPosting["invoiceNumber"] = invoiceNumber;
+                if (departmentId.HasValue) debitPosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
+                postings.Add(debitPosting);
+
+                var creditorPosting = new Dictionary<string, object>
+                {
+                    ["date"] = date,
+                    ["description"] = description,
+                    ["amountGross"] = -amount,
+                    ["amountGrossCurrency"] = -amount,
+                    ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
+                    ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
+                    ["row"] = 2
+                };
+                if (invoiceNumber != null) creditorPosting["invoiceNumber"] = invoiceNumber;
+                postings.Add(creditorPosting);
+            }
         }
 
         var voucherBody = new Dictionary<string, object>

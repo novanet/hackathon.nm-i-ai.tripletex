@@ -46,6 +46,12 @@ public class CustomerHandler : ITaskHandler
         SetIfPresent(body, cust, "invoiceEmail");
         SetIfPresent(body, cust, "isPrivateIndividual");
 
+        // Mirror email to invoiceEmail and overdueNoticeEmail if not explicitly set
+        if (body.ContainsKey("email") && !body.ContainsKey("invoiceEmail"))
+            body["invoiceEmail"] = body["email"];
+        if (body.ContainsKey("email"))
+            body["overdueNoticeEmail"] = body["email"];
+
         // Handle orgNumber alias
         if (!body.ContainsKey("organizationNumber"))
             SetIfPresent(body, cust, "orgNumber", "organizationNumber");
@@ -88,6 +94,8 @@ public class CustomerHandler : ITaskHandler
         SetIfPresent(addr, cust, "city");
         if (cust.TryGetValue("countryId", out var countryId))
             addr["country"] = new { id = long.Parse(countryId.ToString()!) };
+        else if (addr.Count > 0)
+            addr["country"] = new { id = 161L }; // Norway — hardcoded, verified valid
         return addr;
     }
 

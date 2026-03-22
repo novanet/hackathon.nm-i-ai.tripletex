@@ -75,9 +75,39 @@ public class DepartmentHandler : ITaskHandler
             int.TryParse(dnStr, out deptNumber);
         }
 
-        // Optimistic approach: try POST directly without pre-fetching existing departments.
-        // In clean competition environments there are no existing departments, so collisions are very rare.
-        // If it fails with a number collision, increment and retry (saves 1 GET in the common case).
+        // Batch creation: use POST /department/list when creating multiple departments (saves N-1 writes)
+        if (names.Count > 1)
+        {
+            var batchItems = new List<Dictionary<string, object>>();
+            foreach (var name in names)
+            {
+                var item = new Dictionary<string, object>
+                {
+                    ["name"] = name,
+                    ["departmentNumber"] = deptNumber++
+                };
+                if (managerRef is not null)
+                    item["departmentManager"] = managerRef;
+                batchItems.Add(item);
+            }
+
+            _logger.LogInformation("Batch-creating {Count} departments via POST /department/list", batchItems.Count);
+            var batchResult = await api.PostAsync("/department/list", batchItems);
+            if (batchResult.TryGetProperty("values", out var batchVals))
+            {
+                foreach (var v in batchVals.EnumerateArray())
+                {
+                    var deptId = v.GetProperty("id").GetInt64();
+                    if (handlerResult.EntityId == null)
+                        handlerResult.EntityId = deptId;
+                    else
+                        handlerResult.AdditionalEntityIds.Add(deptId);
+                }
+            }
+            return handlerResult;
+        }
+
+        // Single department: optimistic POST directly (no pre-fetch needed in clean competition env)
         var usedNumbers = new HashSet<int>();
 
         foreach (var name in names)

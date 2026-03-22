@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Submit a competition run to the NM i AI platform.
 .DESCRIPTION
@@ -24,7 +24,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$taskId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+$taskId = "996fca4f-53fc-4585-bc65-b7a632fe7478"
 $apiBase = "https://api.ainm.no"
 $leaderboardUrl = "$apiBase/tripletex/leaderboard/996fca4f-53fc-4585-bc65-b7a632fe7478"
 
@@ -162,6 +162,11 @@ catch {
     }
 }
 
+# --- Create web session with auth cookie ---
+$session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
+$cookie = [System.Net.Cookie]::new("access_token", $Token, "/", "api.ainm.no")
+$session.Cookies.Add($cookie)
+
 # --- Batch tracking ---
 $batchResults = @()
 
@@ -207,7 +212,6 @@ for ($runNum = 1; $runNum -le $Runs; $runNum++) {
     } | ConvertTo-Json
 
     $headers = @{
-        "Cookie"       = "access_token=$Token"
         "Content-Type" = "application/json"
         "Origin"       = "https://app.ainm.no"
         "Referer"      = "https://app.ainm.no/"
@@ -215,7 +219,7 @@ for ($runNum = 1; $runNum -le $Runs; $runNum++) {
 
     try {
         $result = Invoke-RestMethod -Uri "$apiBase/tasks/$taskId/submissions" `
-            -Method POST -Headers $headers -Body $body -ErrorAction Stop
+            -Method POST -Headers $headers -Body $body -WebSession $session -ErrorAction Stop
     }
     catch {
         $statusCode = $_.Exception.Response.StatusCode.value__
@@ -252,7 +256,7 @@ for ($runNum = 1; $runNum -le $Runs; $runNum++) {
         try {
             # Use list endpoint and find our submission (individual endpoint returns 404)
             $allSubs = Invoke-RestMethod -Uri "$apiBase/tripletex/my/submissions" `
-                -Method GET -Headers @{ "Cookie" = "access_token=$Token" } -ErrorAction Stop
+                -Method GET -WebSession $session -ErrorAction Stop
 
             $mySub = $allSubs | Where-Object { $_.id -eq $submissionId } | Select-Object -First 1
             if (-not $mySub) {

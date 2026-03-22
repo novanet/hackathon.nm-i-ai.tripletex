@@ -488,7 +488,7 @@ public class ProjectHandler : ITaskHandler
                 {
                     var id = acct.GetProperty("id").GetInt64();
                     var version = acct.GetProperty("version").GetInt32();
-                    await api.PutAsync($"/ledger/account/{id}", new { id, version, bankAccountNumber = "86011117947", isBankAccount = true });
+                    await api.PutAsync($"/ledger/account/{id}", new { id, version, bankAccountNumber = "42001234565", isBankAccount = true });
                     _logger.LogInformation("Set bank account number on ledger account 1920");
                 }
             }
