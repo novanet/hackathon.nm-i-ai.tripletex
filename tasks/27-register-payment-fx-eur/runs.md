@@ -6,32 +6,31 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T10:04:16.0793260Z |
+| Timestamp | 2026-03-22T10:47:28.1600530Z |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 13712 ms |
-| API Calls | 8 |
+| Elapsed | 19388 ms |
+| API Calls | 7 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/currency?code=EUR&count=1&fields=id%2Ccode` | ✅ 200 |  |
-| 2 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅ 200 |  |
-| 3 | `GET` | `/customer?organizationNumber=928230651&count=1&fields=id%2Cn...` | ✅ 200 |  |
-| 4 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅ 200 |  |
-| 5 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅ 200 |  |
-| 6 | `POST` | `/order` | ✅ 201 |  |
-| 7 | `POST` | `/invoice` | ✅ 201 |  |
-| 8 | `PUT` | `/invoice/2147692215/:payment?paymentDate=2026-03-22&paymentT...` | ✅ 200 |  |
+| 1 | `GET` | `/customer?organizationNumber=814814696&count=1&fields=id%2Cn...` | ✅ 200 |  |
+| 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅ 200 |  |
+| 3 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅ 200 |  |
+| 4 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅ 200 |  |
+| 5 | `POST` | `/order` | ✅ 201 |  |
+| 6 | `POST` | `/invoice` | ✅ 201 |  |
+| 7 | `PUT` | `/invoice/2147696082/:payment?paymentDate=2026-03-22&paymentT...` | ✅ 200 |  |
 
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"nn","entities":{"customer":{"name":"Fossekraft AS","orgNumber":"928230651"},"payment":{"amount":25347.48,"currency":"NOK","exchangeRate":9.33},"exchangeRateDifference":{"amount":2116.08,"account":"8070"}},"relationships":{"invoice":"2716 EUR at 10.11 NOK/EUR"},"raw_amounts":["2716","10.11","9.33"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"nn","entities":{"payment":{"amount":121980,"currency":"NOK","exchangeRate":10.7,"originalAmount":11400,"originalCurrency":"EUR","agioAccount":"8070"},"customer":{"name":"Fjelltopp AS","orgNumber":"814814696"}},"relationships":{},"raw_amounts":["11400","10.22","10.70"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

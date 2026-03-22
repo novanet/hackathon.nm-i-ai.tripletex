@@ -6,28 +6,30 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T10:17:30.6179820Z |
+| Timestamp | 2026-03-22T10:44:23.1180990Z |
 | Task Type | `create_travel_expense` |
 | Handler | `TravelExpenseHandler` |
 | Success | True |
-| Elapsed | 10724 ms |
-| API Calls | 4 |
+| Elapsed | 16779 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id&firstName=Magnus&lastName=Haugen` | ✅ 200 |  |
+| 1 | `GET` | `/employee?count=1&fields=id&firstName=Sigurd&lastName=Hansen` | ✅ 200 |  |
 | 2 | `POST` | `/travelExpense` | ✅ 201 |  |
 | 3 | `GET` | `/travelExpense/paymentType?count=10&fields=id%2Cdescription` | ✅ 200 |  |
 | 4 | `POST` | `/travelExpense/cost` | ✅ 201 |  |
+| 5 | `POST` | `/travelExpense/cost` | ✅ 201 |  |
+| 6 | `POST` | `/travelExpense/cost` | ✅ 201 |  |
 
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_travel_expense","action":"create","language":"nb","entities":{"travelExpense":{"title":"Kundebesøk Bergen","travelDays":4,"dailyAllowanceRate":800,"expenses":[{"type":"flight","amount":5050},{"type":"taxi","amount":750}]},"employee":{"firstName":"Magnus","lastName":"Haugen","email":"magnus.haugen@example.org"}},"relationships":{},"raw_amounts":["800","5050","750"],"dates":[],"files_needed":false}
+{"task_type":"create_travel_expense","action":"create","language":"nb","entities":{"travelExpense":{"title":"Kundebesøk Trondheim","travelDetails":{"durationDays":4,"dailyAllowanceRate":800},"costItems":[{"description":"Flybillett","amount":6150},{"description":"Taxi","amount":500}]},"employee":{"firstName":"Sigurd","lastName":"Hansen","email":"sigurd.hansen@example.org"}},"relationships":{},"raw_amounts":["800","6150","500"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
