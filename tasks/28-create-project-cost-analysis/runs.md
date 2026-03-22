@@ -38,46 +38,61 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 13:30:56 |
+| Timestamp | 03/22/2026 12:14:34 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 6614 ms |
-| API Calls | 13 |
-| Errors | 0 |
+| Elapsed | 15475 ms |
+| API Calls | 25 |
+| Errors | 1 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=842328004&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/customer?name=Strandvik%20AS&count=1&fields=id%2Cname` | ✅  |  |
-| 3 | `GET` | `/employee?count=1&fields=id&firstName=Geir&lastName=Lunde` | ✅  |  |
-| 4 | `GET` | `/employee?count=1&fields=id&email=geir.lunde%40example.org` | ✅  |  |
-| 5 | `GET` | `/department?count=1&fields=id` | ✅  |  |
-| 6 | `POST` | `/employee` | ✅  |  |
-| 7 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
-| 8 | `POST` | `/project` | ✅  |  |
-| 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 10 | `POST` | `/order` | ✅  |  |
-| 11 | `POST` | `/invoice` | ✅  |  |
-| 12 | `GET` | `/project/402006405?fields=id%2Cname%2Ccustomer%2CprojectMana...` | ✅  |  |
-| 13 | `GET` | `/order?projectId=402006405&count=5&fields=id&orderDateFrom=2...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=814740536&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/customer?name=Silveroak%20Ltd&count=1&fields=id%2Cname` | ✅  |  |
+| 3 | `GET` | `/employee?count=1&fields=id&firstName=Henry&lastName=Harris` | ✅  |  |
+| 4 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅  |  |
+| 5 | `POST` | `/project` | ✅  |  |
+| 6 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅  |  |
+| 7 | `GET` | `/employee?count=1&fields=id&firstName=Henry&lastName=Harris` | ✅  |  |
+| 8 | `GET` | `/activity?name=ERP%20Implementation&count=1&fields=id` | ✅  |  |
+| 9 | `POST` | `/project/projectActivity` | ✅  |  |
+| 10 | `POST` | `/timesheet/entry` | ✅  |  |
+| 11 | `GET` | `/employee?count=1&fields=id&firstName=Sarah&lastName=Smith` | ✅  |  |
+| 12 | `POST` | `/timesheet/entry` | ✅  |  |
+| 13 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 14 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 15 | `POST` | `/order` | ✅  |  |
+| 16 | `POST` | `/invoice` | ✅  |  |
+| 17 | `POST` | `/supplier` | ✅  |  |
+| 18 | `GET` | `/ledger/account?number=6000&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 19 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 20 | `GET` | `/incomingInvoice/search?invoiceDateFrom=2026-03-22&invoiceDa...` | ✅  |  |
+| 21 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 22 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 23 | `GET` | `/project/402083854?fields=id%2Cname%2CstartDate%2Ccustomer%2...` | ✅  |  |
+| 24 | `GET` | `/timesheet/entry?projectId=402083854&dateFrom=2020-01-01&dat...` | ✅  |  |
+| 25 | `GET` | `/order/402083856?fields=%2A%2CorderLines%28%2A%29` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
-| Correctness | 1 |
-| Points | 10 / 10 |
+| Correctness | 0.875 |
+| Points | 14 / 16 |
 
 ### Checks
 
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
 | project_found | `true` | `true` | ✅ | 2 |
-| name | `Digitalportal Strandvik` | `Digitalportal Strandvik` | ✅ | 2 |
+| name | `ERP Implementation Silveroak` | `ERP Implementation Silveroak` | ✅ | 2 |
 | has_customer | `true` | `true` | ✅ | 2 |
 | has_project_manager | `true` | `true` | ✅ | 2 |
-| has_project_invoice | `true` | `true` | ✅ | 2 |
+| timesheet_logged | `> 0` | `2` | ✅ | 2 |
+| correct_timesheet_count | `2` | `2` | ✅ | 2 |
+| invoice_found | `true` | `true` | ✅ | 2 |
+| correct_amount | `455812.50` | `364650.00` | ❌ | 2 |
 

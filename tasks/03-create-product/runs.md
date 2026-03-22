@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 10:32:49 |
+| Timestamp | 03/22/2026 12:42:56 |
 | Task Type | `create_product` |
 | Handler | `ProductHandler` |
 | Success | True |
-| Elapsed | 4650 ms |
+| Elapsed | 4724 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_product","action":"create","language":"nb","entities":{"product":{"name":"Konsulenttimer","productNumber":"7857","price":40100,"vatRate":25}},"relationships":{},"raw_amounts":["40100"],"dates":[],"files_needed":false}
+{"task_type":"create_product","action":"create","language":"es","entities":{"product":{"name":"Mantenimiento","productNumber":"4508","price":41500,"vatRate":"25"}},"relationships":{},"raw_amounts":["41500"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
