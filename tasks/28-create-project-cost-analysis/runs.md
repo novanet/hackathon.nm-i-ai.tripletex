@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T10:07:48.2906540Z |
+| Timestamp | 2026-03-22T10:37:26.4337990Z |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 25622 ms |
+| Elapsed | 26451 ms |
 | API Calls | 9 |
 | Errors | 0 |
 
@@ -18,12 +18,12 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=854848445&count=1&fields=id%2Cn...` | ✅ 200 |  |
-| 2 | `GET` | `/employee?count=1&fields=id&firstName=L%C3%A9a&lastName=Dubo...` | ✅ 200 |  |
+| 1 | `GET` | `/customer?organizationNumber=894208848&count=1&fields=id%2Cn...` | ✅ 200 |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=Knut&lastName=Brekke` | ✅ 200 |  |
 | 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅ 200 |  |
 | 4 | `POST` | `/project` | ✅ 201 |  |
 | 5 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅ 200 |  |
-| 6 | `PUT` | `/ledger/account/497921145` | ✅ 200 |  |
+| 6 | `PUT` | `/ledger/account/498555534` | ✅ 200 |  |
 | 7 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅ 200 |  |
 | 8 | `POST` | `/order` | ✅ 201 |  |
 | 9 | `POST` | `/invoice` | ✅ 201 |  |
@@ -32,7 +32,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"fr","entities":{"project":{"name":"Portail Numérique Colline","customerName":"Colline SARL","customerOrgNumber":"854848445","budget":365200,"projectManager":{"firstName":"Léa","lastName":"Dubois","email":"lea.dubois@example.org"}},"timesheet1":{"employee":{"firstName":"Léa","lastName":"Dubois","email":"lea.dubois@example.org"},"hours":41,"activityName":"Chef de projet"},"timesheet2":{"employee":{"firstName":"Gabriel","lastName":"Richard","email":"gabriel.richard@example.org"},"hours":63,"activityName":"Consultant"},"voucher":{"supplierName":"Lumière SARL","supplierOrgNumber":"884179890","account":"6000","amount":57700},"invoice":{"customerName":"Colline SARL","customerOrgNumber":"854848445","projectName":"Portail Numérique Colline"}},"relationships":{"customer":"Colline SARL"},"raw_amounts":["365200","57700"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"nb","entities":{"project":{"name":"Dataplattform Elvdal","customerName":"Elvdal AS","customerOrgNumber":"894208848","budget":331100,"projectManager":{"firstName":"Knut","lastName":"Brekke","email":"knut.brekke@example.org"}},"timesheet1":{"employee":{"firstName":"Knut","lastName":"Brekke","email":"knut.brekke@example.org"},"hours":43,"activityName":"Prosjektledelse"},"timesheet2":{"employee":{"firstName":"Svein","lastName":"Aasen","email":"svein.aasen@example.org"},"hours":100,"activityName":"Konsulentarbeid"},"voucher":{"supplierName":"Fossekraft AS","supplierOrgNumber":"979871783","account":"6000","amount":61650},"invoice":{"customerName":"Elvdal AS","customerOrgNumber":"894208848","projectName":"Dataplattform Elvdal"}},"relationships":{"customer":"Elvdal AS"},"raw_amounts":["331100","61650"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

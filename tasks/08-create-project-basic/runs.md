@@ -6,36 +6,28 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T09:56:39.1071170Z |
+| Timestamp | 2026-03-22T10:28:53.7751400Z |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 129795 ms |
-| API Calls | 12 |
+| Elapsed | 38773 ms |
+| API Calls | 4 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=836112784&count=1&fields=id%2Cn...` | ✅ 200 |  |
-| 2 | `GET` | `/employee?count=1&fields=id` | ✅ 200 |  |
-| 3 | `POST` | `/project` | ✅ 201 |  |
-| 4 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅ 200 |  |
-| 5 | `GET` | `/employee?count=1&fields=id&firstName=Sigrid&lastName=Neset` | ✅ 200 |  |
-| 6 | `GET` | `/activity?name=R%C3%A5dgivning&count=1&fields=id` | ✅ 200 |  |
-| 7 | `POST` | `/project/projectActivity` | ✅ 201 |  |
-| 8 | `POST` | `/timesheet/entry` | ✅ 201 |  |
-| 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅ 200 |  |
-| 10 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅ 200 |  |
-| 11 | `POST` | `/order` | ✅ 201 |  |
-| 12 | `POST` | `/invoice` | ✅ 201 |  |
+| 1 | `GET` | `/customer?organizationNumber=986555080&count=1&fields=id%2Cn...` | ✅ 200 |  |
+| 2 | `GET` | `/employee?count=1&fields=id&firstName=Leon&lastName=Meyer` | ✅ 200 |  |
+| 3 | `PUT` | `/employee/entitlement/:grantEntitlementsByTemplate?employeeI...` | ✅ 200 |  |
+| 4 | `POST` | `/project` | ✅ 201 |  |
 
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"nn","entities":{"project":{"name":"Systemoppgradering","customerName":"Nordlys AS","customerOrgNumber":"836112784"},"timesheet":{"hours":13,"hourlyRate":1150,"activityName":"Rådgivning"},"employee":{"firstName":"Sigrid","lastName":"Neset","email":"sigrid.neset@example.org"}},"relationships":{"customer":"Nordlys AS"},"raw_amounts":["1150"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"de","entities":{"project":{"name":"Integration Bergwerk","customerName":"Bergwerk GmbH","customerOrgNumber":"986555080","projectManager":{"firstName":"Leon","lastName":"Meyer","email":"leon.meyer@example.org"}}},"relationships":{"customer":"Bergwerk GmbH"},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
