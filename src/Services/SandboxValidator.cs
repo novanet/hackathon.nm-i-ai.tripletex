@@ -1099,10 +1099,11 @@ public class SandboxValidator
         if (!result.EntityId.HasValue) return;
 
         var proj = await api.GetAsync($"/project/{result.EntityId}",
-            new Dictionary<string, string> { ["fields"] = "id,name,customer,projectManager,isFixedPrice,fixedprice,invoicingPlan,preliminaryInvoice" });
+            new Dictionary<string, string> { ["fields"] = "id,name,startDate,customer,projectManager,isFixedPrice,fixedprice,invoicingPlan,preliminaryInvoice" });
         var val = proj.GetProperty("value");
 
         var entity = extracted.Entities.GetValueOrDefault("project") ?? new();
+        var lifecycleTimesheets = GetLifecycleProjectTimesheets(extracted);
 
         report.Checks.Add(new ValidationCheck("project_found", "true", "true", true, 2));
         CheckStringField(val, entity, "name", report, 2);
@@ -1121,6 +1122,59 @@ public class SandboxValidator
         {
             bool isFixed = val.TryGetProperty("isFixedPrice", out var fp) && fp.ValueKind == JsonValueKind.True;
             report.Checks.Add(new ValidationCheck("isFixedPrice", "true", isFixed.ToString().ToLower(), isFixed, 2));
+        }
+
+        if (lifecycleTimesheets.Count > 0)
+        {
+            var timesheetEntries = await api.GetAsync("/timesheet/entry", new Dictionary<string, string>
+            {
+                ["projectId"] = result.EntityId.Value.ToString(CultureInfo.InvariantCulture),
+                ["dateFrom"] = "2020-01-01",
+                ["dateTo"] = "2030-12-31",
+                ["count"] = "100",
+                ["fields"] = "id,hours,date,employee(id,firstName,lastName,email),activity(id,name),project(id)"
+            });
+
+            var matchedTimesheets = 0;
+            if (timesheetEntries.TryGetProperty("values", out var entryValues) && entryValues.ValueKind == JsonValueKind.Array)
+                matchedTimesheets = CountMatchingLifecycleTimesheets(entryValues, lifecycleTimesheets);
+
+            report.Checks.Add(new ValidationCheck(
+                "timesheet_logged",
+                "> 0",
+                matchedTimesheets.ToString(CultureInfo.InvariantCulture),
+                matchedTimesheets > 0,
+                2));
+
+            report.Checks.Add(new ValidationCheck(
+                "correct_timesheet_count",
+                lifecycleTimesheets.Count.ToString(CultureInfo.InvariantCulture),
+                matchedTimesheets.ToString(CultureInfo.InvariantCulture),
+                matchedTimesheets >= lifecycleTimesheets.Count,
+                2));
+
+            var orderValue = result.ExtraIds.TryGetValue("orderId", out var orderId)
+                ? await GetOrderById(api, orderId)
+                : await GetLatestProjectOrder(api, result.EntityId.Value);
+            var hasInvoice = orderValue.HasValue;
+            report.Checks.Add(new ValidationCheck("invoice_found", "true", hasInvoice ? "true" : "false", hasInvoice, 2));
+
+            var expectedAmount = GetExpectedLifecycleInvoiceAmount(extracted, lifecycleTimesheets);
+            if (expectedAmount.HasValue)
+            {
+                var actualAmount = orderValue.HasValue
+                    ? GetOrderGrossAmount(orderValue.Value)
+                    : 0m;
+                var amountPassed = orderValue.HasValue && Math.Abs(actualAmount - expectedAmount.Value) < 1m;
+                report.Checks.Add(new ValidationCheck(
+                    "correct_amount",
+                    expectedAmount.Value.ToString("F2", CultureInfo.InvariantCulture),
+                    actualAmount.ToString("F2", CultureInfo.InvariantCulture),
+                    amountPassed,
+                    2));
+            }
+
+            return;
         }
 
         // Check if invoice was created for the project (invoicingPlan, preliminaryInvoice, or /invoice?projectId)
@@ -1172,6 +1226,269 @@ public class SandboxValidator
             }
             report.Checks.Add(new ValidationCheck("has_project_invoice", "true", hasInvoice.ToString().ToLower(), hasInvoice, 2));
         }
+    }
+
+    private static List<Dictionary<string, object>> GetLifecycleProjectTimesheets(ExtractionResult extracted)
+    {
+        var timesheets = new List<Dictionary<string, object>>();
+
+        var direct = extracted.Entities.GetValueOrDefault("timesheet");
+        if (direct != null && direct.Count > 0)
+            timesheets.Add(direct);
+
+        timesheets.AddRange(extracted.Entities
+            .Where(kv => kv.Key.StartsWith("timesheet", StringComparison.OrdinalIgnoreCase)
+                && kv.Key.Length > 9
+                && char.IsDigit(kv.Key[9])
+                && kv.Value.Count > 0)
+            .OrderBy(kv => kv.Key)
+            .Select(kv => kv.Value));
+
+        var timeRegistration = extracted.Entities.GetValueOrDefault("timeRegistration");
+        if (timesheets.Count == 0 && timeRegistration != null && timeRegistration.Count > 0)
+            timesheets.Add(timeRegistration);
+
+        return timesheets;
+    }
+
+    private static int CountMatchingLifecycleTimesheets(JsonElement actualEntries, List<Dictionary<string, object>> expectedEntries)
+    {
+        var usedActualIndexes = new HashSet<int>();
+        var matched = 0;
+
+        foreach (var expected in expectedEntries)
+        {
+            var expectedHours = GetDecimalFromEntity(expected, "hours") ?? 0m;
+            var expectedEmployee = GetNestedEntity(expected, "employee");
+            var expectedEmail = expectedEmployee != null ? GetStringFromEntity(expectedEmployee, "email") : null;
+            var expectedFirst = expectedEmployee != null ? GetStringFromEntity(expectedEmployee, "firstName") : null;
+            var expectedLast = expectedEmployee != null ? GetStringFromEntity(expectedEmployee, "lastName") : null;
+
+            var actualIndex = 0;
+            foreach (var actual in actualEntries.EnumerateArray())
+            {
+                if (usedActualIndexes.Contains(actualIndex))
+                {
+                    actualIndex++;
+                    continue;
+                }
+
+                var actualHours = actual.TryGetProperty("hours", out var actualHoursProp) && actualHoursProp.ValueKind == JsonValueKind.Number
+                    ? actualHoursProp.GetDecimal()
+                    : 0m;
+                if (Math.Abs(actualHours - expectedHours) > 0.01m)
+                {
+                    actualIndex++;
+                    continue;
+                }
+
+                var actualEmail = actual.TryGetProperty("employee", out var actualEmployee)
+                    && actualEmployee.ValueKind == JsonValueKind.Object
+                    && actualEmployee.TryGetProperty("email", out var actualEmailProp)
+                        ? actualEmailProp.GetString()
+                        : null;
+                var actualFirst = actual.TryGetProperty("employee", out var actualEmployee2)
+                    && actualEmployee2.ValueKind == JsonValueKind.Object
+                    && actualEmployee2.TryGetProperty("firstName", out var actualFirstProp)
+                        ? actualFirstProp.GetString()
+                        : null;
+                var actualLast = actual.TryGetProperty("employee", out var actualEmployee3)
+                    && actualEmployee3.ValueKind == JsonValueKind.Object
+                    && actualEmployee3.TryGetProperty("lastName", out var actualLastProp)
+                        ? actualLastProp.GetString()
+                        : null;
+
+                var employeeMatches = !string.IsNullOrWhiteSpace(expectedEmail)
+                    ? string.Equals(expectedEmail, actualEmail, StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(expectedFirst, actualFirst, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(expectedLast, actualLast, StringComparison.OrdinalIgnoreCase);
+
+                if (employeeMatches || (string.IsNullOrWhiteSpace(expectedEmail) && string.IsNullOrWhiteSpace(expectedFirst)))
+                {
+                    usedActualIndexes.Add(actualIndex);
+                    matched++;
+                    break;
+                }
+
+                actualIndex++;
+            }
+        }
+
+        return matched;
+    }
+
+    private static decimal? GetExpectedLifecycleInvoiceAmount(ExtractionResult extracted, List<Dictionary<string, object>> lifecycleTimesheets)
+    {
+        var invoiceEntity = extracted.Entities.GetValueOrDefault("invoice") ?? new Dictionary<string, object>();
+        if (invoiceEntity.TryGetValue("orderLines", out var orderLinesVal) && orderLinesVal is JsonElement orderLinesJe && orderLinesJe.ValueKind == JsonValueKind.Array)
+        {
+            decimal total = 0m;
+            foreach (var line in orderLinesJe.EnumerateArray())
+            {
+                decimal unitPrice = 0m;
+                if (line.TryGetProperty("unitPrice", out var unitPriceProp) && unitPriceProp.ValueKind == JsonValueKind.Number)
+                    unitPrice = unitPriceProp.GetDecimal();
+                else if (line.TryGetProperty("amount", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number)
+                    unitPrice = amountProp.GetDecimal();
+
+                if (unitPrice <= 0m)
+                    continue;
+
+                decimal count = 1m;
+                if (line.TryGetProperty("count", out var countProp) && countProp.ValueKind == JsonValueKind.Number)
+                    count = countProp.GetDecimal();
+                else if (line.TryGetProperty("quantity", out var qtyProp) && qtyProp.ValueKind == JsonValueKind.Number)
+                    count = qtyProp.GetDecimal();
+
+                decimal vatRate = 25m;
+                if (line.TryGetProperty("vatRate", out var vatProp) && vatProp.ValueKind == JsonValueKind.Number)
+                    vatRate = vatProp.GetDecimal();
+
+                total += unitPrice * count * (1m + (vatRate / 100m));
+            }
+
+            if (total > 0m)
+                return Math.Round(total, 2);
+        }
+
+        var directAmount = GetDecimalFromEntity(invoiceEntity, "amount");
+        if (directAmount.HasValue && directAmount.Value > 0m)
+            return Math.Round(directAmount.Value * 1.25m, 2);
+
+        var projectEntity = extracted.Entities.GetValueOrDefault("project") ?? new Dictionary<string, object>();
+        var budget = GetDecimalFromEntity(projectEntity, "budget");
+        if (budget.HasValue && budget.Value > 0m)
+            return Math.Round(budget.Value * 1.25m, 2);
+
+        decimal hourlyTotal = 0m;
+        var allHaveRates = true;
+        foreach (var timesheet in lifecycleTimesheets)
+        {
+            var hours = GetDecimalFromEntity(timesheet, "hours") ?? 0m;
+            var rate = GetDecimalFromEntity(timesheet, "hourlyRate") ?? GetDecimalFromEntity(timesheet, "rate") ?? 0m;
+            if (hours <= 0m || rate <= 0m)
+            {
+                allHaveRates = false;
+                break;
+            }
+
+            hourlyTotal += hours * rate;
+        }
+
+        return allHaveRates && hourlyTotal > 0m ? Math.Round(hourlyTotal * 1.25m, 2) : null;
+    }
+
+    private async Task<JsonElement?> GetLatestProjectOrder(TripletexApiClient api, long projectId)
+    {
+        try
+        {
+            var orderSearch = await api.GetAsync("/order", new Dictionary<string, string>
+            {
+                ["projectId"] = projectId.ToString(CultureInfo.InvariantCulture),
+                ["count"] = "20",
+                ["fields"] = "id,orderDate",
+                ["orderDateFrom"] = "2020-01-01",
+                ["orderDateTo"] = "2030-12-31"
+            });
+
+            if (!orderSearch.TryGetProperty("values", out var orderValues) || orderValues.ValueKind != JsonValueKind.Array)
+                return null;
+
+            long latestOrderId = 0;
+            foreach (var orderEntry in orderValues.EnumerateArray())
+            {
+                if (!orderEntry.TryGetProperty("id", out var idProp) || idProp.ValueKind != JsonValueKind.Number)
+                    continue;
+
+                var orderId = idProp.GetInt64();
+                if (orderId > latestOrderId)
+                    latestOrderId = orderId;
+            }
+
+            if (latestOrderId <= 0)
+                return null;
+
+            return await GetOrderById(api, latestOrderId);
+        }
+        catch
+        {
+            // Best effort sandbox validation only.
+        }
+
+        return null;
+    }
+
+    private async Task<JsonElement?> GetOrderById(TripletexApiClient api, long orderId)
+    {
+        try
+        {
+            var orderResult = await api.GetAsync($"/order/{orderId}", new Dictionary<string, string>
+            {
+                ["fields"] = "*,orderLines(*)"
+            });
+
+            if (orderResult.TryGetProperty("value", out var value))
+                return value;
+        }
+        catch
+        {
+            // Best effort sandbox validation only.
+        }
+
+        return null;
+    }
+
+    private static decimal GetOrderGrossAmount(JsonElement orderValue)
+    {
+        if (orderValue.TryGetProperty("amountIncludingVatCurrency", out var amountInc) && amountInc.ValueKind == JsonValueKind.Number)
+            return amountInc.GetDecimal();
+
+        if (orderValue.TryGetProperty("amount", out var amount) && amount.ValueKind == JsonValueKind.Number)
+            return amount.GetDecimal();
+
+        if (!orderValue.TryGetProperty("orderLines", out var orderLines) || orderLines.ValueKind != JsonValueKind.Array)
+            return 0m;
+
+        decimal total = 0m;
+        foreach (var line in orderLines.EnumerateArray())
+        {
+            decimal count = 1m;
+            if (line.TryGetProperty("count", out var countProp) && countProp.ValueKind == JsonValueKind.Number)
+                count = countProp.GetDecimal();
+
+            decimal unitPrice = 0m;
+            if (line.TryGetProperty("unitPriceExcludingVatCurrency", out var unitPriceProp) && unitPriceProp.ValueKind == JsonValueKind.Number)
+                unitPrice = unitPriceProp.GetDecimal();
+            else if (line.TryGetProperty("amountExcludingVatCurrency", out var amountEx) && amountEx.ValueKind == JsonValueKind.Number)
+                unitPrice = amountEx.GetDecimal();
+
+            var vatRate = 0m;
+            if (line.TryGetProperty("vatType", out var vatType) && vatType.ValueKind == JsonValueKind.Object)
+            {
+                if (vatType.TryGetProperty("percentage", out var percentage) && percentage.ValueKind == JsonValueKind.Number)
+                {
+                    vatRate = percentage.GetDecimal();
+                }
+                else if (vatType.TryGetProperty("number", out var number))
+                {
+                    var vatNumber = number.ValueKind == JsonValueKind.Number
+                        ? number.GetInt32().ToString(CultureInfo.InvariantCulture)
+                        : number.GetString();
+                    vatRate = vatNumber switch
+                    {
+                        "3" => 25m,
+                        "31" => 15m,
+                        "32" => 12m,
+                        "33" => 11.11m,
+                        _ => 0m
+                    };
+                }
+            }
+
+            total += count * unitPrice * (1m + (vatRate / 100m));
+        }
+
+        return total;
     }
 
     private async Task ValidateTravelExpense(TripletexApiClient api, ExtractionResult extracted,
@@ -2164,6 +2481,23 @@ public class SandboxValidator
             };
         }
         return v?.ToString();
+    }
+
+    private static Dictionary<string, object>? GetNestedEntity(Dictionary<string, object> entity, string key)
+    {
+        if (!entity.TryGetValue(key, out var value) || value is null)
+            return null;
+        if (value is Dictionary<string, object> nested)
+            return nested;
+        if (value is JsonElement je && je.ValueKind == JsonValueKind.Object)
+        {
+            var nestedDict = new Dictionary<string, object>();
+            foreach (var prop in je.EnumerateObject())
+                nestedDict[prop.Name] = prop.Value;
+            return nestedDict;
+        }
+
+        return null;
     }
 
     private static string? NormalizeEmploymentType(string? value)

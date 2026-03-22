@@ -701,7 +701,14 @@ public class InvoiceHandler : ITaskHandler
             // Prefer output 25% MVA (number "3")
             foreach (var vt in vatTypesArray.EnumerateArray())
             {
-                if (vt.TryGetProperty("number", out var num) && num.GetString() == "3")
+                if (!vt.TryGetProperty("number", out var num))
+                    continue;
+
+                var number = num.ValueKind == JsonValueKind.Number
+                    ? num.GetInt32().ToString(CultureInfo.InvariantCulture)
+                    : num.GetString();
+
+                if (number == "3")
                 {
                     defaultId = vt.GetProperty("id").GetInt64();
                     return (defaultId, vatTypesArray);
