@@ -206,17 +206,24 @@ public class AnnualAccountsHandler : ITaskHandler
             {
                 // Query existing postings on the prepaid account to find the counter-account
                 // (the original booking would have debited 1700 and credited an expense account, or vice versa)
-                var prepaidPostings = await api.GetAsync("/ledger/posting", new Dictionary<string, string>
+                try
                 {
-                    ["accountNumber"] = prepaidAccount,
-                    ["count"] = "10",
-                    ["fields"] = "amount,account(id,number)"
-                });
-                if (prepaidPostings.TryGetProperty("values", out var ppVals))
+                    var prepaidPostings = await api.GetAsync("/ledger/posting", new Dictionary<string, string>
+                    {
+                        ["dateFrom"] = $"{year}-01-01",
+                        ["dateTo"] = date,
+                        ["accountNumber"] = prepaidAccount,
+                        ["count"] = "10",
+                        ["fields"] = "amount,account(id,number)"
+                    });
+                    if (prepaidPostings.TryGetProperty("values", out var ppVals))
+                    {
+                        _logger.LogInformation("Found {Count} existing postings on prepaid account {Acct}", ppVals.GetArrayLength(), prepaidAccount);
+                    }
+                }
+                catch (Exception ex)
                 {
-                    // Look for any posting that has a matching voucher and different account
-                    // The counter-posting in the same voucher will tell us the expense account
-                    _logger.LogInformation("Found {Count} existing postings on prepaid account {Acct}", ppVals.GetArrayLength(), prepaidAccount);
+                    _logger.LogWarning("Failed to query prepaid postings: {Error}", ex.Message);
                 }
                 // Default to 6800 — the prompts don't specify and competition likely expects a P&L account
                 prepaidCounterAccount = "6800";

@@ -188,13 +188,95 @@ public class ProjectHandler : ITaskHandler
                 body["department"] = new { id = deptId.Value };
         }
 
-        _logger.LogInformation("Creating project: {Name}, isFixedPrice={IsFixed}, fixedprice={FixedAmt}",
-            body.GetValueOrDefault("name"), body.GetValueOrDefault("isFixedPrice"), body.GetValueOrDefault("fixedprice"));
+        long projectId = 0;
+        bool existingProjectUpdated = false;
 
-        var result = await api.PostAsync("/project", body);
-        var projectId = result.GetProperty("value").GetProperty("id").GetInt64();
+        // For set_fixed_price tasks, search for existing project first (may already exist from task 8)
+        if (extracted.TaskType == "set_fixed_price")
+        {
+            var projectName = body.GetValueOrDefault("name")?.ToString();
+            if (!string.IsNullOrEmpty(projectName))
+            {
+                var searchResult = await api.GetAsync("/project", new Dictionary<string, string>
+                {
+                    ["name"] = projectName,
+                    ["count"] = "10",
+                    ["fields"] = "id,version,name,startDate,customer(id,organizationNumber),projectManager(id)"
+                });
 
-        _logger.LogInformation("Created project ID: {Id}", projectId);
+                if (searchResult.TryGetProperty("values", out var projects) && projects.GetArrayLength() > 0)
+                {
+                    // Find best match — prefer exact name, then filter by customer org number
+                    JsonElement? bestMatch = null;
+                    foreach (var p in projects.EnumerateArray())
+                    {
+                        var pName = p.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        if (!string.Equals(pName, projectName, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (bestMatch == null) { bestMatch = p; continue; }
+                        // Prefer match with matching customer org number
+                        if (orgNumber != null && p.TryGetProperty("customer", out var cust)
+                            && cust.TryGetProperty("organizationNumber", out var on)
+                            && on.GetString() == orgNumber)
+                        {
+                            bestMatch = p;
+                            break;
+                        }
+                    }
+                    bestMatch ??= projects[0];
+
+                    var match = bestMatch.Value;
+                    projectId = match.GetProperty("id").GetInt64();
+                    var version = match.GetProperty("version").GetInt32();
+
+                    // Build PUT body to set fixed price
+                    var putBody = new Dictionary<string, object>
+                    {
+                        ["id"] = projectId,
+                        ["version"] = version,
+                        ["isFixedPrice"] = true,
+                    };
+                    if (body.ContainsKey("fixedprice")) putBody["fixedprice"] = body["fixedprice"];
+                    if (body.ContainsKey("name")) putBody["name"] = body["name"];
+
+                    // Preserve startDate from existing project
+                    putBody["startDate"] = (match.TryGetProperty("startDate", out var sd) && sd.ValueKind != JsonValueKind.Null)
+                        ? sd.GetString()! : (body.GetValueOrDefault("startDate")?.ToString() ?? DateTime.Today.ToString("yyyy-MM-dd"));
+
+                    // Preserve PM from existing project, fallback to resolved PM
+                    if (match.TryGetProperty("projectManager", out var pm) && pm.ValueKind == JsonValueKind.Object
+                        && pm.TryGetProperty("id", out var pmIdProp))
+                        putBody["projectManager"] = new { id = pmIdProp.GetInt64() };
+                    else if (body.ContainsKey("projectManager"))
+                        putBody["projectManager"] = body["projectManager"];
+
+                    // Customer: use resolved customer if available, else preserve existing
+                    if (body.ContainsKey("customer"))
+                        putBody["customer"] = body["customer"];
+                    else if (match.TryGetProperty("customer", out var custEl) && custEl.ValueKind == JsonValueKind.Object
+                        && custEl.TryGetProperty("id", out var custIdProp))
+                    {
+                        var cid = custIdProp.GetInt64();
+                        putBody["customer"] = new { id = cid };
+                        body["customer"] = new { id = cid }; // needed for CreateProjectInvoice
+                    }
+
+                    await api.PutAsync($"/project/{projectId}", putBody);
+                    _logger.LogInformation("Updated existing project {Id} '{Name}' with fixed price", projectId, projectName);
+                    existingProjectUpdated = true;
+                }
+            }
+        }
+
+        if (!existingProjectUpdated)
+        {
+            _logger.LogInformation("Creating project: {Name}, isFixedPrice={IsFixed}, fixedprice={FixedAmt}",
+                body.GetValueOrDefault("name"), body.GetValueOrDefault("isFixedPrice"), body.GetValueOrDefault("fixedprice"));
+
+            var result = await api.PostAsync("/project", body);
+            projectId = result.GetProperty("value").GetProperty("id").GetInt64();
+            _logger.LogInformation("Created project ID: {Id}", projectId);
+        }
+
         handlerResult.EntityId = projectId;
 
         // Handle timesheet entries (log hours + generate project invoice)
