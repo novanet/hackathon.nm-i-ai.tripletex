@@ -6,13 +6,13 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T01:51:09.0700666Z |
+| Timestamp | 2026-03-22T10:51:08.0961400Z |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 16608 ms |
-| API Calls | 7 |
-| Errors | 0 |
+| Elapsed | 71915 ms |
+| API Calls | 8 |
+| Errors | 1 |
 
 ### API Calls
 
@@ -22,15 +22,24 @@
 | 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅ 200 |  |
 | 3 | `GET` | `/ledger/account?number=7140&count=1&fields=id%2Cnumber%2Cvat...` | ✅ 200 |  |
 | 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅ 200 |  |
-| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅ 200 |  |
-| 6 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅ 200 |  |
-| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅ 201 |  |
+| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅ 200 |  |
+| 6 | `GET` | `/incomingInvoice/search?invoiceDateFrom=2026-01-16&invoiceDa...` | ❌ 403 |  |
+| 7 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅ 200 |  |
+| 8 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅ 201 |  |
+
+### Error Responses
+
+**GET /incomingInvoice/search?invoiceDateFrom=2026-01-16&invoiceDateTo=2026-01-16&count=0** → 403
+
+```json
+{"status":403,"code":9000,"message":"You do not have permission to access this feature.","link":"https://tripletex.no/v2-docs/","developerMessage":null,"validationMessages":null,"requestId":"7a822275-2067-45a1-9838-d41dc87ea2c4"}
+```
 
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"en","entities":{"voucher":{"supplierName":"NSB","supplierOrgNumber":"998966345","invoiceNumber":"KVITTERING - 13.03.2026","account":"7140","amount":"11360.00","date":"2026-03-13","vatRate":"25"},"department":{"name":"Produksjon"}},"relationships":{},"raw_amounts":["10900.00","11360.00","2840.00"],"dates":["2026-03-13"],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"es","entities":{"voucher":{"supplierName":"NSB","supplierOrgNumber":"908986997","invoiceNumber":"KVITTERING - 16.01.2026","account":"7140","amount":"8480.00","date":"2026-01-16","vatRate":"25"},"department":{"name":"Produksjon"}},"relationships":{},"raw_amounts":["8480.00","7950.00","2120.00"],"dates":["2026-01-16"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
