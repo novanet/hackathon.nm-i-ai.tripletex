@@ -1981,7 +1981,7 @@ public class SandboxValidator
                     if (!string.IsNullOrEmpty(incomingText) && decimal.TryParse(incomingText.Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var incoming))
                         amount = incoming;
                     else if (!string.IsNullOrEmpty(outgoingText) && decimal.TryParse(outgoingText.Replace(",", "."), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var outgoing))
-                        amount = outgoing;
+                        amount = -outgoing; // Outgoing amounts are negative in Tripletex bank transactions
 
                     decimal runningBalance = 0m;
                     if (!string.IsNullOrEmpty(balanceText))

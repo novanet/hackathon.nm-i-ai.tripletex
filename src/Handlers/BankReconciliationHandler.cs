@@ -336,44 +336,379 @@ public class BankReconciliationHandler : ITaskHandler
     private async Task<ImportOutcome> TryImportAndMatch(TripletexApiClient api, long reconId, long accountId, List<BankTransaction> transactions, string endDate, string? periodStart, string? periodEnd, List<SolveFile>? files)
     {
         var csvFile = FindCsvFile(files);
-        if (csvFile != null)
+        if (csvFile == null)
         {
-            var transformedBytes = BuildTransferwiseCsvImport(transactions, periodStart);
-            var transformedFileName = Path.GetFileNameWithoutExtension(csvFile.Filename) + "-transferwise.csv";
-            var fromDate = periodStart ?? transactions[0].Date;
-            var toDate = periodEnd ?? endDate;
+            _logger.LogInformation("No CSV file found — creating adjustments for {Count} transactions", transactions.Count);
+            var adjustmentCount = await CreateAdjustments(api, reconId, transactions, periodStart);
+            return new ImportOutcome("adjustments", false, adjustmentCount);
+        }
 
-            // Delete any pre-existing bank statement for this account/period to avoid "already exists" errors
-            await DeleteExistingBankStatements(api, accountId);
+        var transformedBytes = BuildTransferwiseCsvImport(transactions, periodStart);
+        var transformedFileName = Path.GetFileNameWithoutExtension(csvFile.Filename) + "-transferwise.csv";
+        var fromDate = periodStart ?? transactions[0].Date;
+        var toDate = periodEnd ?? endDate;
 
-            try
+        // Delete any pre-existing bank statement for this account/period to avoid "already exists" errors
+        await DeleteExistingBankStatements(api, accountId);
+
+        JsonElement importResult;
+        try
+        {
+            _logger.LogInformation("Trying bank statement import with TRANSFERWISE format for reconciliation {Id}", reconId);
+            importResult = await api.PostBankStatementImportAsync(accountId, fromDate, toDate, "TRANSFERWISE", transformedBytes, transformedFileName);
+            _logger.LogInformation("Bank statement import succeeded with TRANSFERWISE for reconciliation {Id}", reconId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("TRANSFERWISE import failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
+            var adjustmentCount = await CreateAdjustments(api, reconId, transactions, periodStart);
+            return new ImportOutcome("adjustments", false, adjustmentCount);
+        }
+
+        // Get the bank statement ID from the import result or by querying
+        long? bankStatementId = null;
+        if (importResult.ValueKind == JsonValueKind.Object && importResult.TryGetProperty("value", out var impVal) && impVal.TryGetProperty("id", out var impId))
+            bankStatementId = impId.GetInt64();
+
+        if (!bankStatementId.HasValue)
+        {
+            // Query for the bank statement
+            var stmtResult = await api.GetAsync("/bank/statement", new Dictionary<string, string>
             {
-                _logger.LogInformation("Trying bank statement import with TRANSFERWISE format for reconciliation {Id}", reconId);
-                await api.PostBankStatementImportAsync(accountId, fromDate, toDate, "TRANSFERWISE", transformedBytes, transformedFileName);
-                _logger.LogInformation("Bank statement import succeeded with TRANSFERWISE for reconciliation {Id}", reconId);
-
-                try
-                {
-                    await api.PutAsync("/bank/reconciliation/match/:suggest", new Dictionary<string, object>(),
-                        new Dictionary<string, string> { ["bankReconciliationId"] = reconId.ToString(CultureInfo.InvariantCulture) });
-                    _logger.LogInformation("Auto-match suggest completed for reconciliation {Id}", reconId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("Auto-match suggest failed after import for reconciliation {Id}: {Msg}", reconId, ex.Message);
-                }
-
-                return new ImportOutcome("transferwise_import", true, 0);
-            }
-            catch (Exception ex)
+                ["accountId"] = accountId.ToString(CultureInfo.InvariantCulture),
+                ["count"] = "1",
+                ["sorting"] = "-id",
+                ["fields"] = "id"
+            });
+            if (stmtResult.TryGetProperty("values", out var stmtVals) && stmtVals.ValueKind == JsonValueKind.Array)
             {
-                _logger.LogWarning("TRANSFERWISE import failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
+                foreach (var sv in stmtVals.EnumerateArray())
+                {
+                    if (sv.TryGetProperty("id", out var svId))
+                    {
+                        bankStatementId = svId.GetInt64();
+                        break;
+                    }
+                }
             }
         }
 
-        _logger.LogInformation("Import path unavailable — creating adjustments for {Count} transactions", transactions.Count);
-        var adjustmentCount = await CreateAdjustments(api, reconId, transactions, periodStart);
-        return new ImportOutcome("adjustments", false, adjustmentCount);
+        if (!bankStatementId.HasValue)
+        {
+            _logger.LogWarning("Could not determine bank statement ID after import — skipping matching");
+            return new ImportOutcome("transferwise_import", true, 0);
+        }
+
+        // Get all imported bank transactions
+        var bankTxResult = await api.GetAsync("/bank/statement/transaction", new Dictionary<string, string>
+        {
+            ["bankStatementId"] = bankStatementId.Value.ToString(CultureInfo.InvariantCulture),
+            ["count"] = "1000",
+            ["fields"] = "id,description,amountCurrency,postedDate"
+        });
+
+        var bankTxList = new List<(long Id, string Description, decimal Amount, string Date)>();
+        if (bankTxResult.TryGetProperty("values", out var txVals) && txVals.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var tx in txVals.EnumerateArray())
+            {
+                var txId = tx.TryGetProperty("id", out var idP) ? idP.GetInt64() : 0L;
+                var txDesc = tx.TryGetProperty("description", out var descP) ? descP.GetString() ?? "" : "";
+                var txAmt = tx.TryGetProperty("amountCurrency", out var amtP) && amtP.ValueKind == JsonValueKind.Number ? amtP.GetDecimal() : 0m;
+                var txDate = tx.TryGetProperty("postedDate", out var dateP) ? dateP.GetString() ?? fromDate : fromDate;
+                if (txId != 0)
+                    bankTxList.Add((txId, txDesc, txAmt, txDate));
+            }
+        }
+
+        _logger.LogInformation("Found {Count} imported bank transactions for statement {StmtId}", bankTxList.Count, bankStatementId);
+
+        // Identify matchable transactions (customer/supplier payments)
+        var matchableCsvTx = transactions
+            .Where(t => t.Type is TransactionType.CustomerPayment or TransactionType.SupplierPayment)
+            .ToList();
+
+        if (matchableCsvTx.Count == 0)
+        {
+            _logger.LogInformation("No matchable (customer/supplier) transactions found — skipping manual matching");
+            return new ImportOutcome("transferwise_import", true, 0);
+        }
+
+        // Match CSV transactions to imported bank transactions by description + amount
+        var matchPairs = new List<(BankTransaction CsvTx, long BankTxId, string BankTxDate)>();
+        var usedBankTxIds = new HashSet<long>();
+        foreach (var csvTx in matchableCsvTx)
+        {
+            // Find the corresponding bank transaction by matching description and amount
+            foreach (var (btId, btDesc, btAmt, btDate) in bankTxList)
+            {
+                if (usedBankTxIds.Contains(btId)) continue;
+                if (Math.Abs(csvTx.Amount - btAmt) < 0.01m && DescriptionsMatch(csvTx.Description, btDesc))
+                {
+                    matchPairs.Add((csvTx, btId, btDate));
+                    usedBankTxIds.Add(btId);
+                    break;
+                }
+            }
+        }
+
+        _logger.LogInformation("Matched {Count}/{Total} CSV transactions to bank transactions",
+            matchPairs.Count, matchableCsvTx.Count);
+
+        if (matchPairs.Count == 0)
+        {
+            // Fallback: match by amount only
+            foreach (var csvTx in matchableCsvTx)
+            {
+                foreach (var (btId, btDesc, btAmt, btDate) in bankTxList)
+                {
+                    if (usedBankTxIds.Contains(btId)) continue;
+                    if (Math.Abs(csvTx.Amount - btAmt) < 0.01m)
+                    {
+                        matchPairs.Add((csvTx, btId, btDate));
+                        usedBankTxIds.Add(btId);
+                        break;
+                    }
+                }
+            }
+            _logger.LogInformation("After amount-only fallback: {Count} match pairs", matchPairs.Count);
+        }
+
+        if (matchPairs.Count == 0)
+            return new ImportOutcome("transferwise_import", true, 0);
+
+        // Resolve a general-type contra account (NOT customer/vendor type which requires customer/supplier IDs)
+        var contraAccountId = await ResolveGeneralContraAccountId(api);
+        if (!contraAccountId.HasValue)
+        {
+            _logger.LogWarning("Could not find a suitable general-type contra account — skipping matching");
+            return new ImportOutcome("transferwise_import", true, 0);
+        }
+
+        // Build a single voucher with all matchable transactions as posting pairs
+        // This minimizes write calls (1 voucher instead of N)
+        var allPostings = new List<Dictionary<string, object>>();
+        int rowNum = 0;
+        foreach (var (csvTx, bankTxId, bankTxDate) in matchPairs)
+        {
+            var postingDate = bankTxDate;
+            // Clamp date to period
+            if (periodStart != null &&
+                DateTime.TryParse(postingDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var pd) &&
+                DateTime.TryParse(periodStart, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var ps) &&
+                pd < ps)
+            {
+                postingDate = periodStart;
+            }
+
+            rowNum++;
+            allPostings.Add(new Dictionary<string, object>
+            {
+                ["row"] = rowNum,
+                ["date"] = postingDate,
+                ["description"] = csvTx.Description,
+                ["account"] = new { id = accountId },
+                ["amountGross"] = csvTx.Amount,
+                ["amountGrossCurrency"] = csvTx.Amount
+            });
+
+            rowNum++;
+            allPostings.Add(new Dictionary<string, object>
+            {
+                ["row"] = rowNum,
+                ["date"] = postingDate,
+                ["description"] = csvTx.Description,
+                ["account"] = new { id = contraAccountId.Value },
+                ["amountGross"] = -csvTx.Amount,
+                ["amountGrossCurrency"] = -csvTx.Amount
+            });
+        }
+
+        // Create a single voucher with all posting pairs
+        long voucherId;
+        try
+        {
+            var voucherBody = new Dictionary<string, object>
+            {
+                ["date"] = matchPairs[0].BankTxDate,
+                ["description"] = "Bank reconciliation matching postings",
+                ["postings"] = allPostings
+            };
+
+            var voucherResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+            voucherId = voucherResult.GetProperty("value").GetProperty("id").GetInt64();
+            _logger.LogInformation("Created matching voucher {Id} with {PostingCount} postings for {MatchCount} transactions",
+                voucherId, allPostings.Count, matchPairs.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to create matching voucher: {Msg}", ex.Message);
+            return new ImportOutcome("transferwise_import", true, 0);
+        }
+
+        // Get all posting IDs from the voucher
+        var voucherDetail = await api.GetAsync($"/ledger/voucher/{voucherId}", new Dictionary<string, string>
+        {
+            ["fields"] = "id,postings(id,account(id),amount,amountGross,description)"
+        });
+
+        var voucherPostings = new List<(long PostingId, long PostingAccountId, decimal Amount, string Description)>();
+        if (voucherDetail.TryGetProperty("value", out var vv) &&
+            vv.TryGetProperty("postings", out var postingsArr) &&
+            postingsArr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var posting in postingsArr.EnumerateArray())
+            {
+                var pId = posting.TryGetProperty("id", out var pidP) ? pidP.GetInt64() : 0L;
+                var pAcctId = posting.TryGetProperty("account", out var pAcct) &&
+                    pAcct.TryGetProperty("id", out var pAid) ? pAid.GetInt64() : 0L;
+                var pAmt = posting.TryGetProperty("amountGross", out var pAmtP) && pAmtP.ValueKind == JsonValueKind.Number
+                    ? pAmtP.GetDecimal() : 0m;
+                var pDesc = posting.TryGetProperty("description", out var pDescP) ? pDescP.GetString() ?? "" : "";
+                if (pId != 0)
+                    voucherPostings.Add((pId, pAcctId, pAmt, pDesc));
+            }
+        }
+
+        // Get only postings on account 1920
+        var postingsOn1920 = voucherPostings
+            .Where(p => p.PostingAccountId == accountId)
+            .ToList();
+
+        _logger.LogInformation("Found {Count} postings on account 1920 in voucher {Id}", postingsOn1920.Count, voucherId);
+
+        // Match each bank transaction to its corresponding posting on 1920
+        int matchesCreated = 0;
+        var usedPostingIds = new HashSet<long>();
+
+        foreach (var (csvTx, bankTxId, bankTxDate) in matchPairs)
+        {
+            // Find the posting on 1920 with matching amount and description
+            long? matchingPostingId = null;
+            foreach (var (pId, pAcctId, pAmt, pDesc) in postingsOn1920)
+            {
+                if (usedPostingIds.Contains(pId)) continue;
+                if (Math.Abs(csvTx.Amount - pAmt) < 0.01m)
+                {
+                    matchingPostingId = pId;
+                    usedPostingIds.Add(pId);
+                    break;
+                }
+            }
+
+            if (!matchingPostingId.HasValue)
+            {
+                _logger.LogWarning("Could not find matching posting on 1920 for bank tx {BTxId} (amount={Amount})",
+                    bankTxId, csvTx.Amount);
+                continue;
+            }
+
+            try
+            {
+                var matchBody = new Dictionary<string, object>
+                {
+                    ["bankReconciliation"] = new { id = reconId },
+                    ["type"] = "MANUAL",
+                    ["transactions"] = new[] { new { id = bankTxId } },
+                    ["postings"] = new[] { new { id = matchingPostingId.Value } }
+                };
+
+                await api.PostAsync("/bank/reconciliation/match", matchBody);
+                matchesCreated++;
+                _logger.LogInformation("Created manual match for bank tx {BTxId} ↔ posting {PostingId}",
+                    bankTxId, matchingPostingId.Value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to create match for bank tx {BTxId} ({Desc}): {Msg}",
+                    bankTxId, csvTx.Description, ex.Message);
+            }
+        }
+
+        _logger.LogInformation("Manual matching complete: {Created}/{Total} matches created", matchesCreated, matchPairs.Count);
+        return new ImportOutcome("transferwise_import_with_matching", true, matchesCreated);
+    }
+
+    private static bool DescriptionsMatch(string csvDescription, string bankDescription)
+    {
+        var a = NormalizeBankDescription(csvDescription);
+        var b = NormalizeBankDescription(bankDescription);
+        return a == b;
+    }
+
+    private static string NormalizeBankDescription(string text)
+    {
+        return Regex.Replace(text.Trim().ToLowerInvariant(), @"\s+", " ");
+    }
+
+    /// <summary>
+    /// Find a GENERAL-type contra account that won't require customer/supplier IDs on postings.
+    /// Tries known safe accounts in order: 1909 (interim bank), 2990 (other current liabilities), 
+    /// 1900 (cash), then falls back to any GENERAL-type non-bank, non-inactive account.
+    /// </summary>
+    private async Task<long?> ResolveGeneralContraAccountId(TripletexApiClient api)
+    {
+        // Try known safe accounts first
+        foreach (var num in new[] { "1909", "2990", "1900", "3900", "7700" })
+        {
+            try
+            {
+                var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+                {
+                    ["number"] = num,
+                    ["count"] = "1",
+                    ["fields"] = "id,number,ledgerType,isInactive"
+                });
+                if (result.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var v in vals.EnumerateArray())
+                    {
+                        var isInactive = v.TryGetProperty("isInactive", out var inact) && inact.ValueKind == JsonValueKind.True;
+                        if (isInactive) continue;
+                        var ledgerType = v.TryGetProperty("ledgerType", out var lt) ? lt.GetString() : null;
+                        if (ledgerType == "CUSTOMER" || ledgerType == "VENDOR") continue;
+                        if (v.TryGetProperty("id", out var idProp))
+                        {
+                            _logger.LogInformation("Using contra account {Number} (type={LedgerType}) for bank reconciliation postings", num, ledgerType);
+                            return idProp.GetInt64();
+                        }
+                    }
+                }
+            }
+            catch { /* try next */ }
+        }
+
+        // Fallback: query for any GENERAL-type account
+        try
+        {
+            var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+            {
+                ["ledgerType"] = "GENERAL",
+                ["isInactive"] = "false",
+                ["isBankAccount"] = "false",
+                ["from"] = "0",
+                ["count"] = "10",
+                ["fields"] = "id,number"
+            });
+            if (result.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var v in vals.EnumerateArray())
+                {
+                    if (v.TryGetProperty("id", out var idP))
+                    {
+                        var num = v.TryGetProperty("number", out var np) ? np.GetInt32() : 0;
+                        _logger.LogInformation("Fallback: using contra account {Number} for bank reconciliation postings", num);
+                        return idP.GetInt64();
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to find any general-type contra account: {Msg}", ex.Message);
+        }
+
+        return null;
     }
 
     private async Task DeleteExistingBankStatements(TripletexApiClient api, long accountId)
