@@ -9,7 +9,11 @@ namespace TripletexAgent.Handlers;
 
 /// <summary>
 /// Handles bank_reconciliation tasks.
-/// Full flow: resolve account → resolve period → create reconciliation → transform/import CSV → suggest matches → fallback to adjustments
+/// Full flow:
+///   1. Parse CSV → classify transactions (customer payment, supplier payment, other)
+///   2. Register payments on open customer invoices (by invoice number from CSV)
+///   3. Register payments on open supplier invoices (by supplier name from CSV)
+///   4. Create bank reconciliation → import bank statement → auto-match → close
 /// </summary>
 public class BankReconciliationHandler : ITaskHandler
 {
@@ -35,16 +39,17 @@ public class BankReconciliationHandler : ITaskHandler
             else if (decimal.TryParse(cbVal?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
                 closingBalance = parsed;
         }
-        // Fallback: try raw_amounts
+        // Fallback: try raw_amounts — use the LAST amount which is typically the closing balance
         if (!closingBalance.HasValue && extracted.RawAmounts.Count > 0)
         {
-            if (decimal.TryParse(extracted.RawAmounts[0].Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var rawParsed))
+            var lastAmountStr = extracted.RawAmounts[^1].Replace(",", ".");
+            if (decimal.TryParse(lastAmountStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var rawParsed))
                 closingBalance = rawParsed;
         }
 
         // Extract date (statement date / period end)
         var date = GetStringField(rec, "date")
-            ?? (extracted.Dates.Count > 0 ? extracted.Dates[0] : null)
+            ?? (extracted.Dates.Count > 0 ? extracted.Dates[^1] : null)
             ?? DateTime.Today.ToString("yyyy-MM-dd");
 
         // Parse CSV from attached files
@@ -55,12 +60,77 @@ public class BankReconciliationHandler : ITaskHandler
             closingBalance = transactions[^1].RunningBalance;
         closingBalance ??= 0m;
 
-        // If we got transactions, also derive the date range
-        if (transactions.Count > 0 && date == DateTime.Today.ToString("yyyy-MM-dd"))
+        // If we got transactions, derive the date from the last transaction
+        if (transactions.Count > 0)
             date = transactions[^1].Date;
 
         _logger.LogInformation("BankReconciliation: account={Account}, balance={Balance}, date={Date}, transactions={TxCount}",
             accountNumber, closingBalance, date, transactions.Count);
+
+        // ── PHASE 1: Register payments on open invoices ──
+        int customerPaymentsRegistered = 0;
+        int supplierPaymentsRegistered = 0;
+
+        if (transactions.Count > 0)
+        {
+            // Resolve payment type once (needed for customer invoice payments)
+            var paymentTypeId = await ResolveInvoicePaymentTypeId(api);
+
+            // Process customer payments (incoming, with invoice numbers)
+            var customerTxs = transactions.Where(t => t.Type == TransactionType.CustomerPayment && !string.IsNullOrEmpty(t.InvoiceNumber)).ToList();
+            foreach (var tx in customerTxs)
+            {
+                try
+                {
+                    var invoiceId = await FindCustomerInvoiceByNumber(api, tx.InvoiceNumber!);
+                    if (invoiceId.HasValue)
+                    {
+                        await RegisterCustomerInvoicePayment(api, invoiceId.Value, paymentTypeId, Math.Abs(tx.Amount), tx.Date);
+                        tx.Matched = true;
+                        customerPaymentsRegistered++;
+                        _logger.LogInformation("Registered customer payment: Faktura {InvoiceNum} amount={Amount} on invoice {InvoiceId}",
+                            tx.InvoiceNumber, tx.Amount, invoiceId.Value);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Could not find customer invoice with number {InvoiceNum}", tx.InvoiceNumber);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to register customer payment for Faktura {InvoiceNum}: {Msg}", tx.InvoiceNumber, ex.Message);
+                }
+            }
+
+            // Process supplier payments (outgoing)
+            var supplierTxs = transactions.Where(t => t.Type == TransactionType.SupplierPayment && !string.IsNullOrEmpty(t.SupplierName)).ToList();
+            foreach (var tx in supplierTxs)
+            {
+                try
+                {
+                    var paid = await FindAndPaySupplierInvoice(api, tx.SupplierName!, Math.Abs(tx.Amount), tx.Date);
+                    if (paid)
+                    {
+                        tx.Matched = true;
+                        supplierPaymentsRegistered++;
+                        _logger.LogInformation("Registered supplier payment: {Supplier} amount={Amount}", tx.SupplierName, Math.Abs(tx.Amount));
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Could not find/pay supplier invoice for {Supplier} amount={Amount}", tx.SupplierName, Math.Abs(tx.Amount));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to register supplier payment for {Supplier}: {Msg}", tx.SupplierName, ex.Message);
+                }
+            }
+
+            _logger.LogInformation("Payment registration: {CustPaid} customer, {SupPaid} supplier payments registered",
+                customerPaymentsRegistered, supplierPaymentsRegistered);
+        }
+
+        // ── PHASE 2: Create bank reconciliation ──
 
         // Step 1: Resolve account ID
         var accountResult = await api.GetAsync("/ledger/account", new Dictionary<string, string>
@@ -95,14 +165,13 @@ public class BankReconciliationHandler : ITaskHandler
             return HandlerResult.Empty;
         }
 
-        // Step 3: Reuse an existing reconciliation in the same period when replaying in sandbox.
+        // Step 3: Create or reuse bank reconciliation
         var (reconId, reusedExistingReconciliation) = await CreateOrReuseReconciliationAsync(
             api,
             accountId.Value,
             accountingPeriodId.Value,
             closingBalance.Value);
 
-        // Step 4: If we have CSV transactions, try bank statement import then auto-match
         var result = new HandlerResult { EntityType = "reconciliation", EntityId = reconId };
 
         if (reconId.HasValue)
@@ -111,19 +180,247 @@ public class BankReconciliationHandler : ITaskHandler
             result.Metadata["statementDate"] = date;
             result.Metadata["closingBalance"] = closingBalance.Value.ToString("0.00", CultureInfo.InvariantCulture);
             result.Metadata["transactionCount"] = transactions.Count.ToString(CultureInfo.InvariantCulture);
-            result.Metadata["reusedExistingReconciliation"] = reusedExistingReconciliation ? "true" : "false";
+            result.Metadata["customerPaymentsRegistered"] = customerPaymentsRegistered.ToString(CultureInfo.InvariantCulture);
+            result.Metadata["supplierPaymentsRegistered"] = supplierPaymentsRegistered.ToString(CultureInfo.InvariantCulture);
         }
 
+        // ── PHASE 3: Import bank statement and match ──
         if (reconId.HasValue && transactions.Count > 0)
         {
-            var importOutcome = await TryImportAndMatch(api, reconId.Value, accountId.Value, transactions, date, periodStart, periodEnd, extracted.Files);
-            result.Metadata["bankImportMode"] = importOutcome.Mode;
-            result.Metadata["bankImportSucceeded"] = importOutcome.ImportSucceeded ? "true" : "false";
-            result.Metadata["adjustmentCount"] = importOutcome.AdjustmentCount.ToString(CultureInfo.InvariantCulture);
+            var csvFile = FindCsvFile(extracted.Files);
+            if (csvFile != null)
+            {
+                var importOutcome = await ImportAndMatchBankStatement(api, reconId.Value, accountId.Value, transactions, date, periodStart, periodEnd);
+                result.Metadata["bankImportMode"] = importOutcome.Mode;
+                result.Metadata["bankImportSucceeded"] = importOutcome.ImportSucceeded ? "true" : "false";
+                result.Metadata["matchCount"] = importOutcome.MatchCount.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        // ── PHASE 4: Close reconciliation ──
+        if (reconId.HasValue)
+        {
+            await CloseReconciliationAsync(api, reconId.Value);
         }
 
         return result;
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Payment registration helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<long?> FindCustomerInvoiceByNumber(TripletexApiClient api, string invoiceNumber)
+    {
+        var result = await api.GetAsync("/invoice", new Dictionary<string, string>
+        {
+            ["invoiceNumber"] = invoiceNumber,
+            ["count"] = "1",
+            ["fields"] = "id,invoiceNumber,amount,amountOutstanding"
+        });
+
+        if (result.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var v in vals.EnumerateArray())
+            {
+                if (v.TryGetProperty("id", out var idProp))
+                {
+                    var id = idProp.GetInt64();
+                    _logger.LogInformation("Found customer invoice #{Num}: ID={Id}", invoiceNumber, id);
+                    return id;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private async Task RegisterCustomerInvoicePayment(TripletexApiClient api, long invoiceId, long paymentTypeId, decimal amount, string paymentDate)
+    {
+        var queryParams = new Dictionary<string, string>
+        {
+            ["paymentDate"] = paymentDate,
+            ["paymentTypeId"] = paymentTypeId.ToString(CultureInfo.InvariantCulture),
+            ["paidAmount"] = amount.ToString("F2", CultureInfo.InvariantCulture)
+        };
+
+        await api.PutAsync(
+            $"/invoice/{invoiceId}/:payment",
+            body: null,
+            queryParams: queryParams);
+    }
+
+    private async Task<bool> FindAndPaySupplierInvoice(TripletexApiClient api, string supplierName, decimal amount, string paymentDate)
+    {
+        // Step 1: Find the supplier by name
+        var supplierResult = await api.GetAsync("/supplier", new Dictionary<string, string>
+        {
+            ["name"] = supplierName,
+            ["count"] = "5",
+            ["fields"] = "id,name"
+        });
+
+        var supplierIds = new List<long>();
+        if (supplierResult.TryGetProperty("values", out var supplierVals) && supplierVals.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var v in supplierVals.EnumerateArray())
+            {
+                if (v.TryGetProperty("id", out var idProp))
+                    supplierIds.Add(idProp.GetInt64());
+            }
+        }
+
+        if (supplierIds.Count == 0)
+        {
+            _logger.LogWarning("No supplier found with name '{Name}'", supplierName);
+            return false;
+        }
+
+        // Step 2: Find open supplier invoices for this supplier
+        foreach (var supplierId in supplierIds)
+        {
+            var invoiceResult = await api.GetAsync("/supplierInvoice", new Dictionary<string, string>
+            {
+                ["supplierId"] = supplierId.ToString(CultureInfo.InvariantCulture),
+                ["from"] = "0",
+                ["count"] = "100",
+                ["fields"] = "id,amount,amountCurrency,invoiceNumber,supplierId"
+            });
+
+            if (invoiceResult.TryGetProperty("values", out var invoiceVals) && invoiceVals.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var inv in invoiceVals.EnumerateArray())
+                {
+                    if (!inv.TryGetProperty("id", out var invIdProp)) continue;
+                    var invId = invIdProp.GetInt64();
+
+                    // Try to match by amount
+                    var invAmount = 0m;
+                    if (inv.TryGetProperty("amount", out var amtProp) && amtProp.ValueKind == JsonValueKind.Number)
+                        invAmount = amtProp.GetDecimal();
+                    else if (inv.TryGetProperty("amountCurrency", out var amtCurrProp) && amtCurrProp.ValueKind == JsonValueKind.Number)
+                        invAmount = amtCurrProp.GetDecimal();
+
+                    // Match if amounts are close (or just pay any open invoice if we can't match by amount)
+                    if (Math.Abs(Math.Abs(invAmount) - amount) < 0.01m || supplierIds.Count == 1)
+                    {
+                        // Register payment on this supplier invoice
+                        var qs = new Dictionary<string, string>
+                        {
+                            ["paymentDate"] = paymentDate,
+                            ["amount"] = amount.ToString("F2", CultureInfo.InvariantCulture),
+                            ["useDefaultPaymentType"] = "true",
+                            ["partialPayment"] = "false"
+                        };
+                        var qsStr = string.Join("&", qs.Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}"));
+
+                        await api.PostAsync($"/supplierInvoice/{invId}/:addPayment?{qsStr}", new { });
+                        _logger.LogInformation("Registered supplier invoice payment: invoice {InvId}, supplier {Supplier}, amount {Amount}",
+                            invId, supplierName, amount);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        _logger.LogWarning("No matching open supplier invoice found for {Supplier} amount={Amount}", supplierName, amount);
+        return false;
+    }
+
+    private async Task<long> ResolveInvoicePaymentTypeId(TripletexApiClient api)
+    {
+        var result = await api.GetAsync("/invoice/paymentType", new Dictionary<string, string>
+        {
+            ["count"] = "100",
+            ["fields"] = "id,description"
+        });
+
+        long typeId = 0;
+        if (result.TryGetProperty("values", out var types))
+        {
+            foreach (var t in types.EnumerateArray())
+            {
+                if (t.TryGetProperty("description", out var desc))
+                {
+                    var d = desc.GetString()?.ToLowerInvariant() ?? "";
+                    if (d.Contains("bank") || d.Contains("overf"))
+                    {
+                        typeId = t.GetProperty("id").GetInt64();
+                        break;
+                    }
+                }
+            }
+            if (typeId == 0)
+            {
+                foreach (var t in types.EnumerateArray())
+                {
+                    typeId = t.GetProperty("id").GetInt64();
+                    break;
+                }
+            }
+        }
+
+        if (typeId == 0)
+        {
+            _logger.LogWarning("No payment types found via /invoice/paymentType — falling back to typeId=1");
+            typeId = 1;
+        }
+
+        _logger.LogInformation("Resolved invoice paymentTypeId={Id}", typeId);
+        return typeId;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Bank reconciliation + statement import + matching
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<ImportOutcome> ImportAndMatchBankStatement(
+        TripletexApiClient api, long reconId, long accountId,
+        List<BankTransaction> transactions, string endDate, string? periodStart, string? periodEnd)
+    {
+        var transformedBytes = BuildTransferwiseCsvImport(transactions, periodStart);
+        var transformedFileName = "bankstatement-transferwise.csv";
+        var fromDate = periodStart ?? transactions[0].Date;
+        var toDate = periodEnd ?? endDate;
+
+        // Delete any pre-existing bank statement for this account to avoid duplicates
+        await DeleteExistingBankStatements(api, accountId);
+
+        JsonElement importResult;
+        try
+        {
+            importResult = await api.PostBankStatementImportAsync(accountId, fromDate, toDate, "TRANSFERWISE", transformedBytes, transformedFileName);
+            _logger.LogInformation("Bank statement import succeeded for reconciliation {Id}", reconId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Bank statement import failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
+            return new ImportOutcome("import_failed", false, 0);
+        }
+
+        // Try auto-suggest — Tripletex matches bank transactions to existing payment postings
+        int matchCount = 0;
+        try
+        {
+            var suggestResult = await api.PutAsync("/bank/reconciliation/match/:suggest", null,
+                new Dictionary<string, string> { ["bankReconciliationId"] = reconId.ToString(CultureInfo.InvariantCulture) });
+            if (suggestResult.TryGetProperty("values", out var suggestValues) && suggestValues.ValueKind == JsonValueKind.Array)
+            {
+                matchCount = suggestValues.GetArrayLength();
+            }
+            _logger.LogInformation("Suggest matching: {Count} matches auto-created for reconciliation {Id}", matchCount, reconId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Suggest matching failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
+        }
+
+        return new ImportOutcome("transferwise_import_with_matching", true, matchCount);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Accounting period resolution
+    // ═══════════════════════════════════════════════════════════════
 
     private async Task<(long? Id, string? Start, string? End)> ResolveAccountingPeriodAsync(TripletexApiClient api, string statementDate)
     {
@@ -146,6 +443,7 @@ public class BankReconciliationHandler : ITaskHandler
             }
         }
 
+        // Fallback: query all periods and find the one that contains the date
         if (!DateTime.TryParse(statementDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var statementDateValue))
             statementDateValue = DateTime.Today;
 
@@ -186,42 +484,24 @@ public class BankReconciliationHandler : ITaskHandler
         return (latestId, latestStart, null);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // Reconciliation CRUD
+    // ═══════════════════════════════════════════════════════════════
+
     private async Task<(long? ReconId, bool ReusedExisting)> CreateOrReuseReconciliationAsync(
-        TripletexApiClient api,
-        long accountId,
-        long accountingPeriodId,
-        decimal closingBalance)
+        TripletexApiClient api, long accountId, long accountingPeriodId, decimal closingBalance)
     {
         var existingReconciliation = await FindExistingBankReconciliationAsync(api, accountId, accountingPeriodId);
         if (existingReconciliation != null)
         {
-            if (CanReuseExistingReconciliation(existingReconciliation, closingBalance))
-            {
-                _logger.LogInformation(
-                    "Reusing empty matching bank reconciliation ID {Id} for account {AccountId} and accounting period {AccountingPeriodId}",
-                    existingReconciliation.Id,
-                    accountId,
-                    accountingPeriodId);
-                return (existingReconciliation.Id, true);
-            }
-
             if (!existingReconciliation.IsClosed)
             {
-                _logger.LogInformation(
-                    "Deleting stale bank reconciliation ID {Id} for account {AccountId} and accounting period {AccountingPeriodId}; balance={ExistingBalance}, targetBalance={TargetBalance}, transactions={TransactionCount}",
-                    existingReconciliation.Id,
-                    accountId,
-                    accountingPeriodId,
-                    existingReconciliation.ClosingBalance,
-                    closingBalance,
-                    existingReconciliation.TransactionCount);
-                await api.DeleteAsync($"/bank/reconciliation/{existingReconciliation.Id}");
+                _logger.LogInformation("Reusing existing bank reconciliation ID {Id}", existingReconciliation.Id);
+                return (existingReconciliation.Id, true);
             }
             else
             {
-                _logger.LogWarning(
-                    "Existing bank reconciliation ID {Id} is closed and does not match the requested replay context; reusing because it cannot be safely reset",
-                    existingReconciliation.Id);
+                _logger.LogWarning("Existing bank reconciliation {Id} is closed; reusing", existingReconciliation.Id);
                 return (existingReconciliation.Id, true);
             }
         }
@@ -235,35 +515,15 @@ public class BankReconciliationHandler : ITaskHandler
             existingReconciliation = await FindExistingBankReconciliationAsync(api, accountId, accountingPeriodId);
             if (existingReconciliation != null)
             {
-                if (CanReuseExistingReconciliation(existingReconciliation, closingBalance))
-                {
-                    _logger.LogInformation(
-                        "Bank reconciliation already existed after POST, reusing empty matching ID {Id} for account {AccountId} and accounting period {AccountingPeriodId}",
-                        existingReconciliation.Id,
-                        accountId,
-                        accountingPeriodId);
-                    return (existingReconciliation.Id, true);
-                }
-
-                if (!existingReconciliation.IsClosed)
-                {
-                    _logger.LogInformation(
-                        "Bank reconciliation already existed after POST but does not match the requested replay context; deleting ID {Id} and recreating",
-                        existingReconciliation.Id);
-                    await api.DeleteAsync($"/bank/reconciliation/{existingReconciliation.Id}");
-                    return await CreateReconciliationAsync(api, accountId, accountingPeriodId, closingBalance);
-                }
+                _logger.LogInformation("Bank reconciliation already existed after POST conflict, reusing ID {Id}", existingReconciliation.Id);
+                return (existingReconciliation.Id, true);
             }
-
             throw;
         }
     }
 
     private async Task<(long? ReconId, bool ReusedExisting)> CreateReconciliationAsync(
-        TripletexApiClient api,
-        long accountId,
-        long accountingPeriodId,
-        decimal closingBalance)
+        TripletexApiClient api, long accountId, long accountingPeriodId, decimal closingBalance)
     {
         var body = new Dictionary<string, object>
         {
@@ -292,7 +552,7 @@ public class BankReconciliationHandler : ITaskHandler
             ["accountId"] = accountId.ToString(CultureInfo.InvariantCulture),
             ["accountingPeriodId"] = accountingPeriodId.ToString(CultureInfo.InvariantCulture),
             ["count"] = "1",
-            ["fields"] = "id,isClosed,bankAccountClosingBalanceCurrency,transactions(id)"
+            ["fields"] = "id,isClosed,bankAccountClosingBalanceCurrency"
         });
 
         if (!reconciliationResult.TryGetProperty("values", out var values))
@@ -303,7 +563,7 @@ public class BankReconciliationHandler : ITaskHandler
             if (!value.TryGetProperty("id", out var idProp))
                 continue;
 
-            var closingBalance = value.TryGetProperty("bankAccountClosingBalanceCurrency", out var balanceProp) &&
+            var closingBal = value.TryGetProperty("bankAccountClosingBalanceCurrency", out var balanceProp) &&
                 balanceProp.ValueKind == JsonValueKind.Number
                 ? balanceProp.GetDecimal()
                 : 0m;
@@ -311,405 +571,19 @@ public class BankReconciliationHandler : ITaskHandler
             var isClosed = value.TryGetProperty("isClosed", out var isClosedProp) &&
                 isClosedProp.ValueKind == JsonValueKind.True;
 
-            var transactionCount = value.TryGetProperty("transactions", out var transactionsProp) &&
-                transactionsProp.ValueKind == JsonValueKind.Array
-                ? transactionsProp.GetArrayLength()
-                : 0;
-
-            return new ExistingBankReconciliation(idProp.GetInt64(), closingBalance, isClosed, transactionCount);
+            return new ExistingBankReconciliation(idProp.GetInt64(), closingBal, isClosed);
         }
 
         return null;
     }
-
-    private static bool CanReuseExistingReconciliation(ExistingBankReconciliation reconciliation, decimal targetClosingBalance) =>
-        !reconciliation.IsClosed &&
-        reconciliation.TransactionCount == 0 &&
-        DecimalEquals(reconciliation.ClosingBalance, targetClosingBalance);
-
-    private static bool DecimalEquals(decimal left, decimal right) => Math.Abs(left - right) < 0.01m;
 
     private static bool IsExistingReconciliationError(TripletexApiException ex) =>
         ex.Message.Contains("already exist in the selected period", StringComparison.OrdinalIgnoreCase) ||
         ex.Message.Contains("eksisterer allerede en bankavstemming", StringComparison.OrdinalIgnoreCase);
 
-    private async Task<ImportOutcome> TryImportAndMatch(TripletexApiClient api, long reconId, long accountId, List<BankTransaction> transactions, string endDate, string? periodStart, string? periodEnd, List<SolveFile>? files)
-    {
-        var csvFile = FindCsvFile(files);
-        if (csvFile == null)
-        {
-            _logger.LogInformation("No CSV file found — creating adjustments for {Count} transactions", transactions.Count);
-            var adjustmentCount = await CreateAdjustments(api, reconId, transactions, periodStart);
-            return new ImportOutcome("adjustments", false, adjustmentCount);
-        }
-
-        var transformedBytes = BuildTransferwiseCsvImport(transactions, periodStart);
-        var transformedFileName = Path.GetFileNameWithoutExtension(csvFile.Filename) + "-transferwise.csv";
-        var fromDate = periodStart ?? transactions[0].Date;
-        var toDate = periodEnd ?? endDate;
-
-        // Delete any pre-existing bank statement for this account/period to avoid "already exists" errors
-        await DeleteExistingBankStatements(api, accountId);
-
-        JsonElement importResult;
-        try
-        {
-            _logger.LogInformation("Trying bank statement import with TRANSFERWISE format for reconciliation {Id}", reconId);
-            importResult = await api.PostBankStatementImportAsync(accountId, fromDate, toDate, "TRANSFERWISE", transformedBytes, transformedFileName);
-            _logger.LogInformation("Bank statement import succeeded with TRANSFERWISE for reconciliation {Id}", reconId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("TRANSFERWISE import failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
-            var adjustmentCount = await CreateAdjustments(api, reconId, transactions, periodStart);
-            return new ImportOutcome("adjustments", false, adjustmentCount);
-        }
-
-        // Get the bank statement ID from the import result or by querying
-        long? bankStatementId = null;
-        if (importResult.ValueKind == JsonValueKind.Object && importResult.TryGetProperty("value", out var impVal) && impVal.TryGetProperty("id", out var impId))
-            bankStatementId = impId.GetInt64();
-
-        if (!bankStatementId.HasValue)
-        {
-            // Query for the bank statement
-            var stmtResult = await api.GetAsync("/bank/statement", new Dictionary<string, string>
-            {
-                ["accountId"] = accountId.ToString(CultureInfo.InvariantCulture),
-                ["count"] = "1",
-                ["sorting"] = "-id",
-                ["fields"] = "id"
-            });
-            if (stmtResult.TryGetProperty("values", out var stmtVals) && stmtVals.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var sv in stmtVals.EnumerateArray())
-                {
-                    if (sv.TryGetProperty("id", out var svId))
-                    {
-                        bankStatementId = svId.GetInt64();
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!bankStatementId.HasValue)
-        {
-            _logger.LogWarning("Could not determine bank statement ID after import — skipping matching");
-            return new ImportOutcome("transferwise_import", true, 0);
-        }
-
-        // Get all imported bank transactions
-        var bankTxResult = await api.GetAsync("/bank/statement/transaction", new Dictionary<string, string>
-        {
-            ["bankStatementId"] = bankStatementId.Value.ToString(CultureInfo.InvariantCulture),
-            ["count"] = "1000",
-            ["fields"] = "id,description,amountCurrency,postedDate"
-        });
-
-        var bankTxList = new List<(long Id, string Description, decimal Amount, string Date)>();
-        if (bankTxResult.TryGetProperty("values", out var txVals) && txVals.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var tx in txVals.EnumerateArray())
-            {
-                var txId = tx.TryGetProperty("id", out var idP) ? idP.GetInt64() : 0L;
-                var txDesc = tx.TryGetProperty("description", out var descP) ? descP.GetString() ?? "" : "";
-                var txAmt = tx.TryGetProperty("amountCurrency", out var amtP) && amtP.ValueKind == JsonValueKind.Number ? amtP.GetDecimal() : 0m;
-                var txDate = tx.TryGetProperty("postedDate", out var dateP) ? dateP.GetString() ?? fromDate : fromDate;
-                if (txId != 0)
-                    bankTxList.Add((txId, txDesc, txAmt, txDate));
-            }
-        }
-
-        _logger.LogInformation("Found {Count} imported bank transactions for statement {StmtId}", bankTxList.Count, bankStatementId);
-
-        // Identify matchable transactions (customer/supplier payments)
-        var matchableCsvTx = transactions
-            .Where(t => t.Type is TransactionType.CustomerPayment or TransactionType.SupplierPayment)
-            .ToList();
-
-        if (matchableCsvTx.Count == 0)
-        {
-            _logger.LogInformation("No matchable (customer/supplier) transactions found — skipping manual matching");
-            return new ImportOutcome("transferwise_import", true, 0);
-        }
-
-        // Match CSV transactions to imported bank transactions by description + amount
-        var matchPairs = new List<(BankTransaction CsvTx, long BankTxId, string BankTxDate)>();
-        var usedBankTxIds = new HashSet<long>();
-        foreach (var csvTx in matchableCsvTx)
-        {
-            // Find the corresponding bank transaction by matching description and amount
-            foreach (var (btId, btDesc, btAmt, btDate) in bankTxList)
-            {
-                if (usedBankTxIds.Contains(btId)) continue;
-                if (Math.Abs(csvTx.Amount - btAmt) < 0.01m && DescriptionsMatch(csvTx.Description, btDesc))
-                {
-                    matchPairs.Add((csvTx, btId, btDate));
-                    usedBankTxIds.Add(btId);
-                    break;
-                }
-            }
-        }
-
-        _logger.LogInformation("Matched {Count}/{Total} CSV transactions to bank transactions",
-            matchPairs.Count, matchableCsvTx.Count);
-
-        if (matchPairs.Count == 0)
-        {
-            // Fallback: match by amount only
-            foreach (var csvTx in matchableCsvTx)
-            {
-                foreach (var (btId, btDesc, btAmt, btDate) in bankTxList)
-                {
-                    if (usedBankTxIds.Contains(btId)) continue;
-                    if (Math.Abs(csvTx.Amount - btAmt) < 0.01m)
-                    {
-                        matchPairs.Add((csvTx, btId, btDate));
-                        usedBankTxIds.Add(btId);
-                        break;
-                    }
-                }
-            }
-            _logger.LogInformation("After amount-only fallback: {Count} match pairs", matchPairs.Count);
-        }
-
-        if (matchPairs.Count == 0)
-            return new ImportOutcome("transferwise_import", true, 0);
-
-        // Resolve a general-type contra account (NOT customer/vendor type which requires customer/supplier IDs)
-        var contraAccountId = await ResolveGeneralContraAccountId(api);
-        if (!contraAccountId.HasValue)
-        {
-            _logger.LogWarning("Could not find a suitable general-type contra account — skipping matching");
-            return new ImportOutcome("transferwise_import", true, 0);
-        }
-
-        // Build a single voucher with all matchable transactions as posting pairs
-        // This minimizes write calls (1 voucher instead of N)
-        var allPostings = new List<Dictionary<string, object>>();
-        int rowNum = 0;
-        foreach (var (csvTx, bankTxId, bankTxDate) in matchPairs)
-        {
-            var postingDate = bankTxDate;
-            // Clamp date to period
-            if (periodStart != null &&
-                DateTime.TryParse(postingDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var pd) &&
-                DateTime.TryParse(periodStart, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var ps) &&
-                pd < ps)
-            {
-                postingDate = periodStart;
-            }
-
-            rowNum++;
-            allPostings.Add(new Dictionary<string, object>
-            {
-                ["row"] = rowNum,
-                ["date"] = postingDate,
-                ["description"] = csvTx.Description,
-                ["account"] = new { id = accountId },
-                ["amountGross"] = csvTx.Amount,
-                ["amountGrossCurrency"] = csvTx.Amount
-            });
-
-            rowNum++;
-            allPostings.Add(new Dictionary<string, object>
-            {
-                ["row"] = rowNum,
-                ["date"] = postingDate,
-                ["description"] = csvTx.Description,
-                ["account"] = new { id = contraAccountId.Value },
-                ["amountGross"] = -csvTx.Amount,
-                ["amountGrossCurrency"] = -csvTx.Amount
-            });
-        }
-
-        // Create a single voucher with all posting pairs
-        long voucherId;
-        try
-        {
-            var voucherBody = new Dictionary<string, object>
-            {
-                ["date"] = matchPairs[0].BankTxDate,
-                ["description"] = "Bank reconciliation matching postings",
-                ["postings"] = allPostings
-            };
-
-            var voucherResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
-            voucherId = voucherResult.GetProperty("value").GetProperty("id").GetInt64();
-            _logger.LogInformation("Created matching voucher {Id} with {PostingCount} postings for {MatchCount} transactions",
-                voucherId, allPostings.Count, matchPairs.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Failed to create matching voucher: {Msg}", ex.Message);
-            return new ImportOutcome("transferwise_import", true, 0);
-        }
-
-        // Get all posting IDs from the voucher
-        var voucherDetail = await api.GetAsync($"/ledger/voucher/{voucherId}", new Dictionary<string, string>
-        {
-            ["fields"] = "id,postings(id,account(id),amount,amountGross,description)"
-        });
-
-        var voucherPostings = new List<(long PostingId, long PostingAccountId, decimal Amount, string Description)>();
-        if (voucherDetail.TryGetProperty("value", out var vv) &&
-            vv.TryGetProperty("postings", out var postingsArr) &&
-            postingsArr.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var posting in postingsArr.EnumerateArray())
-            {
-                var pId = posting.TryGetProperty("id", out var pidP) ? pidP.GetInt64() : 0L;
-                var pAcctId = posting.TryGetProperty("account", out var pAcct) &&
-                    pAcct.TryGetProperty("id", out var pAid) ? pAid.GetInt64() : 0L;
-                var pAmt = posting.TryGetProperty("amountGross", out var pAmtP) && pAmtP.ValueKind == JsonValueKind.Number
-                    ? pAmtP.GetDecimal() : 0m;
-                var pDesc = posting.TryGetProperty("description", out var pDescP) ? pDescP.GetString() ?? "" : "";
-                if (pId != 0)
-                    voucherPostings.Add((pId, pAcctId, pAmt, pDesc));
-            }
-        }
-
-        // Get only postings on account 1920
-        var postingsOn1920 = voucherPostings
-            .Where(p => p.PostingAccountId == accountId)
-            .ToList();
-
-        _logger.LogInformation("Found {Count} postings on account 1920 in voucher {Id}", postingsOn1920.Count, voucherId);
-
-        // Match each bank transaction to its corresponding posting on 1920
-        int matchesCreated = 0;
-        var usedPostingIds = new HashSet<long>();
-
-        foreach (var (csvTx, bankTxId, bankTxDate) in matchPairs)
-        {
-            // Find the posting on 1920 with matching amount and description
-            long? matchingPostingId = null;
-            foreach (var (pId, pAcctId, pAmt, pDesc) in postingsOn1920)
-            {
-                if (usedPostingIds.Contains(pId)) continue;
-                if (Math.Abs(csvTx.Amount - pAmt) < 0.01m)
-                {
-                    matchingPostingId = pId;
-                    usedPostingIds.Add(pId);
-                    break;
-                }
-            }
-
-            if (!matchingPostingId.HasValue)
-            {
-                _logger.LogWarning("Could not find matching posting on 1920 for bank tx {BTxId} (amount={Amount})",
-                    bankTxId, csvTx.Amount);
-                continue;
-            }
-
-            try
-            {
-                var matchBody = new Dictionary<string, object>
-                {
-                    ["bankReconciliation"] = new { id = reconId },
-                    ["type"] = "MANUAL",
-                    ["transactions"] = new[] { new { id = bankTxId } },
-                    ["postings"] = new[] { new { id = matchingPostingId.Value } }
-                };
-
-                await api.PostAsync("/bank/reconciliation/match", matchBody);
-                matchesCreated++;
-                _logger.LogInformation("Created manual match for bank tx {BTxId} ↔ posting {PostingId}",
-                    bankTxId, matchingPostingId.Value);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Failed to create match for bank tx {BTxId} ({Desc}): {Msg}",
-                    bankTxId, csvTx.Description, ex.Message);
-            }
-        }
-
-        _logger.LogInformation("Manual matching complete: {Created}/{Total} matches created", matchesCreated, matchPairs.Count);
-        return new ImportOutcome("transferwise_import_with_matching", true, matchesCreated);
-    }
-
-    private static bool DescriptionsMatch(string csvDescription, string bankDescription)
-    {
-        var a = NormalizeBankDescription(csvDescription);
-        var b = NormalizeBankDescription(bankDescription);
-        return a == b;
-    }
-
-    private static string NormalizeBankDescription(string text)
-    {
-        return Regex.Replace(text.Trim().ToLowerInvariant(), @"\s+", " ");
-    }
-
-    /// <summary>
-    /// Find a GENERAL-type contra account that won't require customer/supplier IDs on postings.
-    /// Tries known safe accounts in order: 1909 (interim bank), 2990 (other current liabilities), 
-    /// 1900 (cash), then falls back to any GENERAL-type non-bank, non-inactive account.
-    /// </summary>
-    private async Task<long?> ResolveGeneralContraAccountId(TripletexApiClient api)
-    {
-        // Try known safe accounts first
-        foreach (var num in new[] { "1909", "2990", "1900", "3900", "7700" })
-        {
-            try
-            {
-                var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
-                {
-                    ["number"] = num,
-                    ["count"] = "1",
-                    ["fields"] = "id,number,ledgerType,isInactive"
-                });
-                if (result.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var v in vals.EnumerateArray())
-                    {
-                        var isInactive = v.TryGetProperty("isInactive", out var inact) && inact.ValueKind == JsonValueKind.True;
-                        if (isInactive) continue;
-                        var ledgerType = v.TryGetProperty("ledgerType", out var lt) ? lt.GetString() : null;
-                        if (ledgerType == "CUSTOMER" || ledgerType == "VENDOR") continue;
-                        if (v.TryGetProperty("id", out var idProp))
-                        {
-                            _logger.LogInformation("Using contra account {Number} (type={LedgerType}) for bank reconciliation postings", num, ledgerType);
-                            return idProp.GetInt64();
-                        }
-                    }
-                }
-            }
-            catch { /* try next */ }
-        }
-
-        // Fallback: query for any GENERAL-type account
-        try
-        {
-            var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
-            {
-                ["ledgerType"] = "GENERAL",
-                ["isInactive"] = "false",
-                ["isBankAccount"] = "false",
-                ["from"] = "0",
-                ["count"] = "10",
-                ["fields"] = "id,number"
-            });
-            if (result.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var v in vals.EnumerateArray())
-                {
-                    if (v.TryGetProperty("id", out var idP))
-                    {
-                        var num = v.TryGetProperty("number", out var np) ? np.GetInt32() : 0;
-                        _logger.LogInformation("Fallback: using contra account {Number} for bank reconciliation postings", num);
-                        return idP.GetInt64();
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Failed to find any general-type contra account: {Msg}", ex.Message);
-        }
-
-        return null;
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // Bank statement management
+    // ═══════════════════════════════════════════════════════════════
 
     private async Task DeleteExistingBankStatements(TripletexApiClient api, long accountId)
     {
@@ -741,133 +615,41 @@ public class BankReconciliationHandler : ITaskHandler
         }
     }
 
-    private async Task<int> CreateAdjustments(TripletexApiClient api, long reconId, List<BankTransaction> transactions, string? periodStart)
-    {
-        // Fetch a valid payment type — required by the adjustment endpoint
-        long? paymentTypeId = await ResolvePaymentTypeIdAsync(api);
-        if (!paymentTypeId.HasValue)
-        {
-            _logger.LogWarning("No bank reconciliation payment types available — cannot create adjustments");
-            return 0;
-        }
-
-        var adjustments = new List<Dictionary<string, object>>();
-        foreach (var tx in transactions)
-        {
-            // Clamp date to period start if transaction date is before the reconciliation period
-            var adjustmentDate = tx.Date;
-            if (periodStart != null &&
-                DateTime.TryParse(tx.Date, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var txDate) &&
-                DateTime.TryParse(periodStart, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var pStart) &&
-                txDate < pStart)
-            {
-                adjustmentDate = periodStart;
-            }
-
-            var adj = new Dictionary<string, object>
-            {
-                ["paymentType"] = new Dictionary<string, object> { ["id"] = paymentTypeId.Value },
-                ["date"] = adjustmentDate,
-                ["postingDate"] = adjustmentDate,
-                ["description"] = tx.Description,
-                ["amount"] = Math.Abs(tx.Amount)
-            };
-            adjustments.Add(adj);
-        }
-
-        if (adjustments.Count > 0)
-        {
-            try
-            {
-                await api.PutAsync($"/bank/reconciliation/{reconId}/:adjustment", adjustments);
-                _logger.LogInformation("Created {Count} adjustments for reconciliation {Id}", adjustments.Count, reconId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Failed to create adjustments: {Msg}", ex.Message);
-            }
-        }
-
-        return adjustments.Count;
-    }
-
-    private async Task<long?> ResolvePaymentTypeIdAsync(TripletexApiClient api)
+    private async Task CloseReconciliationAsync(TripletexApiClient api, long reconId)
     {
         try
         {
-            var result = await api.GetAsync("/bank/reconciliation/paymentType", new Dictionary<string, string>
-            {
-                ["count"] = "100",
-                ["fields"] = "id,description"
-            });
+            var current = await api.GetAsync($"/bank/reconciliation/{reconId}",
+                new Dictionary<string, string> { ["fields"] = "id,version,isClosed" });
 
-            if (result.TryGetProperty("values", out var values))
+            if (!current.TryGetProperty("value", out var val)) return;
+
+            var isClosed = val.TryGetProperty("isClosed", out var c) && c.ValueKind == JsonValueKind.True;
+            if (isClosed)
             {
-                foreach (var v in values.EnumerateArray())
-                {
-                    if (v.TryGetProperty("id", out var idProp))
-                    {
-                        _logger.LogInformation("Using bank reconciliation payment type ID {Id}", idProp.GetInt64());
-                        return idProp.GetInt64();
-                    }
-                }
+                _logger.LogInformation("Bank reconciliation {Id} is already closed", reconId);
+                return;
             }
+
+            var version = val.TryGetProperty("version", out var v) ? v.GetInt32() : 0;
+
+            await api.PutAsync($"/bank/reconciliation/{reconId}", new Dictionary<string, object>
+            {
+                ["id"] = reconId,
+                ["version"] = version,
+                ["isClosed"] = true
+            });
+            _logger.LogInformation("Closed bank reconciliation {Id}", reconId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Failed to fetch bank reconciliation payment types: {Msg}", ex.Message);
+            _logger.LogWarning("Could not close bank reconciliation {Id}: {Msg}", reconId, ex.Message);
         }
-
-        return null;
     }
 
-    private byte[] BuildTransferwiseCsvImport(List<BankTransaction> transactions, string? periodStart)
-    {
-        var builder = new StringBuilder();
-        builder.Append("TransferWise ID,Date,Amount,Currency,Description,Payment Reference,Running Balance,Exchange From,Exchange To,Buy - Loss,Merchant,Category,Note,Total fees\r\n");
-
-        int rowIndex = 0;
-        foreach (var tx in transactions)
-        {
-            rowIndex++;
-            // Clamp dates before the accounting period to the period start
-            var dateStr = tx.Date;
-            if (periodStart != null &&
-                DateTime.TryParse(tx.Date, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var txDate) &&
-                DateTime.TryParse(periodStart, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var pStart) &&
-                txDate < pStart)
-            {
-                dateStr = periodStart;
-            }
-
-            // TRANSFERWISE format uses DD-MM-YYYY dates
-            var twDate = DateTime.TryParse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
-                ? parsed.ToString("dd-MM-yyyy")
-                : dateStr;
-
-            builder.Append($"TRANSFER-{rowIndex:D3}")  // TransferWise ID
-                .Append(',')
-                .Append(twDate)
-                .Append(',')
-                .Append(FormatCsvDecimal(tx.Amount))
-                .Append(",NOK,")
-                .Append(EscapeCsv(tx.Description, ','))
-                .Append(",,")  // Payment Reference (empty)
-                .Append(FormatCsvDecimal(tx.RunningBalance))
-                .Append(",,,,,,,0.00\r\n");
-        }
-
-        return Encoding.GetEncoding("iso-8859-1").GetBytes(builder.ToString());
-    }
-
-    private static string FormatCsvDecimal(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
-
-    private static string EscapeCsv(string value, char delimiter)
-    {
-        if (value.Contains(delimiter) || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
-            return $"\"{value.Replace("\"", "\"\"")}\"";
-        return value;
-    }
+    // ═══════════════════════════════════════════════════════════════
+    // CSV parsing
+    // ═══════════════════════════════════════════════════════════════
 
     private List<BankTransaction> ParseCsvFromFiles(List<SolveFile>? files)
     {
@@ -889,7 +671,7 @@ public class BankReconciliationHandler : ITaskHandler
 
                 if (lines.Length < 2) continue;
 
-                // Detect delimiter and header pattern: "Dato;Forklaring;Inn;Ut;Saldo"
+                // Detect delimiter: "Dato;Forklaring;Inn;Ut;Saldo"
                 var header = lines[0].Trim().TrimStart('\uFEFF');
                 char delimiter = header.Contains(';') ? ';' : ',';
 
@@ -906,6 +688,9 @@ public class BankReconciliationHandler : ITaskHandler
 
                     var tx = new BankTransaction { Date = parts[0].Trim(), Description = parts[1].Trim() };
 
+                    // Normalize date to YYYY-MM-DD if needed
+                    tx.Date = NormalizeDateToIso(tx.Date);
+
                     // Inn (credit/incoming) and Ut (debit/outgoing) columns
                     var innStr = parts.Length > 2 ? parts[2].Trim() : "";
                     var utStr = parts.Length > 3 ? parts[3].Trim() : "";
@@ -919,13 +704,8 @@ public class BankReconciliationHandler : ITaskHandler
                     if (!string.IsNullOrEmpty(saldoStr) && decimal.TryParse(saldoStr.Replace(",", "."), NumberStyles.Any, CultureInfo.InvariantCulture, out var saldo))
                         tx.RunningBalance = saldo;
 
-                    // Classify transaction
-                    tx.Type = ClassifyTransaction(tx.Description);
-
-                    // Extract invoice number if present
-                    var invoiceMatch = Regex.Match(tx.Description, @"[Ff]aktura\s*(\d+)");
-                    if (invoiceMatch.Success)
-                        tx.InvoiceNumber = invoiceMatch.Groups[1].Value;
+                    // Classify transaction and extract metadata
+                    ClassifyTransaction(tx);
 
                     transactions.Add(tx);
                 }
@@ -941,11 +721,133 @@ public class BankReconciliationHandler : ITaskHandler
         return transactions;
     }
 
+    private static void ClassifyTransaction(BankTransaction tx)
+    {
+        var desc = tx.Description;
+
+        // Customer payment: "Innbetaling fra [Customer] / Faktura [Number]"
+        var customerMatch = Regex.Match(desc, @"Innbetaling fra\s+(.+?)\s*/\s*Faktura\s+(\d+)", RegexOptions.IgnoreCase);
+        if (customerMatch.Success)
+        {
+            tx.Type = TransactionType.CustomerPayment;
+            tx.CustomerName = customerMatch.Groups[1].Value.Trim();
+            tx.InvoiceNumber = customerMatch.Groups[2].Value.Trim();
+            return;
+        }
+
+        // Also check for generic "Faktura XXXX" in incoming payments
+        if (desc.Contains("Innbetaling", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("betaling fra", StringComparison.OrdinalIgnoreCase))
+        {
+            tx.Type = TransactionType.CustomerPayment;
+            var invoiceMatch = Regex.Match(desc, @"[Ff]aktura\s*(\d+)");
+            if (invoiceMatch.Success)
+                tx.InvoiceNumber = invoiceMatch.Groups[1].Value;
+            return;
+        }
+
+        // Supplier payment: "Betaling Supplier/Lieferant/leverandør [Name]" or "Betaling til [Name]"
+        var supplierMatch = Regex.Match(desc, @"Betaling\s+(?:Supplier|Lieferant|[Ll]everand[oø]r|til)\s+(.+)", RegexOptions.IgnoreCase);
+        if (supplierMatch.Success)
+        {
+            tx.Type = TransactionType.SupplierPayment;
+            tx.SupplierName = supplierMatch.Groups[1].Value.Trim();
+            return;
+        }
+
+        // Bank fee
+        if (desc.Contains("Bankgebyr", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("bank fee", StringComparison.OrdinalIgnoreCase))
+        {
+            tx.Type = TransactionType.BankFee;
+            return;
+        }
+
+        // Interest
+        if (desc.Contains("Renteinntekter", StringComparison.OrdinalIgnoreCase) ||
+            desc.Contains("interest", StringComparison.OrdinalIgnoreCase))
+        {
+            tx.Type = TransactionType.Interest;
+            return;
+        }
+
+        // Tax
+        if (desc.Contains("Skattetrekk", StringComparison.OrdinalIgnoreCase))
+        {
+            tx.Type = TransactionType.Tax;
+            return;
+        }
+
+        tx.Type = TransactionType.Other;
+    }
+
+    private static string NormalizeDateToIso(string date)
+    {
+        // Handle DD.MM.YYYY and DD-MM-YYYY formats
+        if (Regex.IsMatch(date, @"^\d{2}[.\-/]\d{2}[.\-/]\d{4}$"))
+        {
+            var parts = date.Split('.', '-', '/');
+            return $"{parts[2]}-{parts[1]}-{parts[0]}";
+        }
+        return date; // Already YYYY-MM-DD
+    }
+
     private SolveFile? FindCsvFile(List<SolveFile>? files)
     {
         return files?.FirstOrDefault(f =>
             f.Filename.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ||
             f.MimeType.Contains("csv", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TRANSFERWISE CSV building
+    // ═══════════════════════════════════════════════════════════════
+
+    private byte[] BuildTransferwiseCsvImport(List<BankTransaction> transactions, string? periodStart)
+    {
+        var builder = new StringBuilder();
+        builder.Append("TransferWise ID,Date,Amount,Currency,Description,Payment Reference,Running Balance,Exchange From,Exchange To,Buy - Loss,Merchant,Category,Note,Total fees\r\n");
+
+        int rowIndex = 0;
+        foreach (var tx in transactions)
+        {
+            rowIndex++;
+            var dateStr = tx.Date;
+            if (periodStart != null &&
+                DateTime.TryParse(tx.Date, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var txDate) &&
+                DateTime.TryParse(periodStart, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var pStart) &&
+                txDate < pStart)
+            {
+                dateStr = periodStart;
+            }
+
+            // TRANSFERWISE format uses DD-MM-YYYY dates
+            var twDate = DateTime.TryParse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
+                ? parsed.ToString("dd-MM-yyyy")
+                : dateStr;
+
+            builder.Append($"TRANSFER-{rowIndex:D3}")
+                .Append(',')
+                .Append(twDate)
+                .Append(',')
+                .Append(FormatCsvDecimal(tx.Amount))
+                .Append(",NOK,")
+                .Append(EscapeCsv(tx.Description, ','))
+                .Append(",,")
+                .Append(FormatCsvDecimal(tx.RunningBalance))
+                .Append(",,,,,,,0.00\r\n");
+        }
+
+        return Encoding.GetEncoding("iso-8859-1").GetBytes(builder.ToString());
+    }
+
+    private static string FormatCsvDecimal(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+
+    private static string EscapeCsv(string value, char delimiter)
+    {
+        if (value.Contains(delimiter) || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
     }
 
     private static string[] SplitCsvLine(string line, char delimiter)
@@ -969,7 +871,6 @@ public class BankReconciliationHandler : ITaskHandler
                 {
                     inQuotes = !inQuotes;
                 }
-
                 continue;
             }
 
@@ -987,28 +888,16 @@ public class BankReconciliationHandler : ITaskHandler
         return parts.ToArray();
     }
 
-    private static TransactionType ClassifyTransaction(string description)
-    {
-        var lower = description.ToLowerInvariant();
-        if (lower.Contains("innbetaling") || lower.Contains("betaling fra"))
-            return TransactionType.CustomerPayment;
-        if (lower.Contains("betaling leverand") || lower.Contains("betaling til"))
-            return TransactionType.SupplierPayment;
-        if (lower.Contains("bankgebyr") || lower.Contains("bank fee"))
-            return TransactionType.BankFee;
-        if (lower.Contains("skattetrekk") || lower.Contains("skatt"))
-            return TransactionType.Tax;
-        if (lower.Contains("lønn") || lower.Contains("salary"))
-            return TransactionType.Salary;
-        return TransactionType.Other;
-    }
-
     private static string? GetStringField(Dictionary<string, object> dict, string key)
     {
         if (!dict.TryGetValue(key, out var val)) return null;
         if (val is JsonElement je) return je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText();
         return val?.ToString();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Internal types
+    // ═══════════════════════════════════════════════════════════════
 
     private class BankTransaction
     {
@@ -1018,6 +907,9 @@ public class BankReconciliationHandler : ITaskHandler
         public decimal RunningBalance { get; set; }
         public TransactionType Type { get; set; }
         public string? InvoiceNumber { get; set; }
+        public string? CustomerName { get; set; }
+        public string? SupplierName { get; set; }
+        public bool Matched { get; set; }
     }
 
     private enum TransactionType
@@ -1025,12 +917,11 @@ public class BankReconciliationHandler : ITaskHandler
         CustomerPayment,
         SupplierPayment,
         BankFee,
+        Interest,
         Tax,
-        Salary,
         Other
     }
 
-    private sealed record ExistingBankReconciliation(long Id, decimal ClosingBalance, bool IsClosed, int TransactionCount);
-
-    private sealed record ImportOutcome(string Mode, bool ImportSucceeded, int AdjustmentCount);
+    private sealed record ExistingBankReconciliation(long Id, decimal ClosingBalance, bool IsClosed);
+    private sealed record ImportOutcome(string Mode, bool ImportSucceeded, int MatchCount);
 }

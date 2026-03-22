@@ -1863,7 +1863,7 @@ public class SandboxValidator
         var reconciliation = await api.GetAsync($"/bank/reconciliation/{result.EntityId.Value}",
             new Dictionary<string, string>
             {
-                ["fields"] = "id,account(number),accountingPeriod(id,start,end),bankAccountClosingBalanceCurrency"
+                ["fields"] = "id,account(number),accountingPeriod(id,start,end),bankAccountClosingBalanceCurrency,isClosed"
             });
         var reconciliationValue = reconciliation.GetProperty("value");
 
@@ -1887,13 +1887,16 @@ public class SandboxValidator
             && balanceProp.ValueKind == JsonValueKind.Number
                 ? balanceProp.GetDecimal()
                 : 0m;
+        var actualIsClosed = reconciliationValue.TryGetProperty("isClosed", out var isClosedProp)
+            && isClosedProp.ValueKind == JsonValueKind.True;
 
-        var reconciliationPassed = string.Equals(expectedAccountNumber, actualAccountNumber, StringComparison.OrdinalIgnoreCase)
+        var reconciliationPassed = actualIsClosed
+            && string.Equals(expectedAccountNumber, actualAccountNumber, StringComparison.OrdinalIgnoreCase)
             && (!expectedClosingBalance.HasValue || Math.Abs(expectedClosingBalance.Value - actualClosingBalance) < 1m);
         report.Checks.Add(new ValidationCheck(
             "reconciliation_found",
-            $"account={expectedAccountNumber},balance={(expectedClosingBalance?.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) ?? "n/a")}",
-            $"account={actualAccountNumber},balance={actualClosingBalance.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}",
+            $"account={expectedAccountNumber},balance={(expectedClosingBalance?.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) ?? "n/a")},isClosed=true",
+            $"account={actualAccountNumber},balance={actualClosingBalance.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)},isClosed={actualIsClosed}",
             reconciliationPassed,
             5));
 
@@ -2100,8 +2103,13 @@ public class SandboxValidator
         {
             var mapped = ch switch
             {
-                'ø' or 'ö' => "o", 'æ' => "ae", 'å' or 'ä' => "a",
-                'ü' => "u", 'ß' => "ss", 'ñ' => "n", 'ç' => "c",
+                'ø' or 'ö' => "o",
+                'æ' => "ae",
+                'å' or 'ä' => "a",
+                'ü' => "u",
+                'ß' => "ss",
+                'ñ' => "n",
+                'ç' => "c",
                 _ => null
             };
             if (mapped != null) { sb.Append(mapped); continue; }

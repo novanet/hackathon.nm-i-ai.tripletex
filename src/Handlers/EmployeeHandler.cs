@@ -115,6 +115,11 @@ public class EmployeeHandler : ITaskHandler
         {
             deptName = deptEntityName is JsonElement deptJe ? deptJe.ToString() : deptEntityName?.ToString();
         }
+        // Also check if department name is inside the employee entity itself
+        if (string.IsNullOrWhiteSpace(deptName) && emp.TryGetValue("department", out var empDeptObj))
+        {
+            deptName = (empDeptObj is JsonElement empDeptJe ? empDeptJe.GetString() : empDeptObj?.ToString());
+        }
         var deptResult = await api.GetAsync("/department", new Dictionary<string, string>
         {
             ["count"] = "100",
@@ -132,6 +137,12 @@ public class EmployeeHandler : ITaskHandler
                         deptId = department.GetProperty("id").GetInt64();
                         break;
                     }
+                }
+                // Named department not found among existing — create it
+                if (deptId == null)
+                {
+                    _logger.LogInformation("Department '{DeptName}' not found, creating it", deptName);
+                    deptId = await CreateNamedDepartmentAsync(api, deptName);
                 }
             }
 
@@ -913,6 +924,32 @@ public class EmployeeHandler : ITaskHandler
                     sb.Append(dc < 128 ? dc : '_');
         }
         return sb.ToString();
+    }
+
+    private async Task<long?> CreateNamedDepartmentAsync(TripletexApiClient api, string name)
+    {
+        // Try departmentNumber starting from a high number to avoid collisions with existing departments
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            var deptNumber = (100 + attempt).ToString();
+            try
+            {
+                var newDept = await api.PostAsync("/department", new Dictionary<string, object>
+                {
+                    ["name"] = name,
+                    ["departmentNumber"] = deptNumber
+                });
+                var id = newDept.GetProperty("value").GetProperty("id").GetInt64();
+                _logger.LogInformation("Created department '{Name}' (number={Number}) with ID {Id}", name, deptNumber, id);
+                return id;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create department '{Name}' with number {Number}, retrying", name, deptNumber);
+            }
+        }
+        _logger.LogWarning("Could not create department '{Name}' after 3 attempts", name);
+        return null;
     }
 
     private static List<string> ParseStringList(object? val)
