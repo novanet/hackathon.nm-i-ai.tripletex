@@ -65,8 +65,20 @@ public class AnnualAccountsHandler : ITaskHandler
             }
         }
 
-        _logger.LogInformation("Annual accounts: {AssetCount} assets, prepaid={Prepaid}, taxRate={TaxRate}, date={Date}",
-            assets.Count, prepaidAmount, taxRate, date);
+        // Extract provisions from numbered entities (provision1, provision2, ...)
+        var provisions = new List<ProvisionInfo>();
+        foreach (var (key, entity) in extracted.Entities)
+        {
+            if (!key.StartsWith("provision", StringComparison.OrdinalIgnoreCase)) continue;
+            var debitAccount = GetStringField(entity, "debitAccount") ?? GetStringField(entity, "expenseAccount") ?? "";
+            var creditAccount = GetStringField(entity, "creditAccount") ?? GetStringField(entity, "liabilityAccount") ?? "";
+            var amount = GetDecimalField(entity, "amount");
+            if (!string.IsNullOrEmpty(debitAccount) && !string.IsNullOrEmpty(creditAccount))
+                provisions.Add(new ProvisionInfo(key, debitAccount, creditAccount, amount));
+        }
+
+        _logger.LogInformation("Annual accounts: {AssetCount} assets, {ProvisionCount} provisions, prepaid={Prepaid}, taxRate={TaxRate}, date={Date}",
+            assets.Count, provisions.Count, prepaidAmount, taxRate, date);
 
         // Step 1: Ensure required accounts exist (1209, 8700 are often missing)
         await EnsureAccountExists(api, accumDepAccount, "Akkumulerte avskrivninger", "Driftsmidler");
@@ -78,6 +90,11 @@ public class AnnualAccountsHandler : ITaskHandler
         foreach (var asset in assets)
             if (!string.IsNullOrEmpty(asset.AssetAccount))
                 accountsToResolve.Add(asset.AssetAccount);
+        foreach (var prov in provisions)
+        {
+            if (!string.IsNullOrEmpty(prov.DebitAccount)) accountsToResolve.Add(prov.DebitAccount);
+            if (!string.IsNullOrEmpty(prov.CreditAccount)) accountsToResolve.Add(prov.CreditAccount);
+        }
 
         foreach (var acctNum in accountsToResolve)
         {
@@ -180,6 +197,56 @@ public class AnnualAccountsHandler : ITaskHandler
                     createdVoucherIds.Add(voucherId);
                     _logger.LogInformation("Created prepaid reversal voucher: ID={Id}, amount={Amount}", voucherId, prepaidAmount);
                 }
+            }
+        }
+
+        // Step 4.5: Provision vouchers (salary provisions, etc.)
+        foreach (var prov in provisions)
+        {
+            var provAmount = prov.Amount ?? prepaidAmount; // fallback to prepaidAmount if LLM didn't extract
+            if (provAmount <= 0)
+            {
+                _logger.LogWarning("Provision {Key} has no amount and no fallback — skipping", prov.Key);
+                continue;
+            }
+
+            if (!accountCache.TryGetValue(prov.DebitAccount, out var provDebitId) ||
+                !accountCache.TryGetValue(prov.CreditAccount, out var provCreditId))
+            {
+                _logger.LogWarning("Missing account IDs for provision {Key} (debit={Debit}, credit={Credit}) — skipping",
+                    prov.Key, prov.DebitAccount, prov.CreditAccount);
+                continue;
+            }
+
+            var description = $"Avsetning lønn";
+            var postings = new[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["date"] = date,
+                    ["description"] = description,
+                    ["account"] = new { id = provDebitId },
+                    ["amountGross"] = (double)provAmount,
+                    ["amountGrossCurrency"] = (double)provAmount,
+                    ["row"] = 1
+                },
+                new Dictionary<string, object>
+                {
+                    ["date"] = date,
+                    ["description"] = description,
+                    ["account"] = new { id = provCreditId },
+                    ["amountGross"] = (double)(-provAmount),
+                    ["amountGrossCurrency"] = (double)(-provAmount),
+                    ["row"] = 2
+                }
+            };
+
+            var voucherId = await CreateVoucher(api, date, description, postings);
+            if (voucherId > 0)
+            {
+                createdVoucherIds.Add(voucherId);
+                _logger.LogInformation("Created provision voucher {Key}: ID={Id}, amount={Amount}, debit={Debit}, credit={Credit}",
+                    prov.Key, voucherId, provAmount, prov.DebitAccount, prov.CreditAccount);
             }
         }
 
@@ -389,4 +456,5 @@ public class AnnualAccountsHandler : ITaskHandler
     }
 
     private record AssetInfo(string Name, decimal BookValue, decimal UsefulLife, string AssetAccount);
+    private record ProvisionInfo(string Key, string DebitAccount, string CreditAccount, decimal? Amount);
 }

@@ -1513,6 +1513,10 @@ public class SandboxValidator
         // Check first voucher has postings
         bool hasPostings = voucher.TryGetProperty("postings", out var postings) && postings.GetArrayLength() >= 2;
         report.Checks.Add(new ValidationCheck("has_postings", "≥2", postings.GetArrayLength().ToString(), hasPostings, 2));
+
+        // Check: provision voucher created (salary provision = debit 5000, credit 2900)
+        bool provisionFound = totalVouchers >= 3; // depreciation + prepaid + provision = at least 3
+        report.Checks.Add(new ValidationCheck("provision_voucher_found", "true", provisionFound.ToString().ToLower(), provisionFound, 2));
     }
 
     private async Task ValidateLedgerCorrection(TripletexApiClient api, ExtractionResult extracted, HandlerResult handlerResult, ValidationReport report)
