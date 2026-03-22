@@ -126,23 +126,64 @@ public class PaymentHandler : ITaskHandler
 
         if (invoices.TryGetProperty("values", out var vals))
         {
+            // First pass: find invoices that are actually overdue (dueDate < today) AND have outstanding balance
+            // Second pass fallback: any invoice with outstanding balance (in case due date is missing)
+            var todayDate = DateTime.Today;
+            long fallbackInvoiceId = 0;
+            long fallbackCustomerId = 0;
+            decimal fallbackOutstanding = 0;
+            DateTime oldestDueDate = DateTime.MaxValue;
+
             foreach (var inv in vals.EnumerateArray())
             {
                 var outstanding = inv.TryGetProperty("amountOutstanding", out var ao)
                     && ao.ValueKind == JsonValueKind.Number ? ao.GetDecimal() : 0m;
-                if (outstanding > 0)
+                if (outstanding <= 0) continue;
+
+                // Track first unpaid as fallback
+                if (fallbackInvoiceId == 0)
                 {
-                    overdueInvoiceId = inv.GetProperty("id").GetInt64();
-                    amountOutstanding = outstanding;
-                    if (inv.TryGetProperty("customer", out var cust) && cust.ValueKind == JsonValueKind.Object
-                        && cust.TryGetProperty("id", out var custId) && custId.ValueKind == JsonValueKind.Number)
-                    {
-                        customerId = custId.GetInt64();
-                    }
-                    _logger.LogInformation("Found overdue invoice {Id}, customer {CustId}, outstanding={Outstanding}",
-                        overdueInvoiceId, customerId, amountOutstanding);
-                    break;
+                    fallbackInvoiceId = inv.GetProperty("id").GetInt64();
+                    fallbackOutstanding = outstanding;
+                    if (inv.TryGetProperty("customer", out var fc) && fc.ValueKind == JsonValueKind.Object
+                        && fc.TryGetProperty("id", out var fci) && fci.ValueKind == JsonValueKind.Number)
+                        fallbackCustomerId = fci.GetInt64();
                 }
+
+                // Check if actually overdue
+                if (inv.TryGetProperty("invoiceDueDate", out var dueEl) && dueEl.ValueKind == JsonValueKind.String)
+                {
+                    if (DateTime.TryParse(dueEl.GetString(), out var dueDate) && dueDate < todayDate)
+                    {
+                        // Pick the oldest overdue invoice (most overdue)
+                        if (dueDate < oldestDueDate)
+                        {
+                            oldestDueDate = dueDate;
+                            overdueInvoiceId = inv.GetProperty("id").GetInt64();
+                            amountOutstanding = outstanding;
+                            customerId = 0;
+                            if (inv.TryGetProperty("customer", out var cust) && cust.ValueKind == JsonValueKind.Object
+                                && cust.TryGetProperty("id", out var custId) && custId.ValueKind == JsonValueKind.Number)
+                                customerId = custId.GetInt64();
+                        }
+                    }
+                }
+            }
+
+            // Fall back to any unpaid invoice if no truly overdue invoice found
+            if (overdueInvoiceId == 0 && fallbackInvoiceId != 0)
+            {
+                overdueInvoiceId = fallbackInvoiceId;
+                amountOutstanding = fallbackOutstanding;
+                customerId = fallbackCustomerId;
+                _logger.LogWarning("No invoice with past due date found; falling back to first unpaid invoice {Id}", overdueInvoiceId);
+            }
+
+            if (overdueInvoiceId != 0)
+            {
+                _logger.LogInformation("Selected overdue invoice {Id}, customer {CustId}, outstanding={Outstanding}, dueDate={DueDate}",
+                    overdueInvoiceId, customerId, amountOutstanding,
+                    oldestDueDate == DateTime.MaxValue ? "unknown" : oldestDueDate.ToString("yyyy-MM-dd"));
             }
         }
 
@@ -379,14 +420,13 @@ public class PaymentHandler : ITaskHandler
         var (invoiceId, tripletexNokAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, fxInvoiceExtraction, currencyId);
         var paymentTypeId = await paymentTypeTask;
 
-        // Anchor paidAmount to Tripletex's actual NOK invoice amount + the FX difference from prompt rates.
-        // This guarantees Tripletex posts to the correct account (8060 agio vs 8160 disagio)
-        // regardless of Tripletex's internal daily exchange rate.
-        var fxDiff = Math.Round(foreignAmount * (rateAtPayment - rateAtInvoice), 2, MidpointRounding.AwayFromZero);
-        var paymentNokAmount = Math.Round(tripletexNokAmount + fxDiff, 2, MidpointRounding.AwayFromZero);
+        // Compute paidAmount directly from the prompt's payment-time exchange rate.
+        // Tripletex's internal daily rate often differs from the prompt rate, so anchoring
+        // to tripletexNokAmount produces incorrect payment amounts.
+        var paymentNokAmount = Math.Round(foreignAmount * rateAtPayment, 2, MidpointRounding.AwayFromZero);
 
-        _logger.LogInformation("FX NOK: tripletexInvoice={TxNok}, fxDiff={FxDiff}, anchoredPayment={PayNok}",
-            tripletexNokAmount, fxDiff, paymentNokAmount);
+        _logger.LogInformation("FX NOK: tripletexInvoice={TxNok}, promptRate={Rate}, directPayment={PayNok}",
+            tripletexNokAmount, rateAtPayment, paymentNokAmount);
 
         // Register the actual cash receipt in NOK and the foreign amount paid by the customer.
         var paymentDate = ResolvePaymentDate(extracted);

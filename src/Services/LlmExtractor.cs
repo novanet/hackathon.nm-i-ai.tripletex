@@ -270,12 +270,61 @@ public class LlmExtractor
         if (!voucher.ContainsKey("supplierName") && !voucher.ContainsKey("supplierOrgNumber"))
             return;
 
-        // Resolve receipt description from prompt even when PDF text extraction fails
-        var receiptDescription = ResolveReceiptDescription(extracted, voucher, fileText ?? "");
+        // Always try to extract receipt description from the prompt, even when fileText is empty
+        // (PDF may have been sent as image to LLM, so fileText can be empty while LLM still saw it)
+        var receiptDescription = ResolveReceiptDescription(extracted, voucher, fileText);
         if (!string.IsNullOrWhiteSpace(receiptDescription))
             voucher["receiptDescription"] = receiptDescription;
 
-        // Amount normalization requires file text
+        // If we have file text, try to use the specific line item amount when a receipt item is named
+        if (!string.IsNullOrWhiteSpace(fileText) && !string.IsNullOrWhiteSpace(receiptDescription))
+        {
+            var lineItemAmount = TryExtractLineItemAmount(fileText, receiptDescription);
+            if (lineItemAmount.HasValue && lineItemAmount.Value > 0)
+            {
+                voucher["amount"] = lineItemAmount.Value.ToString("F2", CultureInfo.InvariantCulture);
+                _logger.LogInformation("Set voucher amount to line item '{Item}' amount {Amount} from receipt",
+                    receiptDescription, lineItemAmount.Value);
+                return; // Skip total normalization — we have the specific item amount
+            }
+        }
+
+        // Fallback: when no file text but receipt description found, check if any raw_amount
+        // is NOT the current amount (which is likely the total) — prefer smaller specific amounts
+        if (string.IsNullOrWhiteSpace(fileText) && !string.IsNullOrWhiteSpace(receiptDescription)
+            && extracted.RawAmounts.Count > 1)
+        {
+            var currentAmount = GetDecimalField(voucher, "amount");
+            // Find a raw amount that differs from current (total) — likely the line item
+            // Use the largest non-total amount as best guess
+            decimal? bestCandidate = null;
+            foreach (var ra in extracted.RawAmounts)
+            {
+                if (decimal.TryParse(ra, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
+                    && parsed > 0
+                    && (!currentAmount.HasValue || Math.Abs(parsed - currentAmount.Value) > 0.01m)
+                    && (!bestCandidate.HasValue || parsed > bestCandidate.Value))
+                {
+                    bestCandidate = parsed;
+                }
+            }
+            if (bestCandidate.HasValue)
+            {
+                voucher["amount"] = bestCandidate.Value.ToString("F2", CultureInfo.InvariantCulture);
+                _logger.LogInformation("Set voucher amount to best candidate {Amount} from raw_amounts (no file text, receipt item '{Item}')",
+                    bestCandidate.Value, receiptDescription);
+                return;
+            }
+        }
+
+        // Only normalize to labeled total when NO specific receipt item was identified
+        // (if a specific item was requested, the LLM or line-item extraction should have the right amount)
+        if (!string.IsNullOrWhiteSpace(receiptDescription))
+        {
+            _logger.LogInformation("Skipping labeled total normalization — specific receipt item '{Item}' requested, keeping amount as-is",
+                receiptDescription);
+            return;
+        }
         if (string.IsNullOrWhiteSpace(fileText))
             return;
 
@@ -283,11 +332,11 @@ public class LlmExtractor
         if (!labeledTotal.HasValue || labeledTotal.Value <= 0)
             return;
 
-        var currentAmount = GetDecimalField(voucher, "amount")
+        var currentAmt = GetDecimalField(voucher, "amount")
             ?? GetDecimalField(voucher, "amountGross")
             ?? GetDecimalField(voucher, "totalAmount");
 
-        if (currentAmount.HasValue && Math.Abs(currentAmount.Value - labeledTotal.Value) < 0.01m)
+        if (currentAmt.HasValue && Math.Abs(currentAmt.Value - labeledTotal.Value) < 0.01m)
             return;
 
         // Don't override with receipt total when prompt asks for a specific line item
@@ -306,7 +355,7 @@ public class LlmExtractor
         }
 
         _logger.LogInformation("Normalized voucher amount from {Current} to labeled total {Total} based on attached file text",
-            currentAmount?.ToString("F2", CultureInfo.InvariantCulture) ?? "<missing>",
+            currentAmt?.ToString("F2", CultureInfo.InvariantCulture) ?? "<missing>",
             labeledTotal.Value.ToString("F2", CultureInfo.InvariantCulture));
     }
 
@@ -340,8 +389,10 @@ public class LlmExtractor
             @"need(?:s|ed)?\s+(.+?)\s+from this receipt",
             @"necesitamos\s+el\s+gasto\s+de\s+(.+?)\s+de este recibo",
             @"precisamos\s+da\s+despesa\s+de\s+(.+?)\s+deste recibo",
-            @"nous avons besoin de la depense\s+(.+?)\s+de ce recu",
+            @"nous avons besoin de la d[eé]pense\s+(.+?)\s+de ce re[çc]u",
             @"wir brauchen\s+die\s+ausgabe\s+(.+?)\s+aus dieser quittung",
+            @"wir ben[oö]tigen\s+die\s+(.+?)[-\s]ausgabe\s+aus dieser quittung",
+            @"wir ben[oö]tigen\s+die\s+ausgabe\s+(.+?)\s+aus dieser quittung",
             @"for\s+(.+?)\s+from this receipt",
             @"for\s+the\s+(.+?)\s+from this receipt",
             @"f[oø]r\s+(.+?)\s+fra denne kvitter(?:inga|ingen)",
@@ -419,6 +470,29 @@ public class LlmExtractor
             return true;
 
         return Regex.IsMatch(line, @"^(Totalt|Total|Totalsum|Sum|Summe|Gesamt|Monto total|Montant total|Valor total|Total a pagar|MVA|VAT|TVA)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    /// <summary>
+    /// Find the amount for a specific line item in receipt text.
+    /// Matches lines like "Togbillett 7950.00 kr" where the description matches the receipt item.
+    /// </summary>
+    private static decimal? TryExtractLineItemAmount(string fileText, string itemName)
+    {
+        // PdfPig may concatenate text without spaces, e.g. "Togbillett7950.00 kr"
+        // So we search for the item name followed by an amount anywhere in the text
+        var pattern = Regex.Escape(itemName) + @"\s*(\d[\d\s.,]*)\s*(kr)?";
+        var match = Regex.Match(fileText, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (match.Success)
+        {
+            var amountText = match.Groups[1].Value
+                .Replace(" ", string.Empty)
+                .Replace(',', '.');
+
+            if (decimal.TryParse(amountText, NumberStyles.Any, CultureInfo.InvariantCulture, out var amount) && amount > 0)
+                return amount;
+        }
+
+        return null;
     }
 
     private static decimal? TryExtractLabeledTotal(string text)

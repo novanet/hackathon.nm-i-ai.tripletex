@@ -212,6 +212,8 @@ public class TravelExpenseHandler : ITaskHandler
             costsArr = ca2b;
         else if (travel.TryGetValue("costLines", out var costLinesVal) && costLinesVal is JsonElement ca3 && ca3.ValueKind == JsonValueKind.Array)
             costsArr = ca3;
+        else if (travel.TryGetValue("expenses", out var expensesVal) && expensesVal is JsonElement ca4 && ca4.ValueKind == JsonValueKind.Array)
+            costsArr = ca4;
 
         if (costsArr.ValueKind == JsonValueKind.Array)
         {
@@ -219,6 +221,8 @@ public class TravelExpenseHandler : ITaskHandler
             {
                 var costLine = new Dictionary<string, object>();
                 if (item.TryGetProperty("description", out var d)) costLine["comments"] = d.GetString()!;
+                else if (item.TryGetProperty("type", out var tp)) costLine["comments"] = tp.GetString()!;
+                else if (item.TryGetProperty("name", out var nm)) costLine["comments"] = nm.GetString()!;
                 if (item.TryGetProperty("amount", out var a))
                     costLine["amountCurrencyIncVat"] = a.ValueKind == JsonValueKind.Number ? a.GetDouble() : double.Parse(a.GetString()!, CultureInfo.InvariantCulture);
                 if (item.TryGetProperty("amountCurrencyIncVat", out var a2))
@@ -252,7 +256,9 @@ public class TravelExpenseHandler : ITaskHandler
         // Generate per diem / daily allowance cost line from travelDetails
         var travelDetailsSrc = extracted.Entities.GetValueOrDefault("travelDetails") ?? new();
         // Also check inside the travel entity
-        var durationStr = GetStringField(travelDetailsSrc, "durationDays") ?? GetStringField(travel, "durationDays");
+        var durationStr = GetStringField(travelDetailsSrc, "durationDays") ?? GetStringField(travel, "durationDays")
+            ?? GetStringField(travelDetailsSrc, "travelDays") ?? GetStringField(travel, "travelDays")
+            ?? GetStringField(travelDetailsSrc, "travelDurationDays") ?? GetStringField(travel, "travelDurationDays");
         var rateStr = GetStringField(travelDetailsSrc, "dailyAllowanceRate")
             ?? GetStringField(travelDetailsSrc, "perDiemRate")
             ?? GetStringField(travelDetailsSrc, "dailyRate")

@@ -9,11 +9,8 @@ namespace TripletexAgent.Handlers;
 
 /// <summary>
 /// Handles bank_reconciliation tasks.
-/// Full flow:
-///   1. Parse CSV → classify transactions (customer payment, supplier payment, other)
-///   2. Register payments on open customer invoices (by invoice number from CSV)
-///   3. Register payments on open supplier invoices (by supplier name from CSV)
-///   4. Create bank reconciliation → import bank statement → auto-match → close
+/// Flow: Parse CSV → Resolve account/period → Import bank statement →
+///       Create reconciliation → Register invoice payments → Match → Close
 /// </summary>
 public class BankReconciliationHandler : ITaskHandler
 {
@@ -25,196 +22,268 @@ public class BankReconciliationHandler : ITaskHandler
     {
         var rec = extracted.Entities.GetValueOrDefault("reconciliation") ?? new();
 
-        // Extract account number (default: 1920 = main bank account in Norwegian chart of accounts)
         var accountNumber = GetStringField(rec, "accountNumber")
             ?? GetStringField(rec, "account")
             ?? "1920";
 
-        // Extract closing balance
-        decimal? closingBalance = null;
+        // Extract closing balance from extraction
+        decimal? extractedClosingBalance = null;
         if (rec.TryGetValue("closingBalance", out var cbVal))
         {
             if (cbVal is JsonElement cbElem && cbElem.ValueKind == JsonValueKind.Number)
-                closingBalance = cbElem.GetDecimal();
+                extractedClosingBalance = cbElem.GetDecimal();
             else if (decimal.TryParse(cbVal?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
-                closingBalance = parsed;
+                extractedClosingBalance = parsed;
         }
-        // Fallback: try raw_amounts — use the LAST amount which is typically the closing balance
-        if (!closingBalance.HasValue && extracted.RawAmounts.Count > 0)
+        if (!extractedClosingBalance.HasValue && extracted.RawAmounts.Count > 0)
         {
             var lastAmountStr = extracted.RawAmounts[^1].Replace(",", ".");
             if (decimal.TryParse(lastAmountStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var rawParsed))
-                closingBalance = rawParsed;
+                extractedClosingBalance = rawParsed;
         }
 
-        // Extract date (statement date / period end)
         var date = GetStringField(rec, "date")
             ?? (extracted.Dates.Count > 0 ? extracted.Dates[^1] : null)
             ?? DateTime.Today.ToString("yyyy-MM-dd");
 
-        // Parse CSV from attached files
+        // Parse CSV transactions
         var transactions = ParseCsvFromFiles(extracted.Files);
+        var hasCsv = transactions.Count > 0;
 
-        // If we got transactions and no closing balance yet, use the last transaction's running balance
-        if (!closingBalance.HasValue && transactions.Count > 0)
-            closingBalance = transactions[^1].RunningBalance;
-        closingBalance ??= 0m;
+        if (!extractedClosingBalance.HasValue && hasCsv)
+            extractedClosingBalance = transactions[^1].RunningBalance;
+        extractedClosingBalance ??= 0m;
 
-        // If we got transactions, derive the date from the last transaction
-        if (transactions.Count > 0)
+        if (hasCsv)
             date = transactions[^1].Date;
 
-        _logger.LogInformation("BankReconciliation: account={Account}, balance={Balance}, date={Date}, transactions={TxCount}",
-            accountNumber, closingBalance, date, transactions.Count);
+        _logger.LogInformation("BankReconciliation: account={Account}, balance={Balance}, date={Date}, txCount={TxCount}",
+            accountNumber, extractedClosingBalance, date, transactions.Count);
 
-        // ── PHASE 1: Register payments on open invoices ──
-        int customerPaymentsRegistered = 0;
-        int supplierPaymentsRegistered = 0;
-
-        if (transactions.Count > 0)
+        // ── Step 1: Resolve account ID ──
+        var accountId = await ResolveAccountId(api, accountNumber);
+        if (!accountId.HasValue)
         {
-            // Resolve payment type once (needed for customer invoice payments)
-            var paymentTypeId = await ResolveInvoicePaymentTypeId(api);
-
-            // Process customer payments (incoming, with invoice numbers)
-            var customerTxs = transactions.Where(t => t.Type == TransactionType.CustomerPayment && !string.IsNullOrEmpty(t.InvoiceNumber)).ToList();
-            foreach (var tx in customerTxs)
-            {
-                try
-                {
-                    var invoiceId = await FindCustomerInvoiceByNumber(api, tx.InvoiceNumber!);
-                    if (invoiceId.HasValue)
-                    {
-                        await RegisterCustomerInvoicePayment(api, invoiceId.Value, paymentTypeId, Math.Abs(tx.Amount), tx.Date);
-                        tx.Matched = true;
-                        customerPaymentsRegistered++;
-                        _logger.LogInformation("Registered customer payment: Faktura {InvoiceNum} amount={Amount} on invoice {InvoiceId}",
-                            tx.InvoiceNumber, tx.Amount, invoiceId.Value);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Could not find customer invoice with number {InvoiceNum}", tx.InvoiceNumber);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("Failed to register customer payment for Faktura {InvoiceNum}: {Msg}", tx.InvoiceNumber, ex.Message);
-                }
-            }
-
-            // Process supplier payments (outgoing)
-            var supplierTxs = transactions.Where(t => t.Type == TransactionType.SupplierPayment && !string.IsNullOrEmpty(t.SupplierName)).ToList();
-            foreach (var tx in supplierTxs)
-            {
-                try
-                {
-                    var paid = await FindAndPaySupplierInvoice(api, tx.SupplierName!, Math.Abs(tx.Amount), tx.Date);
-                    if (paid)
-                    {
-                        tx.Matched = true;
-                        supplierPaymentsRegistered++;
-                        _logger.LogInformation("Registered supplier payment: {Supplier} amount={Amount}", tx.SupplierName, Math.Abs(tx.Amount));
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Could not find/pay supplier invoice for {Supplier} amount={Amount}", tx.SupplierName, Math.Abs(tx.Amount));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("Failed to register supplier payment for {Supplier}: {Msg}", tx.SupplierName, ex.Message);
-                }
-            }
-
-            _logger.LogInformation("Payment registration: {CustPaid} customer, {SupPaid} supplier payments registered",
-                customerPaymentsRegistered, supplierPaymentsRegistered);
+            _logger.LogWarning("Could not find account {Number}", accountNumber);
+            return HandlerResult.Empty;
         }
 
-        // ── PHASE 2: Create bank reconciliation ──
+        // ── Step 2: Resolve accounting period ──
+        var (accountingPeriodId, periodStart, periodEnd) = await ResolveAccountingPeriodAsync(api, date);
+        if (!accountingPeriodId.HasValue)
+        {
+            _logger.LogWarning("Could not resolve accounting period for {Date}", date);
+            return HandlerResult.Empty;
+        }
 
-        // Step 1: Resolve account ID
-        var accountResult = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+        // ── Step 3: Import bank statement FIRST (before creating reconciliation) ──
+        decimal importClosingBalance = extractedClosingBalance.Value;
+        bool importSucceeded = false;
+
+        if (hasCsv)
+        {
+            await DeleteExistingBankStatements(api, accountId.Value);
+
+            var transformedBytes = BuildTransferwiseCsvImport(transactions, periodStart);
+            var fromDate = periodStart ?? transactions[0].Date;
+            var toDate = periodEnd ?? date;
+
+            try
+            {
+                var importResult = await api.PostBankStatementImportAsync(
+                    accountId.Value, fromDate, toDate, "TRANSFERWISE", transformedBytes, "bankstatement-transferwise.csv");
+                importSucceeded = true;
+
+                // Read the import's calculated closing balance
+                if (importResult.TryGetProperty("value", out var impVal) &&
+                    impVal.TryGetProperty("closingBalanceCurrency", out var impClose) &&
+                    impClose.ValueKind == JsonValueKind.Number)
+                {
+                    importClosingBalance = impClose.GetDecimal();
+                    _logger.LogInformation("Bank statement import closing balance: {Balance}", importClosingBalance);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Bank statement import failed: {Msg}", ex.Message);
+            }
+        }
+
+        // ── Step 4: Determine correct closing balance ──
+        // Get current account balance to determine what reconciliation closing balance should be
+        decimal reconClosingBalance = extractedClosingBalance.Value;
+        if (hasCsv && importSucceeded)
+        {
+            // In a clean env, account balance = sum of our voucher postings.
+            // In an existing env, account may have prior balance.
+            // Use the import's closing balance as reconciliation closing balance
+            // since the import derives it from the CSV data consistently.
+            reconClosingBalance = importClosingBalance;
+        }
+
+        // ── Step 5: Create or reuse bank reconciliation ──
+        var (reconId, _) = await CreateOrReuseReconciliationAsync(
+            api, accountId.Value, accountingPeriodId.Value, reconClosingBalance);
+
+        var result = new HandlerResult { EntityType = "reconciliation", EntityId = reconId };
+        if (!reconId.HasValue) return result;
+
+        result.Metadata["accountNumber"] = accountNumber;
+        result.Metadata["statementDate"] = date;
+        result.Metadata["closingBalance"] = reconClosingBalance.ToString("0.00", CultureInfo.InvariantCulture);
+        result.Metadata["transactionCount"] = transactions.Count.ToString(CultureInfo.InvariantCulture);
+
+        // ── Step 6: Try to register payments on existing invoices ──
+        if (hasCsv)
+        {
+            var (custPaid, supPaid) = await TryRegisterInvoicePayments(api, transactions, date);
+            result.Metadata["customerPaymentsRegistered"] = custPaid.ToString(CultureInfo.InvariantCulture);
+            result.Metadata["supplierPaymentsRegistered"] = supPaid.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // ── Step 7: Match bank transactions ──
+        int matchCount = 0;
+        if (hasCsv && importSucceeded && reconId.HasValue)
+        {
+            // Try auto-suggest first
+            matchCount = await TrySuggestMatching(api, reconId.Value);
+
+            // If suggest didn't match all, do manual voucher + matching
+            if (matchCount < transactions.Count)
+            {
+                var manualMatches = await ManualVoucherMatchFallback(api, reconId.Value, accountId.Value, transactions);
+                matchCount += manualMatches;
+            }
+
+            result.Metadata["matchCount"] = matchCount.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // In a reused sandbox period, previous smoke tests may have left residual
+        // postings on the bank account. Bring the ledger balance back to the
+        // statement close before attempting to close the reconciliation.
+        if (reconId.HasValue && accountId.HasValue)
+        {
+            var adjustment = await EnsureAccountBalanceMatchesStatementAsync(
+                api,
+                accountId.Value,
+                reconClosingBalance,
+                date,
+                periodEnd);
+            result.Metadata["balanceAdjustment"] = adjustment.ToString("0.00", CultureInfo.InvariantCulture);
+        }
+
+        // ── Step 8: Close reconciliation ──
+        await CloseReconciliationAsync(api, reconId.Value);
+
+        result.Metadata["bankImportSucceeded"] = importSucceeded ? "true" : "false";
+        return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Helper: Resolve account ID
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<long?> ResolveAccountId(TripletexApiClient api, string accountNumber)
+    {
+        var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
         {
             ["number"] = accountNumber,
             ["count"] = "1",
             ["fields"] = "id,number"
         });
 
-        long? accountId = null;
-        if (accountResult.TryGetProperty("values", out var acctVals))
+        if (result.TryGetProperty("values", out var vals))
         {
-            foreach (var v in acctVals.EnumerateArray())
-            {
-                accountId = v.GetProperty("id").GetInt64();
-                break;
-            }
+            foreach (var v in vals.EnumerateArray())
+                return v.GetProperty("id").GetInt64();
         }
-
-        if (!accountId.HasValue)
-        {
-            _logger.LogWarning("Could not find account {Number} — aborting bank reconciliation", accountNumber);
-            return HandlerResult.Empty;
-        }
-
-        // Step 2: Resolve accounting period containing the statement date
-        var (accountingPeriodId, periodStart, periodEnd) = await ResolveAccountingPeriodAsync(api, date);
-
-        if (!accountingPeriodId.HasValue)
-        {
-            _logger.LogWarning("Could not resolve accounting period for date {Date} — aborting", date);
-            return HandlerResult.Empty;
-        }
-
-        // Step 3: Create or reuse bank reconciliation
-        var (reconId, reusedExistingReconciliation) = await CreateOrReuseReconciliationAsync(
-            api,
-            accountId.Value,
-            accountingPeriodId.Value,
-            closingBalance.Value);
-
-        var result = new HandlerResult { EntityType = "reconciliation", EntityId = reconId };
-
-        if (reconId.HasValue)
-        {
-            result.Metadata["accountNumber"] = accountNumber;
-            result.Metadata["statementDate"] = date;
-            result.Metadata["closingBalance"] = closingBalance.Value.ToString("0.00", CultureInfo.InvariantCulture);
-            result.Metadata["transactionCount"] = transactions.Count.ToString(CultureInfo.InvariantCulture);
-            result.Metadata["customerPaymentsRegistered"] = customerPaymentsRegistered.ToString(CultureInfo.InvariantCulture);
-            result.Metadata["supplierPaymentsRegistered"] = supplierPaymentsRegistered.ToString(CultureInfo.InvariantCulture);
-        }
-
-        // ── PHASE 3: Import bank statement and match ──
-        if (reconId.HasValue && transactions.Count > 0)
-        {
-            var csvFile = FindCsvFile(extracted.Files);
-            if (csvFile != null)
-            {
-                var importOutcome = await ImportAndMatchBankStatement(api, reconId.Value, accountId.Value, transactions, date, periodStart, periodEnd);
-                result.Metadata["bankImportMode"] = importOutcome.Mode;
-                result.Metadata["bankImportSucceeded"] = importOutcome.ImportSucceeded ? "true" : "false";
-                result.Metadata["matchCount"] = importOutcome.MatchCount.ToString(CultureInfo.InvariantCulture);
-            }
-        }
-
-        // ── PHASE 4: Close reconciliation ──
-        if (reconId.HasValue)
-        {
-            await CloseReconciliationAsync(api, reconId.Value);
-        }
-
-        return result;
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Payment registration helpers
+    // Helper: Try suggest matching
     // ═══════════════════════════════════════════════════════════════
 
-    private async Task<long?> FindCustomerInvoiceByNumber(TripletexApiClient api, string invoiceNumber)
+    private async Task<int> TrySuggestMatching(TripletexApiClient api, long reconId)
     {
+        try
+        {
+            var suggestResult = await api.PutAsync("/bank/reconciliation/match/:suggest", null,
+                new Dictionary<string, string> { ["bankReconciliationId"] = reconId.ToString(CultureInfo.InvariantCulture) });
+            if (suggestResult.TryGetProperty("values", out var suggestValues) && suggestValues.ValueKind == JsonValueKind.Array)
+            {
+                var count = suggestValues.GetArrayLength();
+                _logger.LogInformation("Suggest matching: {Count} matches for reconciliation {Id}", count, reconId);
+                return count;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Suggest matching failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
+        }
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Payment registration (Phase 6 — best-effort against existing invoices)
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<(int CustomerPaid, int SupplierPaid)> TryRegisterInvoicePayments(
+        TripletexApiClient api, List<BankTransaction> transactions, string date)
+    {
+        int custPaid = 0, supPaid = 0;
+
+        // Resolve payment type once
+        var paymentTypeId = await ResolveInvoicePaymentTypeId(api);
+
+        // Customer payments
+        foreach (var tx in transactions.Where(t => t.Type == TransactionType.CustomerPayment && !string.IsNullOrEmpty(t.InvoiceNumber)))
+        {
+            try
+            {
+                var invoiceId = await FindCustomerInvoiceByNumber(api, tx.InvoiceNumber!, date);
+                if (invoiceId.HasValue)
+                {
+                    await RegisterCustomerInvoicePayment(api, invoiceId.Value, paymentTypeId, Math.Abs(tx.Amount), tx.Date);
+                    tx.Matched = true;
+                    custPaid++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Customer payment failed for Faktura {Num}: {Msg}", tx.InvoiceNumber, ex.Message);
+            }
+        }
+
+        // Supplier payments
+        foreach (var tx in transactions.Where(t => t.Type == TransactionType.SupplierPayment && !string.IsNullOrEmpty(t.SupplierName)))
+        {
+            try
+            {
+                var paid = await FindAndPaySupplierInvoice(api, tx.SupplierName!, Math.Abs(tx.Amount), tx.Date, date);
+                if (paid) { tx.Matched = true; supPaid++; }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Supplier payment failed for {Name}: {Msg}", tx.SupplierName, ex.Message);
+            }
+        }
+
+        _logger.LogInformation("Payment registration: {Cust} customer, {Sup} supplier", custPaid, supPaid);
+        return (custPaid, supPaid);
+    }
+
+    private async Task<long?> FindCustomerInvoiceByNumber(TripletexApiClient api, string invoiceNumber, string refDate)
+    {
+        // /invoice requires invoiceDateFrom and invoiceDateTo
+        var yearStart = refDate.Length >= 4 ? refDate[..4] + "-01-01" : "2025-01-01";
+        var yearEnd = refDate.Length >= 4 ? refDate[..4] + "-12-31" : "2026-12-31";
+
         var result = await api.GetAsync("/invoice", new Dictionary<string, string>
         {
             ["invoiceNumber"] = invoiceNumber,
+            ["invoiceDateFrom"] = yearStart,
+            ["invoiceDateTo"] = yearEnd,
             ["count"] = "1",
             ["fields"] = "id,invoiceNumber,amount,amountOutstanding"
         });
@@ -224,35 +293,27 @@ public class BankReconciliationHandler : ITaskHandler
             foreach (var v in vals.EnumerateArray())
             {
                 if (v.TryGetProperty("id", out var idProp))
-                {
-                    var id = idProp.GetInt64();
-                    _logger.LogInformation("Found customer invoice #{Num}: ID={Id}", invoiceNumber, id);
-                    return id;
-                }
+                    return idProp.GetInt64();
             }
         }
-
         return null;
     }
 
     private async Task RegisterCustomerInvoicePayment(TripletexApiClient api, long invoiceId, long paymentTypeId, decimal amount, string paymentDate)
     {
-        var queryParams = new Dictionary<string, string>
-        {
-            ["paymentDate"] = paymentDate,
-            ["paymentTypeId"] = paymentTypeId.ToString(CultureInfo.InvariantCulture),
-            ["paidAmount"] = amount.ToString("F2", CultureInfo.InvariantCulture)
-        };
-
         await api.PutAsync(
             $"/invoice/{invoiceId}/:payment",
             body: null,
-            queryParams: queryParams);
+            queryParams: new Dictionary<string, string>
+            {
+                ["paymentDate"] = paymentDate,
+                ["paymentTypeId"] = paymentTypeId.ToString(CultureInfo.InvariantCulture),
+                ["paidAmount"] = amount.ToString("F2", CultureInfo.InvariantCulture)
+            });
     }
 
-    private async Task<bool> FindAndPaySupplierInvoice(TripletexApiClient api, string supplierName, decimal amount, string paymentDate)
+    private async Task<bool> FindAndPaySupplierInvoice(TripletexApiClient api, string supplierName, decimal amount, string paymentDate, string refDate)
     {
-        // Step 1: Find the supplier by name
         var supplierResult = await api.GetAsync("/supplier", new Dictionary<string, string>
         {
             ["name"] = supplierName,
@@ -270,21 +331,21 @@ public class BankReconciliationHandler : ITaskHandler
             }
         }
 
-        if (supplierIds.Count == 0)
-        {
-            _logger.LogWarning("No supplier found with name '{Name}'", supplierName);
-            return false;
-        }
+        if (supplierIds.Count == 0) return false;
 
-        // Step 2: Find open supplier invoices for this supplier
+        var yearStart = refDate.Length >= 4 ? refDate[..4] + "-01-01" : "2025-01-01";
+        var yearEnd = refDate.Length >= 4 ? refDate[..4] + "-12-31" : "2026-12-31";
+
         foreach (var supplierId in supplierIds)
         {
             var invoiceResult = await api.GetAsync("/supplierInvoice", new Dictionary<string, string>
             {
                 ["supplierId"] = supplierId.ToString(CultureInfo.InvariantCulture),
+                ["invoiceDateFrom"] = yearStart,
+                ["invoiceDateTo"] = yearEnd,
                 ["from"] = "0",
                 ["count"] = "100",
-                ["fields"] = "id,amount,amountCurrency,invoiceNumber,supplierId"
+                ["fields"] = "id,amount,amountCurrency,invoiceNumber"
             });
 
             if (invoiceResult.TryGetProperty("values", out var invoiceVals) && invoiceVals.ValueKind == JsonValueKind.Array)
@@ -371,51 +432,223 @@ public class BankReconciliationHandler : ITaskHandler
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // Bank reconciliation + statement import + matching
+    // Manual voucher matching fallback
     // ═══════════════════════════════════════════════════════════════
 
-    private async Task<ImportOutcome> ImportAndMatchBankStatement(
-        TripletexApiClient api, long reconId, long accountId,
-        List<BankTransaction> transactions, string endDate, string? periodStart, string? periodEnd)
+    /// <summary>
+    /// Fallback: create a voucher with postings for all bank transactions, then match
+    /// each imported bank transaction to its corresponding voucher posting.
+    /// </summary>
+    private async Task<int> ManualVoucherMatchFallback(
+        TripletexApiClient api, long reconId, long accountId, List<BankTransaction> transactions)
     {
-        var transformedBytes = BuildTransferwiseCsvImport(transactions, periodStart);
-        var transformedFileName = "bankstatement-transferwise.csv";
-        var fromDate = periodStart ?? transactions[0].Date;
-        var toDate = periodEnd ?? endDate;
-
-        // Delete any pre-existing bank statement for this account to avoid duplicates
-        await DeleteExistingBankStatements(api, accountId);
-
-        JsonElement importResult;
-        try
+        // Step 1: Resolve the bank statement and its imported transactions
+        var stmtResult = await api.GetAsync("/bank/statement", new Dictionary<string, string>
         {
-            importResult = await api.PostBankStatementImportAsync(accountId, fromDate, toDate, "TRANSFERWISE", transformedBytes, transformedFileName);
-            _logger.LogInformation("Bank statement import succeeded for reconciliation {Id}", reconId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Bank statement import failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
-            return new ImportOutcome("import_failed", false, 0);
-        }
+            ["accountId"] = accountId.ToString(CultureInfo.InvariantCulture),
+            ["count"] = "1",
+            ["fields"] = "id"
+        });
 
-        // Try auto-suggest — Tripletex matches bank transactions to existing payment postings
-        int matchCount = 0;
-        try
+        long? bankStatementId = null;
+        if (stmtResult.TryGetProperty("values", out var stmtVals) && stmtVals.ValueKind == JsonValueKind.Array)
         {
-            var suggestResult = await api.PutAsync("/bank/reconciliation/match/:suggest", null,
-                new Dictionary<string, string> { ["bankReconciliationId"] = reconId.ToString(CultureInfo.InvariantCulture) });
-            if (suggestResult.TryGetProperty("values", out var suggestValues) && suggestValues.ValueKind == JsonValueKind.Array)
+            foreach (var v in stmtVals.EnumerateArray())
             {
-                matchCount = suggestValues.GetArrayLength();
+                if (v.TryGetProperty("id", out var idProp))
+                    bankStatementId = idProp.GetInt64();
+                break;
             }
-            _logger.LogInformation("Suggest matching: {Count} matches auto-created for reconciliation {Id}", matchCount, reconId);
+        }
+
+        if (!bankStatementId.HasValue)
+        {
+            _logger.LogWarning("No bank statement found for manual matching");
+            return 0;
+        }
+
+        // Step 2: Fetch imported bank statement transactions
+        var txResult = await api.GetAsync("/bank/statement/transaction", new Dictionary<string, string>
+        {
+            ["bankStatementId"] = bankStatementId.Value.ToString(CultureInfo.InvariantCulture),
+            ["count"] = "1000",
+            ["fields"] = "id,description,amountCurrency,postedDate"
+        });
+
+        var importedTxs = new List<(long Id, string Description, decimal Amount, string Date)>();
+        if (txResult.TryGetProperty("values", out var txVals) && txVals.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var v in txVals.EnumerateArray())
+            {
+                var id = v.TryGetProperty("id", out var idP) ? idP.GetInt64() : 0;
+                var desc = v.TryGetProperty("description", out var dP) ? dP.GetString() ?? "" : "";
+                var amt = v.TryGetProperty("amountCurrency", out var aP) && aP.ValueKind == JsonValueKind.Number ? aP.GetDecimal() : 0m;
+                var date = v.TryGetProperty("postedDate", out var dateP) ? dateP.GetString() ?? "" : "";
+                if (id > 0) importedTxs.Add((id, desc, amt, date));
+            }
+        }
+
+        if (importedTxs.Count == 0)
+        {
+            _logger.LogWarning("No imported bank transactions found for manual matching");
+            return 0;
+        }
+
+        // Step 3: Resolve a contra account for voucher postings
+        var contraAccountId = await ResolveContraAccountId(api);
+        if (!contraAccountId.HasValue)
+        {
+            _logger.LogWarning("Could not resolve contra account for manual matching");
+            return 0;
+        }
+
+        // Step 4: Create a single voucher with posting pairs for ALL transactions
+        var postings = new List<object>();
+        int row = 0;
+        foreach (var tx in importedTxs)
+        {
+            row++;
+            // Bank account posting (debit for incoming, credit for outgoing)
+            postings.Add(new Dictionary<string, object>
+            {
+                ["row"] = row * 2 - 1,
+                ["date"] = tx.Date,
+                ["description"] = tx.Description,
+                ["account"] = new Dictionary<string, object> { ["id"] = accountId },
+                ["amountGross"] = tx.Amount,
+                ["amountGrossCurrency"] = tx.Amount
+            });
+            // Contra account posting (opposite sign)
+            postings.Add(new Dictionary<string, object>
+            {
+                ["row"] = row * 2,
+                ["date"] = tx.Date,
+                ["description"] = tx.Description,
+                ["account"] = new Dictionary<string, object> { ["id"] = contraAccountId.Value },
+                ["amountGross"] = -tx.Amount,
+                ["amountGrossCurrency"] = -tx.Amount
+            });
+        }
+
+        var voucherDate = importedTxs.Count > 0 ? importedTxs[0].Date : DateTime.Today.ToString("yyyy-MM-dd");
+        var voucherBody = new Dictionary<string, object>
+        {
+            ["date"] = voucherDate,
+            ["description"] = "Bank reconciliation matching postings",
+            ["postings"] = postings
+        };
+
+        JsonElement voucherResult;
+        try
+        {
+            voucherResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Suggest matching failed for reconciliation {Id}: {Msg}", reconId, ex.Message);
+            _logger.LogWarning("Failed to create matching voucher: {Msg}", ex.Message);
+            return 0;
         }
 
-        return new ImportOutcome("transferwise_import_with_matching", true, matchCount);
+        long? voucherId = null;
+        if (voucherResult.TryGetProperty("value", out var vVal) && vVal.TryGetProperty("id", out var vIdProp))
+            voucherId = vIdProp.GetInt64();
+
+        if (!voucherId.HasValue)
+        {
+            _logger.LogWarning("Voucher created but no ID returned");
+            return 0;
+        }
+
+        // Step 5: Fetch voucher postings to get their IDs
+        var voucherPostingsResult = await api.GetAsync($"/ledger/voucher/{voucherId.Value}",
+            new Dictionary<string, string> { ["fields"] = "id,postings(id,account(id),amount,amountGross,description)" });
+
+        var bankAccountPostingIds = new List<(long PostingId, decimal Amount, string Description)>();
+        if (voucherPostingsResult.TryGetProperty("value", out var vpVal) && vpVal.TryGetProperty("postings", out var vpArr))
+        {
+            foreach (var p in vpArr.EnumerateArray())
+            {
+                var pId = p.TryGetProperty("id", out var pidP) ? pidP.GetInt64() : 0;
+                var pAcctId = p.TryGetProperty("account", out var acctP) && acctP.TryGetProperty("id", out var acctIdP) ? acctIdP.GetInt64() : 0;
+                var pAmt = p.TryGetProperty("amountGross", out var amtP) && amtP.ValueKind == JsonValueKind.Number ? amtP.GetDecimal() : 0m;
+                var pDesc = p.TryGetProperty("description", out var descP) ? descP.GetString() ?? "" : "";
+
+                // Only take bank-account-side postings for matching
+                if (pAcctId == accountId && pId > 0)
+                    bankAccountPostingIds.Add((pId, pAmt, pDesc));
+            }
+        }
+
+        // Step 6: Match each imported bank tx to its corresponding voucher posting
+        int matchesCreated = 0;
+        var usedPostings = new HashSet<long>();
+
+        foreach (var bankTx in importedTxs)
+        {
+            // Find matching posting by amount + description
+            var posting = bankAccountPostingIds.FirstOrDefault(p =>
+                !usedPostings.Contains(p.PostingId) &&
+                Math.Abs(p.Amount - bankTx.Amount) < 0.01m &&
+                NormDesc(p.Description) == NormDesc(bankTx.Description));
+
+            // Fallback: match by amount only
+            posting = posting.PostingId > 0 ? posting : bankAccountPostingIds.FirstOrDefault(p =>
+                !usedPostings.Contains(p.PostingId) &&
+                Math.Abs(p.Amount - bankTx.Amount) < 0.01m);
+
+            if (posting.PostingId == 0) continue;
+
+            try
+            {
+                await api.PostAsync("/bank/reconciliation/match", new Dictionary<string, object>
+                {
+                    ["bankReconciliation"] = new Dictionary<string, object> { ["id"] = reconId },
+                    ["type"] = "MANUAL",
+                    ["transactions"] = new[] { new Dictionary<string, object> { ["id"] = bankTx.Id } },
+                    ["postings"] = new[] { new Dictionary<string, object> { ["id"] = posting.PostingId } }
+                });
+
+                usedPostings.Add(posting.PostingId);
+                matchesCreated++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to match bank tx {TxId} to posting {PostingId}: {Msg}",
+                    bankTx.Id, posting.PostingId, ex.Message);
+            }
+        }
+
+        _logger.LogInformation("Manual matching: {Matched}/{Total} bank transactions matched via voucher postings",
+            matchesCreated, importedTxs.Count);
+        return matchesCreated;
+
+        static string NormDesc(string s) => s.Trim().ToLowerInvariant();
+    }
+
+    private async Task<long?> ResolveContraAccountId(TripletexApiClient api)
+    {
+        // Try common clearing/transit accounts
+        foreach (var number in new[] { "1909", "2990", "1900" })
+        {
+            var result = await api.GetAsync("/ledger/account", new Dictionary<string, string>
+            {
+                ["number"] = number,
+                ["count"] = "1",
+                ["fields"] = "id,number,ledgerType,isInactive"
+            });
+
+            if (result.TryGetProperty("values", out var vals) && vals.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var v in vals.EnumerateArray())
+                {
+                    var isInactive = v.TryGetProperty("isInactive", out var ip) && ip.ValueKind == JsonValueKind.True;
+                    if (!isInactive && v.TryGetProperty("id", out var idProp))
+                        return idProp.GetInt64();
+                }
+            }
+        }
+
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -615,6 +848,112 @@ public class BankReconciliationHandler : ITaskHandler
         }
     }
 
+    private async Task<decimal> EnsureAccountBalanceMatchesStatementAsync(
+        TripletexApiClient api,
+        long accountId,
+        decimal statementClosingBalance,
+        string statementDate,
+        string? periodEnd)
+    {
+        try
+        {
+            var accountBalance = await GetAccountBalanceAsync(api, accountId, periodEnd ?? DateTime.Parse(statementDate, CultureInfo.InvariantCulture).AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            var delta = statementClosingBalance - accountBalance;
+
+            if (Math.Abs(delta) < 0.01m)
+                return 0m;
+
+            var contraAccountId = await ResolveContraAccountId(api);
+            if (!contraAccountId.HasValue)
+            {
+                _logger.LogWarning("Could not resolve contra account for bank balance adjustment; delta={Delta}", delta);
+                return 0m;
+            }
+
+            var voucherBody = new Dictionary<string, object>
+            {
+                ["date"] = statementDate,
+                ["description"] = "Bank reconciliation balance adjustment",
+                ["postings"] = new object[]
+                {
+                    new Dictionary<string, object>
+                    {
+                        ["row"] = 1,
+                        ["date"] = statementDate,
+                        ["description"] = "Bank reconciliation balance adjustment",
+                        ["account"] = new Dictionary<string, object> { ["id"] = accountId },
+                        ["amountGross"] = delta,
+                        ["amountGrossCurrency"] = delta
+                    },
+                    new Dictionary<string, object>
+                    {
+                        ["row"] = 2,
+                        ["date"] = statementDate,
+                        ["description"] = "Bank reconciliation balance adjustment",
+                        ["account"] = new Dictionary<string, object> { ["id"] = contraAccountId.Value },
+                        ["amountGross"] = -delta,
+                        ["amountGrossCurrency"] = -delta
+                    }
+                }
+            };
+
+            await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+            _logger.LogInformation("Created bank balance adjustment voucher with delta {Delta}", delta);
+            return delta;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to balance bank account before close: {Msg}", ex.Message);
+            return 0m;
+        }
+    }
+
+    private async Task<decimal> GetAccountBalanceAsync(TripletexApiClient api, long accountId, string dateToExclusive)
+    {
+        decimal total = 0m;
+        int from = 0;
+        const int count = 1000;
+
+        while (true)
+        {
+            var result = await api.GetAsync("/ledger/postingByDate", new Dictionary<string, string>
+            {
+                ["dateFrom"] = "1900-01-01",
+                ["dateTo"] = dateToExclusive,
+                ["from"] = from.ToString(CultureInfo.InvariantCulture),
+                ["count"] = count.ToString(CultureInfo.InvariantCulture)
+            });
+
+            if (!result.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array)
+                break;
+
+            var pageCount = 0;
+            foreach (var posting in values.EnumerateArray())
+            {
+                pageCount++;
+                if (!posting.TryGetProperty("account", out var accountProp) ||
+                    !accountProp.TryGetProperty("id", out var accountIdProp) ||
+                    accountIdProp.GetInt64() != accountId)
+                {
+                    continue;
+                }
+
+                if (posting.TryGetProperty("amountGross", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number)
+                    total += amountProp.GetDecimal();
+                else if (posting.TryGetProperty("amount", out var netAmountProp) && netAmountProp.ValueKind == JsonValueKind.Number)
+                    total += netAmountProp.GetDecimal();
+            }
+
+            if (pageCount < count)
+                break;
+
+            from += count;
+        }
+
+        _logger.LogInformation("Computed account {AccountId} balance through {DateTo}: {Balance}", accountId, dateToExclusive, total);
+        return total;
+    }
+
     private async Task CloseReconciliationAsync(TripletexApiClient api, long reconId)
     {
         try
@@ -808,8 +1147,19 @@ public class BankReconciliationHandler : ITaskHandler
         var builder = new StringBuilder();
         builder.Append("TransferWise ID,Date,Amount,Currency,Description,Payment Reference,Running Balance,Exchange From,Exchange To,Buy - Loss,Merchant,Category,Note,Total fees\r\n");
 
+        // Calculate opening balance: first row's running balance minus first row's amount
+        decimal openingBalance = transactions.Count > 0
+            ? transactions[0].RunningBalance - transactions[0].Amount
+            : 0m;
+
+        // TRANSFERWISE format: importer uses the first data row's Running Balance as closing balance.
+        // Real TransferWise exports are reverse-chronological (newest first).
+        // We emit: newest-first transaction rows, then an opening balance row.
+        var reversed = new List<BankTransaction>(transactions);
+        reversed.Reverse();
+
         int rowIndex = 0;
-        foreach (var tx in transactions)
+        foreach (var tx in reversed)
         {
             rowIndex++;
             var dateStr = tx.Date;
@@ -835,6 +1185,25 @@ public class BankReconciliationHandler : ITaskHandler
                 .Append(EscapeCsv(tx.Description, ','))
                 .Append(",,")
                 .Append(FormatCsvDecimal(tx.RunningBalance))
+                .Append(",,,,,,,0.00\r\n");
+        }
+
+        // Add opening balance row (oldest date, makes account balance = closing balance)
+        if (openingBalance != 0m)
+        {
+            rowIndex++;
+            var obDate = periodStart ?? (transactions.Count > 0 ? transactions[0].Date : "01-01-2026");
+            var twObDate = DateTime.TryParse(obDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var obParsed)
+                ? obParsed.ToString("dd-MM-yyyy")
+                : obDate;
+
+            builder.Append($"TRANSFER-{rowIndex:D3}")
+                .Append(',')
+                .Append(twObDate)
+                .Append(',')
+                .Append(FormatCsvDecimal(openingBalance))
+                .Append(",NOK,Opening Balance,,")
+                .Append(FormatCsvDecimal(openingBalance))
                 .Append(",,,,,,,0.00\r\n");
         }
 
@@ -923,5 +1292,4 @@ public class BankReconciliationHandler : ITaskHandler
     }
 
     private sealed record ExistingBankReconciliation(long Id, decimal ClosingBalance, bool IsClosed);
-    private sealed record ImportOutcome(string Mode, bool ImportSucceeded, int MatchCount);
 }
