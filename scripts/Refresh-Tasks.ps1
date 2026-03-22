@@ -532,7 +532,7 @@ if ($leaderboard.Count -gt 0) {
         "03" = @{ tier = 1; type = "create_product"; variant = "Standard"; leaderMax = 2.00 }
         "04" = @{ tier = 1; type = "create_supplier"; variant = "Standard"; leaderMax = 2.00 }
         "05" = @{ tier = 1; type = "create_department"; variant = "Multi"; leaderMax = 2.00 }
-        "06" = @{ tier = 2; type = "create_invoice"; variant = "Simple"; leaderMax = 1.67 }
+        "06" = @{ tier = 2; type = "create_invoice"; variant = "Simple"; leaderMax = 1.33 }
         "07" = @{ tier = 2; type = "register_payment"; variant = "Simple existing"; leaderMax = 2.00 }
         "08" = @{ tier = 2; type = "create_project"; variant = "Basic"; leaderMax = 2.00 }
         "09" = @{ tier = 2; type = "create_invoice"; variant = "Multi-line"; leaderMax = 4.00 }
@@ -542,21 +542,21 @@ if ($leaderboard.Count -gt 0) {
         "13" = @{ tier = 2; type = "create_travel_expense"; variant = "With costs"; leaderMax = 2.40 }
         "14" = @{ tier = 2; type = "create_credit_note"; variant = "Standard"; leaderMax = 4.00 }
         "15" = @{ tier = 2; type = "create_project"; variant = "Fixed-price"; leaderMax = 3.33 }
-        "16" = @{ tier = 2; type = "create_project"; variant = "Timesheet hours"; leaderMax = 3.00 }
+        "16" = @{ tier = 2; type = "create_project"; variant = "Timesheet hours"; leaderMax = 2.67 }
         "17" = @{ tier = 2; type = "create_voucher"; variant = "Custom dimension"; leaderMax = 3.50 }
         "18" = @{ tier = 2; type = "register_payment"; variant = "Full chain"; leaderMax = 4.00 }
         "19" = @{ tier = 3; type = "create_employee"; variant = "PDF contract (T3)"; leaderMax = 2.73 }
-        "20" = @{ tier = 3; type = "create_voucher"; variant = "PDF supplier inv (T3)"; leaderMax = 2.40 }
+        "20" = @{ tier = 3; type = "create_voucher"; variant = "PDF supplier inv (T3)"; leaderMax = 4.80 }
         "21" = @{ tier = 3; type = "create_employee"; variant = "PDF offer letter (T3)"; leaderMax = 2.57 }
-        "22" = @{ tier = 3; type = "create_voucher"; variant = "PDF receipt (T3)"; leaderMax = 0.00 }
-        "23" = @{ tier = 3; type = "bank_reconciliation"; variant = "CSV (T3)"; leaderMax = 0.60 }
-        "24" = @{ tier = 3; type = "create_voucher"; variant = "Ledger correction (T3)"; leaderMax = 2.25 }
+        "22" = @{ tier = 3; type = "create_voucher"; variant = "PDF receipt (T3)"; leaderMax = 2.70 }
+        "23" = @{ tier = 3; type = "bank_reconciliation"; variant = "CSV (T3)"; leaderMax = 6.00 }
+        "24" = @{ tier = 3; type = "create_voucher"; variant = "Ledger correction (T3)"; leaderMax = 6.00 }
         "25" = @{ tier = 3; type = "register_payment"; variant = "Overdue + reminder (T3)"; leaderMax = 6.00 }
         "26" = @{ tier = 3; type = "annual_accounts"; variant = "Monthly close (T3)"; leaderMax = 6.00 }
         "27" = @{ tier = 3; type = "register_payment"; variant = "FX/EUR (T3)"; leaderMax = 6.00 }
         "28" = @{ tier = 3; type = "create_project"; variant = "Cost analysis (T3)"; leaderMax = 1.50 }
         "29" = @{ tier = 3; type = "create_project"; variant = "Full lifecycle (T3)"; leaderMax = 2.73 }
-        "30" = @{ tier = 3; type = "create_voucher"; variant = "Annual accounts (T3)"; leaderMax = 1.80 }
+        "30" = @{ tier = 3; type = "create_voucher"; variant = "Annual accounts (T3)"; leaderMax = 6.00 }
     }
 
     # Build rows with gap info
