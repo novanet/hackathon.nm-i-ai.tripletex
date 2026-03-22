@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T07:17:46.9526238Z |
+| Timestamp | 2026-03-22T10:21:44.2543960Z |
 | Task Type | `bank_reconciliation` |
 | Handler | `BankReconciliationHandler` |
 | Success | True |
-| Elapsed | 5640 ms |
-| API Calls | 7 |
+| Elapsed | 35753 ms |
+| API Calls | 15 |
 | Errors | 0 |
 
 ### API Calls
@@ -19,18 +19,26 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber` | ✅ 200 |  |
-| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-02-02&endFrom=2026-02-...` | ✅ 200 |  |
-| 3 | `GET` | `/bank/reconciliation?accountId=492193151&accountingPeriodId=...` | ✅ 200 |  |
+| 2 | `GET` | `/ledger/accountingPeriod?startTo=2026-01-30&endFrom=2026-01-...` | ✅ 200 |  |
+| 3 | `GET` | `/bank/reconciliation?accountId=498182518&accountingPeriodId=...` | ✅ 200 |  |
 | 4 | `POST` | `/bank/reconciliation` | ✅ 201 |  |
-| 5 | `GET` | `/bank/statement?accountId=492193151&count=100&fields=id` | ✅ 200 |  |
-| 6 | `POST` | `/bank/statement/import?bankId=0&accountId=492193151&fromDate...` | ✅ 201 |  |
-| 7 | `PUT` | `/bank/reconciliation/match/:suggest?bankReconciliationId=127...` | ✅ 200 |  |
+| 5 | `GET` | `/bank/statement?accountId=498182518&count=100&fields=id` | ✅ 200 |  |
+| 6 | `POST` | `/bank/statement/import?bankId=0&accountId=498182518&fromDate...` | ✅ 201 |  |
+| 7 | `GET` | `/bank/statement/transaction?bankStatementId=123943871&count=...` | ✅ 200 |  |
+| 8 | `GET` | `/ledger/account?number=1909&count=1&fields=id%2Cnumber%2Cled...` | ✅ 200 |  |
+| 9 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅ 201 |  |
+| 10 | `GET` | `/ledger/voucher/609392771?fields=id%2Cpostings%28id%2Caccoun...` | ✅ 200 |  |
+| 11 | `POST` | `/bank/reconciliation/match` | ✅ 201 |  |
+| 12 | `POST` | `/bank/reconciliation/match` | ✅ 201 |  |
+| 13 | `POST` | `/bank/reconciliation/match` | ✅ 201 |  |
+| 14 | `POST` | `/bank/reconciliation/match` | ✅ 201 |  |
+| 15 | `POST` | `/bank/reconciliation/match` | ✅ 201 |  |
 
 
 ### LLM Extraction
 
 ```json
-{"task_type":"bank_reconciliation","action":"create","language":"en","entities":{"reconciliation":{"accountNumber":"1920","closingBalance":139317.05,"date":"2026-02-02"}},"relationships":{},"raw_amounts":["2750.00","12562.50","30062.50","11812.50","14250.00","-11100.00","-16350.00","-6450.00","499.76","1279.79"],"dates":["2026-01-16","2026-01-19","2026-01-21","2026-01-23","2026-01-25","2026-01-28","2026-01-29","2026-01-30","2026-01-31","2026-02-02"],"files_needed":true}
+{"task_type":"bank_reconciliation","action":"update","language":"en","entities":{"reconciliation":{"accountNumber":"1920","closingBalance":164684.74,"date":"2026-01-30"}},"relationships":{},"raw_amounts":["27750.00","24062.50","7675.00","18625.00","26812.50","-9450.00","-17400.00","-14800.00","482.20","927.54","164684.74"],"dates":["2026-01-16","2026-01-19","2026-01-20","2026-01-23","2026-01-24","2026-01-25","2026-01-26","2026-01-27","2026-01-29","2026-01-30"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run
