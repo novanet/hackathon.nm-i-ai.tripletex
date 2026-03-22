@@ -2,24 +2,25 @@
 
 ## Overview
 
-| Field | Value |
-|---|---|
-| **Task ID** | 24 |
-| **Task Type** | `create_voucher` / `correct_ledger` |
-| **Variant** | Ledger correction (German) |
-| **Tier** | 3 |
-| **Our Score** | 2.25 |
-| **Leader Score** | 6.00 |
-| **Gap** | -3.75 |
-| **Status** | ⚠️ Behind — partial correctness |
-| **Handler** | `LedgerCorrectionHandler.cs` |
-| **Priority** | #8 — MEDIUM effort, good gain |
+| Field            | Value                                          |
+| ---------------- | ---------------------------------------------- |
+| **Task ID**      | 24                                             |
+| **Task Type**    | `create_voucher` / `correct_ledger`            |
+| **Variant**      | Ledger correction (German)                     |
+| **Tier**         | 3                                              |
+| **Our Score**    | 2.25                                           |
+| **Leader Score** | 4.20                                           |
+| **Gap**          | -1.95                                          |
+| **Status**       | ❌ Failing                                     |
+| **Handler**      | `LedgerCorrectionHandler.cs`                   |
+| **Priority**     | #6 — MEDIUM effort, now a real leaderboard gap |
 
 ## What It Does
 
 German prompt: "Wir haben Fehler im Hauptbuch für Januar und Februar..." — detect and correct ledger errors by creating correction vouchers.
 
 Error types handled:
+
 - **wrong_account** — posting on wrong account, move to correct one
 - **duplicate** — reverse duplicated posting
 - **missing_vat** — add missing VAT to a posting
@@ -36,16 +37,16 @@ Error types handled:
 
 ## Competition Checks
 
-| Check | Points | Status |
-|---|:---:|:---:|
-| `voucher_found` | 2 | ✅ (at least some found) |
-| `has_description` | 2 | ✅ |
-| `has_postings` | 2 | ✅ |
-| `postings_balanced` | 2 | ⚠️ |
-| `correct_accounts` | 2 | ⚠️ |
-| `correct_amount` | 3 | ⚠️ |
+| Check               | Points |          Status          |
+| ------------------- | :----: | :----------------------: |
+| `voucher_found`     |   2    | ✅ (at least some found) |
+| `has_description`   |   2    |            ✅            |
+| `has_postings`      |   2    |            ✅            |
+| `postings_balanced` |   2    |            ⚠️            |
+| `correct_accounts`  |   2    |            ⚠️            |
+| `correct_amount`    |   3    |            ⚠️            |
 
-## Why We Score 2.25 (37%)
+## Why We Score 2.25 (54%)
 
 Scoring 2.25/6.00 means some correction vouchers are created but not all correctly:
 
@@ -66,6 +67,7 @@ Scoring 2.25/6.00 means some correction vouchers are created but not all correct
 ## Root Cause Deep Dive
 
 The `LedgerCorrectionHandler.PostCorrection` method handles each error type:
+
 - `wrong_account`: reverses original on wrong account, re-posts on correct account
 - `duplicate`: creates reverse posting only
 - `missing_vat`: posts the VAT difference
