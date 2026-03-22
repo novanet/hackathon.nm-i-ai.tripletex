@@ -1199,12 +1199,30 @@ public class SandboxValidator
     {
         if (!result.EntityId.HasValue) return;
 
-        var voucher = await api.GetAsync($"/ledger/voucher/{result.EntityId}",
-            new Dictionary<string, string>
-            {
-                ["fields"] = "id,description,date,externalVoucherNumber,postings(id,amountGross,amountCurrency,amount,invoiceNumber,account(id,number,name),department(id,name),supplier(id,name,organizationNumber))"
-            });
-        var val = voucher.GetProperty("value");
+        JsonElement val;
+        if (string.Equals(result.EntityType, "supplierInvoice", StringComparison.OrdinalIgnoreCase))
+        {
+            // Supplier invoice: fetch the SI to get its voucher ID, then fetch the voucher
+            var si = await api.GetAsync($"/supplierInvoice/{result.EntityId}",
+                new Dictionary<string, string> { ["fields"] = "id,invoiceNumber,voucher(id)" });
+            var siVal = si.GetProperty("value");
+            var voucherId = siVal.GetProperty("voucher").GetProperty("id").GetInt64();
+            var voucher = await api.GetAsync($"/ledger/voucher/{voucherId}",
+                new Dictionary<string, string>
+                {
+                    ["fields"] = "id,description,date,externalVoucherNumber,postings(id,amountGross,amountCurrency,amount,invoiceNumber,account(id,number,name),department(id,name),supplier(id,name,organizationNumber))"
+                });
+            val = voucher.GetProperty("value");
+        }
+        else
+        {
+            var voucher = await api.GetAsync($"/ledger/voucher/{result.EntityId}",
+                new Dictionary<string, string>
+                {
+                    ["fields"] = "id,description,date,externalVoucherNumber,postings(id,amountGross,amountCurrency,amount,invoiceNumber,account(id,number,name),department(id,name),supplier(id,name,organizationNumber))"
+                });
+            val = voucher.GetProperty("value");
+        }
         var voucherEntity = extracted.Entities.GetValueOrDefault("voucher") ?? new();
 
         // Check 1: voucher_found (2pts)
