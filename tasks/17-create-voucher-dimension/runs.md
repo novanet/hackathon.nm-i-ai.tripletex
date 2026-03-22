@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 02:34:06 |
+| Timestamp | 03/22/2026 03:28:58 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 49557 ms |
+| Elapsed | 20083 ms |
 | API Calls | 8 |
 | Errors | 0 |
 
@@ -23,14 +23,14 @@
 | 3 | `GET` | `/ledger/accountingDimensionValue/search?dimensionIndex=1&cou...` | ✅  |  |
 | 4 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
 | 5 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=7000&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `GET` | `/ledger/account?number=6590&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 7 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 8 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"en","entities":{"dimension":{"name":"Region","values":["Nord-Norge","Sør-Norge"]},"voucher":{"account":"7000","amount":13650,"dimensionValue":"Nord-Norge"}},"relationships":{},"raw_amounts":["13650"],"dates":[],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"nb","entities":{"dimension":{"name":"Prosjekttype","values":["Forskning","Utvikling"]},"voucher":{"account":"6590","amount":10800,"dimensionValue":"Forskning"}},"relationships":{},"raw_amounts":["10800"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

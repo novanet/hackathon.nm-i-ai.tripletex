@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 00:00:32 |
+| Timestamp | 03/22/2026 03:03:00 |
 | Task Type | `create_product` |
 | Handler | `ProductHandler` |
 | Success | True |
-| Elapsed | 2358 ms |
+| Elapsed | 7749 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_product","action":"create","language":"fr","entities":{"product":{"name":"Jus de pomme","productNumber":"3582","price":33800,"vatRate":15}},"relationships":{},"raw_amounts":["33800"],"dates":[],"files_needed":false}
+{"task_type":"create_product","action":"create","language":"nb","entities":{"product":{"name":"Analyserapport","productNumber":"3637","price":31900,"vatRate":25}},"relationships":{},"raw_amounts":["31900"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

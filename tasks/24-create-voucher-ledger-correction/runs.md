@@ -6,28 +6,30 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 01:52:56 |
+| Timestamp | 03/22/2026 06:43:27 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 27671 ms |
-| API Calls | 5 |
-| Errors | 0 |
+| Elapsed | 7818 ms |
+| API Calls | 7 |
+| Errors | 1 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=7100&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 5 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6300&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
+| 4 | `POST` | `/incomingInvoice?sendTo=ledger` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Montagne SARL","supplierOrgNumber":"937826192","invoiceNumber":"INV-2026-8172","account":"7100","amount":71150,"vatRate":"25","date":null}},"relationships":{},"raw_amounts":["71150"],"dates":[],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"es","entities":{"voucher":{"supplierName":"Estrella SL","supplierOrgNumber":"954686620","invoiceNumber":"INV-2026-6604","account":"6300","amount":78875,"date":"2026-02-05","vatRate":"25"},"supplier":{"name":"Estrella SL","orgNumber":"954686620","addressLine1":"Solveien 100","postalCode":"7010","city":"Trondheim"}},"relationships":{},"raw_amounts":["63100","15775","78875"],"dates":["2026-02-05","2026-03-07"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

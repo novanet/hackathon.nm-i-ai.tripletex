@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 01:50:17 |
+| Timestamp | 03/22/2026 03:36:14 |
 | Task Type | `create_project` |
 | Handler | `ProjectHandler` |
 | Success | True |
-| Elapsed | 22866 ms |
+| Elapsed | 7943 ms |
 | API Calls | 13 |
 | Errors | 0 |
 
@@ -18,16 +18,16 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=920065007&count=1&fields=id%2Cn...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=934651995&count=1&fields=id%2Cn...` | ✅  |  |
 | 2 | `GET` | `/employee?count=1&fields=id` | ✅  |  |
 | 3 | `POST` | `/project` | ✅  |  |
 | 4 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅  |  |
-| 5 | `GET` | `/employee?count=1&fields=id&firstName=Hannah&lastName=Richte...` | ✅  |  |
-| 6 | `GET` | `/activity?name=Design&count=1&fields=id` | ✅  |  |
+| 5 | `GET` | `/employee?count=1&fields=id&firstName=Mia&lastName=Meyer` | ✅  |  |
+| 6 | `GET` | `/activity?name=Testing&count=1&fields=id` | ✅  |  |
 | 7 | `POST` | `/project/projectActivity` | ✅  |  |
 | 8 | `POST` | `/timesheet/entry` | ✅  |  |
 | 9 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 10 | `PUT` | `/ledger/account/484321123` | ✅  |  |
+| 10 | `PUT` | `/ledger/account/486474356` | ✅  |  |
 | 11 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
 | 12 | `POST` | `/order` | ✅  |  |
 | 13 | `POST` | `/invoice` | ✅  |  |
@@ -35,7 +35,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_project","action":"create","language":"de","entities":{"project":{"name":"E-Commerce-Entwicklung","customerName":"Bergwerk GmbH","customerOrgNumber":"920065007"},"timesheet":{"hours":32,"hourlyRate":1550,"activityName":"Design"},"employee":{"firstName":"Hannah","lastName":"Richter","email":"hannah.richter@example.org"}},"relationships":{"customer":"Bergwerk GmbH"},"raw_amounts":["1550"],"dates":[],"files_needed":false}
+{"task_type":"create_project","action":"create","language":"de","entities":{"project":{"name":"Sicherheitsaudit","customerName":"Nordlicht GmbH","customerOrgNumber":"934651995"},"timesheet":{"hours":18,"hourlyRate":1400,"activityName":"Testing"},"employee":{"firstName":"Mia","lastName":"Meyer","email":"mia.meyer@example.org"}},"relationships":{"customer":"Nordlicht GmbH"},"raw_amounts":["1400.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

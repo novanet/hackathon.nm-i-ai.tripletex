@@ -6,14 +6,13 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 01:53:55 |
+| Timestamp | 03/22/2026 03:34:16 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
-| Success | False |
-| Elapsed | 40765 ms |
-| API Calls | 7 |
-| Errors | 3 |
-| Error | `email: Ugyldig format.` |
+| Success | True |
+| Elapsed | 22394 ms |
+| API Calls | 10 |
+| Errors | 0 |
 
 ### API Calls
 
@@ -21,16 +20,19 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=kristian.%C3%B8deg%C3%A5rd%40example.org&cou...` | ✅  |  |
+| 3 | `GET` | `/employee?email=leo.petit%40example.org&count=10&fields=id%2...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
-| 5 | `POST` | `/employee` | ✅  |  |
-| 6 | `GET` | `/employee?email=kristian.%C3%B8deg%C3%A5rd%40example.org&cou...` | ✅  |  |
-| 7 | `POST` | `/employee` | ✅  |  |
+| 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/employee/employment?employeeId=18730948&count=1&fields=id%2...` | ✅  |  |
+| 7 | `GET` | `/employee/employment/occupationCode?from=0&count=1000&fields...` | ✅  |  |
+| 8 | `GET` | `/employee/employment/occupationCode?nameNO=Kontorarbeider&co...` | ✅  |  |
+| 9 | `GET` | `/employee/employment/2866157?fields=id%2CemploymentDetails%2...` | ✅  |  |
+| 10 | `POST` | `/employee/employment/details` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"nb","entities":{"employee":{"firstName":"Kristian","lastName":"Ødegård","dateOfBirth":"1987-12-30","startDate":"2026-05-24","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":560000,"workingHoursPerDay":7.5},"department":{"name":"IT"}},"relationships":{},"raw_amounts":["560000"],"dates":["1987-12-30","2026-05-24"],"files_needed":false}
+{"task_type":"create_employee","action":"create","language":"fr","entities":{"employee":{"firstName":"Léo","lastName":"Petit","dateOfBirth":"1984-06-26","nationalIdentityNumber":"26068459795","email":"leo.petit@example.org","bankAccountNumber":"32505468863","startDate":"2026-10-18","occupationCode":"4110","occupationName":"Kontorarbeider","employmentPercentage":80.0,"annualSalary":620000,"employmentType":"permanent","salaryType":"monthly salary"},"department":{"name":"Utvikling"}},"relationships":{},"raw_amounts":["620000"],"dates":["2026-10-18","1984-06-26"],"files_needed":true}
 ```
 
 ## Latest Sandbox Run

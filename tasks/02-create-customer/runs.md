@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:48:08 |
+| Timestamp | 03/22/2026 06:42:58 |
 | Task Type | `create_customer` |
 | Handler | `CustomerHandler` |
 | Success | True |
-| Elapsed | 2383 ms |
+| Elapsed | 2529 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,18 +23,18 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_customer","action":"create","language":"nb","entities":{"customer":{"name":"Bergvik AS","orgNumber":"914572479","addressLine1":"Solveien 74","postalCode":"7010","city":"Trondheim","email":"post@bergvik.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_customer","action":"create","language":"nb","entities":{"customer":{"name":"Fjordkraft AS","orgNumber":"843216285","addressLine1":"Fjordveien 129","postalCode":"2317","city":"Hamar","email":"post@fjordkraft.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 14:03:54 |
+| Timestamp | 03/22/2026 03:03:35 |
 | Task Type | `create_customer` |
 | Handler | `CustomerHandler` |
 | Success | True |
-| Elapsed | 2538 ms |
+| Elapsed | 1918 ms |
 | API Calls | 2 |
 | Errors | 0 |
 
@@ -43,24 +43,20 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/customer` | ✅  |  |
-| 2 | `GET` | `/customer/108354568?fields=id%2Cname%2Cemail%2CorganizationN...` | ✅  |  |
+| 2 | `GET` | `/customer/108509540?fields=id%2Cname%2Cemail%2CorganizationN...` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 8 / 8 |
+| Points | 4 / 4 |
 
 ### Checks
 
 | Check | Expected | Actual | Passed | Points |
 |---|---|---|---|---|
 | customer_found | `true` | `true` | ✅ | 1 |
-| name | `Prairie SARL` | `Prairie SARL` | ✅ | 2 |
-| email | `post@prairie.no` | `post@prairie.no` | ✅ | 1 |
-| organizationNumber | `810704780` | `810704780` | ✅ | 1 |
-| address.addressLine1 | `Storgata 97` | `Storgata 97` | ✅ | 1 |
-| address.postalCode | `5003` | `5003` | ✅ | 1 |
-| address.city | `Bergen` | `Bergen` | ✅ | 1 |
+| name | `TestKunde AS` | `TestKunde AS` | ✅ | 2 |
+| email | `test@test.no` | `test@test.no` | ✅ | 1 |
 

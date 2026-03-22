@@ -6,29 +6,30 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 00:02:06 |
+| Timestamp | 03/22/2026 03:32:59 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 5125 ms |
-| API Calls | 6 |
+| Elapsed | 5206 ms |
+| API Calls | 7 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 4 | `POST` | `/order` | ✅  |  |
-| 5 | `POST` | `/invoice` | ✅  |  |
-| 6 | `PUT` | `/invoice/2147655715/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 1 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 3 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 4 | `GET` | `/customer?organizationNumber=909090121&count=1&fields=id%2Cn...` | ✅  |  |
+| 5 | `POST` | `/order` | ✅  |  |
+| 6 | `POST` | `/invoice` | ✅  |  |
+| 7 | `PUT` | `/invoice/2147671503/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"register_payment","action":"create","language":"nn","entities":{"invoice":{"amount":11400,"currency":"EUR","exchangeRateAtInvoice":10.22,"exchangeRateAtPayment":10.7},"payment":{"amount":121980,"currency":"NOK"},"exchangeRateDifference":{"amount":5472,"account":"8070"}},"relationships":{"customer":"Fjelltopp AS"},"raw_amounts":["11400","10.22","10.70","121980","5472"],"dates":[],"files_needed":false}
+{"task_type":"register_payment","action":"create","language":"fr","entities":{"customer":{"name":"Rivière SARL","orgNumber":"909090121"},"payment":{"amount":68000.91,"currency":"NOK","exchangeRate":9.87},"exchangeDifference":{"amount":3440.58,"debitAccount":"8050","creditAccount":"1500"}},"relationships":{"invoice":"Rivière SARL"},"raw_amounts":["6893","10.37","9.87"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

@@ -6,54 +6,57 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:56:36 |
+| Timestamp | 03/22/2026 03:35:33 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 5221 ms |
-| API Calls | 6 |
+| Elapsed | 15451 ms |
+| API Calls | 8 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6590&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 1 | `GET` | `/ledger/accountingDimensionName/search?count=10&fields=id%2C...` | ✅  |  |
+| 2 | `POST` | `/ledger/accountingDimensionName` | ✅  |  |
+| 3 | `GET` | `/ledger/accountingDimensionValue/search?dimensionIndex=1&cou...` | ✅  |  |
+| 4 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
+| 5 | `POST` | `/ledger/accountingDimensionValue` | ✅  |  |
+| 6 | `GET` | `/ledger/account?number=7100&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 7 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 8 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"de","entities":{"voucher":{"supplierName":"Brückentor GmbH","supplierOrgNumber":"981448294","invoiceNumber":"INV-2026-2118","account":"6590","amount":70400,"date":null,"vatRate":"25"}},"relationships":{},"raw_amounts":["70400"],"dates":[],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"es","entities":{"dimension":{"name":"Region","values":["Nord-Norge","Vestlandet"]},"voucher":{"account":"7100","amount":34350,"dimensionValue":"Nord-Norge"}},"relationships":{},"raw_amounts":["34350"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 01:30:26 |
+| Timestamp | 03/22/2026 06:42:15 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 4947 ms |
-| API Calls | 7 |
-| Errors | 0 |
+| Elapsed | 4174 ms |
+| API Calls | 8 |
+| Errors | 1 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6500&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 4 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
-| 7 | `GET` | `/ledger/voucher/609262090?fields=id%2Cdescription%2Cdate%2Ce...` | ✅  |  |
+| 4 | `POST` | `/incomingInvoice?sendTo=ledger` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 8 | `GET` | `/ledger/voucher/609336099?fields=id%2Cdescription%2Cdate%2Ce...` | ✅  |  |
 
 ## Latest Local Validation
 
@@ -71,5 +74,5 @@
 | has_postings | `>= 2` | `3` | ✅ | 2 |
 | postings_balanced | `true` | `true` | ✅ | 2 |
 | correct_accounts | `true` | `true` | ✅ | 2 |
-| correct_amount | `12500,00` | `12500,00` | ✅ | 3 |
+| correct_amount | `19100,00` | `19100,00` | ✅ | 3 |
 

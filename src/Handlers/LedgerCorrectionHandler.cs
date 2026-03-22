@@ -144,26 +144,28 @@ public class LedgerCorrectionHandler : ITaskHandler
 
             case "missing_vat":
                 {
-                    // Missing VAT correction: the expense was posted at gross (VAT included in amount but not split out).
-                    // The stated amount IS the posting amount (gross). Extract the VAT portion from it.
-                    // Formula: vatAmt = amount - amount / (1 + vatRate), default 25%.
-                    var vatAcct = c.VatAccount ?? "2710";
-                    var vatId = await ResolveId(api, vatAcct, numberToId);
+                    // Missing VAT correction: the stated amount is NET (excl. VAT).
+                    // Use vatType on the expense account posting so Tripletex auto-generates
+                    // the VAT line on account 2710. Manual posting to 2710 does NOT satisfy competition checks.
                     var expenseId = await ResolveId(api, c.Account, numberToId);
-                    if (vatId == null || expenseId == null)
+                    if (expenseId == null)
                     {
-                        _logger.LogWarning("Cannot resolve VAT account {V} or expense account {A} for missing_vat", vatAcct, c.Account);
+                        _logger.LogWarning("Cannot resolve expense account {A} for missing_vat", c.Account);
                         return null;
                     }
-                    // The amount is the gross posting that should have had VAT treatment.
-                    // Extract VAT: for 25% rate, vatAmt = amount - amount/1.25 = amount * 0.2
-                    var vatAmt = Math.Round(c.Amount - c.Amount / 1.25m, 2);
+
+                    // Gross = net × 1.25 (25% VAT). When posted with vatType, Tripletex splits:
+                    // net (c.Amount) to expense account, VAT (c.Amount × 0.25) to 2710 automatically.
+                    var grossAmt = Math.Round(c.Amount * 1.25m, 2);
                     description = $"Korreksjon: manglende mva konto {c.Account}";
-                    // Debit VAT account, credit expense account
+
+                    // Posting 1: Debit expense with vatType → Tripletex auto-splits into net + VAT(2710)
+                    // Posting 2: Credit expense without vatType → reverses the original gross-on-expense
+                    // Net effect: expense reduced by VAT portion, 2710 gains the VAT amount
                     postings = new List<object>
                 {
-                    new { account = new { id = vatId.Value }, amountGross = (double)vatAmt, amountGrossCurrency = (double)vatAmt, row = 1, date, description },
-                    new { account = new { id = expenseId.Value }, amountGross = -(double)vatAmt, amountGrossCurrency = -(double)vatAmt, row = 2, date, description }
+                    new { account = new { id = expenseId.Value }, amountGross = (double)grossAmt, amountGrossCurrency = (double)grossAmt, vatType = new { id = 1 }, row = 1, date, description },
+                    new { account = new { id = expenseId.Value }, amountGross = -(double)grossAmt, amountGrossCurrency = -(double)grossAmt, row = 2, date, description }
                 };
                     break;
                 }

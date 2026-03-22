@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 02:30:46 |
+| Timestamp | 03/22/2026 03:30:03 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 9219 ms |
+| Elapsed | 11434 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -19,16 +19,16 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
-| 4 | `PUT` | `/ledger/account/485229002` | ✅  |  |
+| 2 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 3 | `GET` | `/customer?organizationNumber=844876831&count=1&fields=id%2Cn...` | ✅  |  |
+| 4 | `PUT` | `/ledger/account/455179710` | ✅  |  |
 | 5 | `POST` | `/order` | ✅  |  |
 | 6 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"fr","entities":{"customer":{"name":"Lumière SARL","orgNumber":"925760838"},"invoice":{"orderLines":[{"description":"Maintenance","account":"3644","unitPrice":1850,"vatRate":25},{"description":"Licence logicielle","account":"4934","unitPrice":14850,"vatRate":15},{"description":"Service réseau","account":"8806","unitPrice":17250,"vatRate":0}]}},"relationships":{"customer":"Lumière SARL"},"raw_amounts":["1850.00","14850.00","17250.00"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"es","entities":{"customer":{"name":"Viento SL","orgNumber":"844876831"},"invoice":{"orderLines":[{"description":"Licencia de software","unitPrice":35350,"quantity":1}]}},"relationships":{"customer":"Viento SL"},"raw_amounts":["35350"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

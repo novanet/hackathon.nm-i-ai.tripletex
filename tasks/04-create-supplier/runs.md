@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:50:04 |
+| Timestamp | 03/22/2026 03:16:13 |
 | Task Type | `create_supplier` |
 | Handler | `SupplierHandler` |
 | Success | True |
-| Elapsed | 2673 ms |
+| Elapsed | 67917 ms |
 | API Calls | 1 |
 | Errors | 0 |
 
@@ -23,7 +23,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_supplier","action":"create","language":"en","entities":{"supplier":{"name":"Silveroak Ltd","orgNumber":"943413231","email":"faktura@silveroakltd.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_supplier","action":"create","language":"es","entities":{"supplier":{"name":"Dorada SL","orgNumber":"853166553","email":"faktura@doradasl.no"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
