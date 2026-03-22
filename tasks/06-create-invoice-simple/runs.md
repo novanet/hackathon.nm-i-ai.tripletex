@@ -6,32 +6,29 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 01:55:50 |
+| Timestamp | 03/22/2026 02:30:46 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 10958 ms |
-| API Calls | 9 |
+| Elapsed | 9219 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
 | 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 4 | `PUT` | `/ledger/account/484444928` | ✅  |  |
-| 5 | `GET` | `/product?number=2626&count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/product?number=7746&count=1&fields=id` | ✅  |  |
-| 7 | `GET` | `/product?number=5675&count=1&fields=id` | ✅  |  |
-| 8 | `POST` | `/order` | ✅  |  |
-| 9 | `POST` | `/invoice` | ✅  |  |
+| 3 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 4 | `PUT` | `/ledger/account/485229002` | ✅  |  |
+| 5 | `POST` | `/order` | ✅  |  |
+| 6 | `POST` | `/invoice` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"de","entities":{"customer":{"name":"Brückentor GmbH","orgNumber":"804379010"},"invoice":{"orderLines":[{"description":"Schulung","productNumber":"2626","unitPrice":17300,"vatRate":25},{"description":"Beratungsstunden","productNumber":"7746","unitPrice":12850,"vatRate":15},{"description":"Cloud-Speicher","productNumber":"5675","unitPrice":7050,"vatRate":0}]}},"relationships":{},"raw_amounts":["17300","12850","7050"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"fr","entities":{"customer":{"name":"Lumière SARL","orgNumber":"925760838"},"invoice":{"orderLines":[{"description":"Maintenance","account":"3644","unitPrice":1850,"vatRate":25},{"description":"Licence logicielle","account":"4934","unitPrice":14850,"vatRate":15},{"description":"Service réseau","account":"8806","unitPrice":17250,"vatRate":0}]}},"relationships":{"customer":"Lumière SARL"},"raw_amounts":["1850.00","14850.00","17250.00"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

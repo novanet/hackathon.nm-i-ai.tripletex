@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:50:17 |
+| Timestamp | 03/22/2026 02:32:28 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 5513 ms |
+| Elapsed | 37575 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -21,13 +21,13 @@
 | 1 | `POST` | `/supplier` | ✅  |  |
 | 2 | `GET` | `/ledger/account?number=6300&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 4 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Étoile SARL","supplierOrgNumber":"857637224","invoiceNumber":"INV-2026-8404","account":"6300","amount":92750,"date":"2026-06-06","vatRate":"25"},"supplier":{"name":"Étoile SARL","orgNumber":"857637224","addressLine1":"Sjøgata 137","postalCode":"3015","city":"Drammen","bankAccountNumber":"19048571614"}},"relationships":{},"raw_amounts":["74200","18550","92750"],"dates":["2026-06-06","2026-07-06"],"files_needed":true}
+{"task_type":"create_voucher","action":"create","language":"nb","entities":{"voucher":{"supplierName":"Brattli AS","supplierOrgNumber":"932937611","invoiceNumber":"INV-2026-3655","account":"6300","amount":92750,"date":"2026-06-28","vatRate":"25"},"supplier":{"name":"Brattli AS","orgNumber":"932937611","addressLine1":"Kirkegata 114","postalCode":"3015","city":"Drammen"}},"relationships":{},"raw_amounts":["74200","18550","92750"],"dates":["2026-06-28","2026-07-28"],"files_needed":true}
 ```
 
