@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T07:21:10.1197571Z |
+| Timestamp | 2026-03-22T11:04:25.0532070Z |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 5478 ms |
+| Elapsed | 17862 ms |
 | API Calls | 9 |
 | Errors | 0 |
 
@@ -19,12 +19,12 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅ 200 |  |
-| 2 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅ 200 |  |
-| 3 | `GET` | `/customer?organizationNumber=807508474&count=1&fields=id%2Cn...` | ✅ 200 |  |
-| 4 | `PUT` | `/ledger/account/492329110` | ✅ 200 |  |
-| 5 | `GET` | `/product?number=5947&count=1&fields=id%2CvatType%28id%29` | ✅ 200 |  |
-| 6 | `GET` | `/product?number=8528&count=1&fields=id%2CvatType%28id%29` | ✅ 200 |  |
-| 7 | `GET` | `/product?number=9002&count=1&fields=id%2CvatType%28id%29` | ✅ 200 |  |
+| 2 | `GET` | `/customer?organizationNumber=977448239&count=1&fields=id%2Cn...` | ✅ 200 |  |
+| 3 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅ 200 |  |
+| 4 | `PUT` | `/ledger/account/499749080` | ✅ 200 |  |
+| 5 | `GET` | `/product?number=6390&count=1&fields=id%2CvatType%28id%29` | ✅ 200 |  |
+| 6 | `GET` | `/product?number=1652&count=1&fields=id%2CvatType%28id%29` | ✅ 200 |  |
+| 7 | `GET` | `/product?number=3273&count=1&fields=id%2CvatType%28id%29` | ✅ 200 |  |
 | 8 | `POST` | `/order` | ✅ 201 |  |
 | 9 | `POST` | `/invoice` | ✅ 201 |  |
 
@@ -32,7 +32,7 @@
 ### LLM Extraction
 
 ```json
-{"task_type":"create_invoice","action":"create","language":"nb","entities":{"customer":{"name":"Bergvik AS","orgNumber":"807508474"},"invoice":{"orderLines":[{"description":"Konsulenttimer","productCode":"5947","unitPrice":29950,"vatRate":25},{"description":"Webdesign","productCode":"8528","unitPrice":2900,"vatRate":15},{"description":"Systemutvikling","productCode":"9002","unitPrice":17350,"vatRate":0}]}},"relationships":{"customer":"Bergvik AS"},"raw_amounts":["29950","2900","17350"],"dates":[],"files_needed":false}
+{"task_type":"create_invoice","action":"create","language":"nb","entities":{"customer":{"name":"Havbris AS","orgNumber":"977448239"},"invoice":{"orderLines":[{"description":"Konsulenttimer","account":"6390","unitPrice":2850,"vatRate":25},{"description":"Systemutvikling","account":"1652","unitPrice":2650,"vatRate":15},{"description":"Webdesign","account":"3273","unitPrice":7400,"vatRate":0}]}},"relationships":{"customer":"Havbris AS"},"raw_amounts":["2850","2650","7400"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

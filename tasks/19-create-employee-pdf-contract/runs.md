@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T10:10:46.0602630Z |
+| Timestamp | 2026-03-22T11:01:04.7165360Z |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 19981 ms |
+| Elapsed | 8924 ms |
 | API Calls | 8 |
 | Errors | 0 |
 
@@ -20,18 +20,18 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅ 200 |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅ 200 |  |
-| 3 | `GET` | `/employee?email=knut.haugen%40example.org&count=10&fields=id...` | ✅ 200 |  |
+| 3 | `GET` | `/employee?email=felix.richter%40example.org&count=10&fields=...` | ✅ 200 |  |
 | 4 | `POST` | `/employee` | ✅ 201 |  |
 | 5 | `GET` | `/division?count=1&fields=id` | ✅ 200 |  |
-| 6 | `GET` | `/employee/employment?employeeId=18781219&count=1&fields=id%2...` | ✅ 200 |  |
-| 7 | `GET` | `/employee/employment/2889638?fields=id%2CemploymentDetails%2...` | ✅ 200 |  |
+| 6 | `GET` | `/employee/employment?employeeId=18788616&count=1&fields=id%2...` | ✅ 200 |  |
+| 7 | `GET` | `/employee/employment/2893014?fields=id%2CemploymentDetails%2...` | ✅ 200 |  |
 | 8 | `POST` | `/employee/employment/details` | ✅ 201 |  |
 
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"nn","entities":{"employee":{"firstName":"Knut","lastName":"Haugen","dateOfBirth":"1982-01-01","startDate":"2026-05-23","employmentType":"Fast stilling","employmentPercentage":100.0,"annualSalary":690000,"workingHoursPerDay":7.5,"department":"Økonomi"},"department":{"name":"Økonomi"}},"relationships":{},"raw_amounts":["690000"],"dates":["2026-05-23"],"files_needed":false}
+{"task_type":"create_employee","action":"create","language":"de","entities":{"employee":{"firstName":"Felix","lastName":"Richter","dateOfBirth":"1999-04-14","startDate":"2026-12-02","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":830000,"workingHoursPerDay":7.5,"department":"Økonomi","occupationName":"HR-rådgiver"},"department":{"name":"Økonomi"}},"relationships":{},"raw_amounts":["830000"],"dates":["2026-12-02","1999-04-14"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
