@@ -2,7 +2,7 @@
 # Submit-Run.sh — Bash equivalent of Submit-Run.ps1
 #
 # Ensures the agent and tunnel are running (auto-starts if needed), submits the
-# endpoint URL to the competition API, polls for completion (2 min), then replays
+# endpoint URL to the competition API, polls for completion (3 min), then replays
 # new competition requests locally via Test-Solve.sh for analysis.
 #
 # Usage:
@@ -265,10 +265,10 @@ for (( RUN_NUM=1; RUN_NUM<=RUNS; RUN_NUM++ )); do
     continue
   fi
 
-  # --- Poll for completion (2 minutes) ---
-  echo -e "${GRAY}Polling for results (2 min, Ctrl+C to stop)...${NC}"
+  # --- Poll for completion (3 minutes) ---
+  echo -e "${GRAY}Polling for results (3 min, Ctrl+C to stop)...${NC}"
   POLL_INTERVAL=10
-  MAX_POLLS=12
+  MAX_POLLS=18
 
   FINAL_STATE=""
   MY_SUB_JSON=""
@@ -306,7 +306,7 @@ for (( RUN_NUM=1; RUN_NUM<=RUNS; RUN_NUM++ )); do
 
   if [[ -z "$FINAL_STATE" ]]; then
     echo ""
-    echo -e "${YELLOW}Polling timed out after 2 minutes. Check status manually.${NC}"
+    echo -e "${YELLOW}Polling timed out after 3 minutes. Check status manually.${NC}"
     BATCH_STATUSES+=("timeout")
     BATCH_SCORES+=("null")
     if [[ "$RUNS" -gt 1 ]]; then

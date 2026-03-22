@@ -1,0 +1,11 @@
+Dato;Forklaring;Inn;Ut;Saldo
+2026-01-16;Innbetaling fra Taylor Ltd / Faktura 1001;2750.00;;102750.00
+2026-01-19;Innbetaling fra Clark Ltd / Faktura 1002;12562.50;;115312.50
+2026-01-21;Innbetaling fra Harris Ltd / Faktura 1003;30062.50;;145375.00
+2026-01-23;Innbetaling fra Lewis Ltd / Faktura 1004;11812.50;;157187.50
+2026-01-25;Innbetaling fra Clark Ltd / Faktura 1005;14250.00;;171437.50
+2026-01-28;Betaling Supplier Williams Ltd;;-11100.00;160337.50
+2026-01-29;Betaling Supplier Clark Ltd;;-16350.00;143987.50
+2026-01-30;Betaling Supplier Johnson Ltd;;-6450.00;137537.50
+2026-01-31;Skattetrekk;499.76;;138037.26
+2026-02-02;Bankgebyr;1279.79;;139317.05
