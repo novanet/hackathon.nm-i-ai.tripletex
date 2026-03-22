@@ -39,14 +39,15 @@ public class InvoiceHandler : ITaskHandler
         var cust = extracted.Entities.GetValueOrDefault("customer") ?? new();
         var invoice = extracted.Entities.GetValueOrDefault("invoice") ?? new();
 
-        // Step 0+1+2: Ensure bank account + find/create customer in parallel.
-        // VAT types are now hardcoded — no GET needed.
+        // Step 0+1+2: Ensure bank account + find/create customer + resolve VAT in parallel.
+        // Dynamic VAT lookup prevents 422 "Ugyldig mva-kode" errors (GET is free!).
         var bankTask = EnsureBankAccount(api);
         var customerTask = ResolveOrCreateCustomer(api, cust, invoice, extracted);
-        await Task.WhenAll(bankTask, customerTask);
+        var vatTask = ResolveVatTypesFull(api);
+        await Task.WhenAll(bankTask, customerTask, vatTask);
         var customerId = customerTask.Result;
-        var vatTypeId = DefaultOutputVatTypeId;
-        var outputRateMap = HardcodedOutputVatRateMap;
+        var (vatTypeId, dynTypes) = vatTask.Result;
+        var outputRateMap = BuildOutputRateMap(dynTypes);
         _logger.LogInformation("Using customer ID: {Id}", customerId);
 
         // Composite task: if project + timeRegistration/employee are present, create project, activity, and register timesheet hours
@@ -99,6 +100,9 @@ public class InvoiceHandler : ITaskHandler
             ["deliveryDate"] = deliveryDate,
             ["orderLines"] = lines
         };
+        // Set isPrioritizeAmountsIncludingVat when any line uses unitPriceIncludingVatCurrency
+        if (lines.Any(l => l.ContainsKey("unitPriceIncludingVatCurrency")))
+            orderBody["isPrioritizeAmountsIncludingVat"] = true;
         if (currencyId.HasValue && currencyId.Value > 0)
             orderBody["currency"] = new { id = currencyId.Value };
 
@@ -109,11 +113,11 @@ public class InvoiceHandler : ITaskHandler
         }
         catch (TripletexApiException ex) when (IsInvalidVatCodeError(ex))
         {
-            // Hardcoded VAT IDs invalid in this environment — resolve dynamically and retry
-            _logger.LogWarning("Hardcoded VAT type IDs rejected, falling back to dynamic lookup");
-            var (dynDefault, dynTypes) = await ResolveVatTypesFull(api);
+            // Dynamic VAT lookup failed for this order — re-resolve and retry
+            _logger.LogWarning("VAT type IDs rejected, re-resolving dynamically");
+            var (dynDefault, refreshedVatTypes) = await ResolveVatTypesFull(api);
             vatTypeId = dynDefault;
-            outputRateMap = BuildOutputRateMap(dynTypes);
+            outputRateMap = BuildOutputRateMap(refreshedVatTypes);
             lines = BuildOrderLines(extracted, vatTypeId, outputRateMap);
             await CreateProductsForLines(api, lines, extracted, vatTypeId, outputRateMap);
             orderBody["orderLines"] = lines;
@@ -460,7 +464,22 @@ public class InvoiceHandler : ITaskHandler
                 "inkl. moms", "inkl moms", "inklusive moms",
                 "com iva incluído", "com iva"
             };
-            if (!vatInclKeywords.Any(k => prompt.Contains(k)))
+            var vatExclKeywords = new[] {
+                "ekskl. mva", "ekskl mva", "eksklusiv mva", "uten mva",
+                "excluding vat", "excl. vat", "excl vat", "without vat", "vat excluded",
+                "hors tva", "ht", "hors taxe",
+                "ohne mwst", "exkl. mwst", "exkl mwst", "zzgl. mwst",
+                "sem iva", "iva excluido", "sin iva",
+                "sem mva"
+            };
+            var hasVatInclusiveKeyword = vatInclKeywords.Any(k => prompt.Contains(k));
+            var hasVatExclusiveKeyword = vatExclKeywords.Any(k => prompt.Contains(k));
+            var invoiceCurrency = invoiceForVat != null ? GetStringField(invoiceForVat, "currency") : null;
+            var isForeignCurrencyInvoice = !string.IsNullOrWhiteSpace(invoiceCurrency)
+                && !string.Equals(invoiceCurrency, "NOK", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(invoiceCurrency, "1", StringComparison.OrdinalIgnoreCase);
+
+            if (hasVatExclusiveKeyword || (!hasVatInclusiveKeyword && !isForeignCurrencyInvoice))
                 useIncludingVatPrice = false;
         }
 

@@ -84,6 +84,15 @@ public class AnnualAccountsHandler : ITaskHandler
         await EnsureAccountExists(api, accumDepAccount, "Akkumulerte avskrivninger", "Driftsmidler");
         await EnsureAccountExists(api, taxExpenseAccount, "Skattekostnad", "Skattekostnad");
 
+        // Also ensure provision accounts exist (5000, 2900 may be missing in some environments)
+        foreach (var prov in provisions)
+        {
+            if (!string.IsNullOrEmpty(prov.DebitAccount))
+                await EnsureAccountExists(api, prov.DebitAccount, $"Konto {prov.DebitAccount}", "Driftskostnader");
+            if (!string.IsNullOrEmpty(prov.CreditAccount))
+                await EnsureAccountExists(api, prov.CreditAccount, $"Konto {prov.CreditAccount}", "Kortsiktig gjeld");
+        }
+
         // Step 2: Resolve all account IDs
         var accountCache = new Dictionary<string, long>();
         var accountsToResolve = new HashSet<string> { depExpenseAccount, accumDepAccount, prepaidAccount, taxExpenseAccount, taxPayableAccount };
@@ -108,10 +117,11 @@ public class AnnualAccountsHandler : ITaskHandler
         // Step 3: Create depreciation vouchers (one per asset)
         foreach (var asset in assets)
         {
-            var depreciation = Math.Round(asset.BookValue / asset.UsefulLife, 2);
+            // Monthly depreciation = bookValue / usefulLife / 12
+            var depreciation = Math.Round(asset.BookValue / asset.UsefulLife / 12m, 2);
             var description = $"Avskrivning {asset.Name}";
 
-            _logger.LogInformation("Depreciation for {Name}: {BookValue} / {Life} years = {Depreciation}",
+            _logger.LogInformation("Monthly depreciation for {Name}: {BookValue} / {Life} years / 12 = {Depreciation}",
                 asset.Name, asset.BookValue, asset.UsefulLife, depreciation);
 
             if (!accountCache.TryGetValue(depExpenseAccount, out var depExpId) ||

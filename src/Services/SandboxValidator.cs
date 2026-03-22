@@ -651,28 +651,63 @@ public class SandboxValidator
 
         report.Checks.Add(new ValidationCheck("overdue_invoice_found", "true", "true", true, 2));
 
+        // Determine if a partial payment was requested
+        var paymentEntity = extracted.Entities.GetValueOrDefault("payment") ?? new();
+        var requestedPartialAmount = GetDecimalFromEntity(paymentEntity, "amount")
+            ?? GetDecimalFromEntity(paymentEntity, "partialAmount")
+            ?? GetDecimalFromEntity(reminderFee, "partialPaymentAmount")
+            ?? GetDecimalFromEntity(reminderFee, "partialAmount");
+        var isPartialPayment = requestedPartialAmount.HasValue && requestedPartialAmount.Value > 0;
+
         var outstandingAmount = invoice.TryGetProperty("amountOutstanding", out var outstandingProp)
             && outstandingProp.ValueKind == JsonValueKind.Number
                 ? outstandingProp.GetDecimal()
                 : decimal.MaxValue;
-        report.Checks.Add(new ValidationCheck(
-            "payment_registered",
-            "0",
-            outstandingAmount == decimal.MaxValue ? "missing" : outstandingAmount.ToString("F2", CultureInfo.InvariantCulture),
-            outstandingAmount == 0m,
-            2));
 
         var originalAmount = invoice.TryGetProperty("amount", out var amountProp) && amountProp.ValueKind == JsonValueKind.Number
             ? amountProp.GetDecimal()
             : 0m;
         var amountPaid = outstandingAmount == decimal.MaxValue ? 0m : originalAmount - outstandingAmount;
-        var paidAmountCorrect = originalAmount > 0m && Math.Abs(amountPaid - originalAmount) < 1m;
-        report.Checks.Add(new ValidationCheck(
-            "correct_paid_amount",
-            originalAmount > 0m ? originalAmount.ToString("F2", CultureInfo.InvariantCulture) : "> 0",
-            amountPaid.ToString("F2", CultureInfo.InvariantCulture),
-            paidAmountCorrect,
-            2));
+
+        if (isPartialPayment)
+        {
+            // Partial payment: outstanding should be reduced but not zero
+            var expectedOutstanding = originalAmount - requestedPartialAmount!.Value;
+            var outstandingCorrect = outstandingAmount != decimal.MaxValue
+                && Math.Abs(outstandingAmount - expectedOutstanding) < 1m;
+            report.Checks.Add(new ValidationCheck(
+                "payment_registered",
+                expectedOutstanding.ToString("F2", CultureInfo.InvariantCulture),
+                outstandingAmount == decimal.MaxValue ? "missing" : outstandingAmount.ToString("F2", CultureInfo.InvariantCulture),
+                outstandingCorrect,
+                2));
+
+            var paidAmountCorrect = Math.Abs(amountPaid - requestedPartialAmount.Value) < 1m;
+            report.Checks.Add(new ValidationCheck(
+                "correct_paid_amount",
+                requestedPartialAmount.Value.ToString("F2", CultureInfo.InvariantCulture),
+                amountPaid.ToString("F2", CultureInfo.InvariantCulture),
+                paidAmountCorrect,
+                2));
+        }
+        else
+        {
+            // Full payment: outstanding should be zero
+            report.Checks.Add(new ValidationCheck(
+                "payment_registered",
+                "0",
+                outstandingAmount == decimal.MaxValue ? "missing" : outstandingAmount.ToString("F2", CultureInfo.InvariantCulture),
+                outstandingAmount == 0m,
+                2));
+
+            var paidAmountCorrect = originalAmount > 0m && Math.Abs(amountPaid - originalAmount) < 1m;
+            report.Checks.Add(new ValidationCheck(
+                "correct_paid_amount",
+                originalAmount > 0m ? originalAmount.ToString("F2", CultureInfo.InvariantCulture) : "> 0",
+                amountPaid.ToString("F2", CultureInfo.InvariantCulture),
+                paidAmountCorrect,
+                2));
+        }
 
         var customerId = invoice.TryGetProperty("customer", out var customerProp)
             && customerProp.ValueKind == JsonValueKind.Object
@@ -787,6 +822,7 @@ public class SandboxValidator
     private async Task ValidateFxExchangeDifference(TripletexApiClient api, JsonElement invoice, ExtractionResult extracted,
         ValidationReport report)
     {
+        var expectedAccountNumber = GetExpectedFxExchangeAccountNumber(extracted);
         var invoiceNumber = invoice.TryGetProperty("invoiceNumber", out var invoiceNumberProp)
             && invoiceNumberProp.ValueKind == JsonValueKind.Number
                 ? invoiceNumberProp.GetInt64()
@@ -820,7 +856,9 @@ public class SandboxValidator
         });
 
         bool exchangeDifferencePosted = false;
-        string actual = "missing";
+        string actual = string.IsNullOrWhiteSpace(expectedAccountNumber)
+            ? "missing"
+            : $"missing on expected account {expectedAccountNumber}";
         if (postingResponse.TryGetProperty("values", out var postings) && postings.ValueKind == JsonValueKind.Array)
         {
             foreach (var posting in postings.EnumerateArray())
@@ -850,6 +888,15 @@ public class SandboxValidator
                         ? accountNumberProp.GetRawText().Trim('"')
                         : string.Empty;
 
+                if (!string.IsNullOrWhiteSpace(expectedAccountNumber)
+                    && !string.Equals(accountNumber, expectedAccountNumber, StringComparison.OrdinalIgnoreCase))
+                {
+                    actual = string.IsNullOrWhiteSpace(accountNumber)
+                        ? $"expected {expectedAccountNumber}, found unknown account"
+                        : $"expected {expectedAccountNumber}, found {accountNumber}: {description}";
+                    continue;
+                }
+
                 exchangeDifferencePosted = true;
                 actual = string.IsNullOrWhiteSpace(accountNumber)
                     ? description
@@ -860,10 +907,67 @@ public class SandboxValidator
 
         report.Checks.Add(new ValidationCheck(
             "exchange_rate_difference_posted",
-            "true",
+            string.IsNullOrWhiteSpace(expectedAccountNumber) ? "true" : expectedAccountNumber,
             actual,
             exchangeDifferencePosted,
             2));
+    }
+
+    private static string? GetExpectedFxExchangeAccountNumber(ExtractionResult extracted)
+    {
+        string? candidate = null;
+
+        if (extracted.Entities.TryGetValue("exchangeRateDifference", out var exchangeRateDifference)
+            && exchangeRateDifference.TryGetValue("account", out var accountValue))
+        {
+            candidate = accountValue is JsonElement exchangeAccountElement
+                ? exchangeAccountElement.ToString()
+                : accountValue?.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate)
+            && extracted.Entities.TryGetValue("payment", out var payment)
+            && payment.TryGetValue("exchangeRateDifference", out var paymentExchangeDifferenceValue)
+            && paymentExchangeDifferenceValue is JsonElement paymentExchangeDifferenceElement
+            && paymentExchangeDifferenceElement.ValueKind == JsonValueKind.Object
+            && paymentExchangeDifferenceElement.TryGetProperty("account", out var paymentExchangeAccountElement))
+        {
+            candidate = paymentExchangeAccountElement.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate)
+            && extracted.Entities.TryGetValue("payment", out var paymentEntity)
+            && paymentEntity.TryGetValue("exchangeRateDifferenceAccount", out var paymentAccountValue))
+        {
+            candidate = paymentAccountValue is JsonElement paymentAccountElement
+                ? paymentAccountElement.ToString()
+                : paymentAccountValue?.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate)
+            && extracted.Entities.TryGetValue("invoice", out var invoiceEntity)
+            && invoiceEntity.TryGetValue("exchangeRateDifference", out var invoiceExchangeDifferenceValue)
+            && invoiceExchangeDifferenceValue is JsonElement invoiceExchangeDifferenceElement
+            && invoiceExchangeDifferenceElement.ValueKind == JsonValueKind.Object
+            && invoiceExchangeDifferenceElement.TryGetProperty("account", out var invoiceExchangeAccountElement))
+        {
+            candidate = invoiceExchangeAccountElement.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate)
+            && extracted.Entities.TryGetValue("invoice", out var invoiceEntityWithAccount)
+            && invoiceEntityWithAccount.TryGetValue("exchangeRateDifferenceAccount", out var invoiceAccountValue))
+        {
+            candidate = invoiceAccountValue is JsonElement invoiceAccountElement
+                ? invoiceAccountElement.ToString()
+                : invoiceAccountValue?.ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(candidate))
+            return null;
+
+        var match = Regex.Match(candidate, @"\b8\d{3}\b");
+        return match.Success ? match.Value : null;
     }
 
     private static bool IsFxPayment(ExtractionResult extracted)

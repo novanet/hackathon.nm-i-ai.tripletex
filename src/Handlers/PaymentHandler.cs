@@ -237,7 +237,8 @@ public class PaymentHandler : ITaskHandler
         {
             try
             {
-                var vatTypeId = InvoiceHandler.DefaultOutputVatTypeId; // 25% standard
+                // Proactive VAT resolution (GET is free) to avoid 422 errors
+                var (vatTypeId, _) = await _invoiceHandler.ResolveVatTypesFull(api);
                 var orderBody = new Dictionary<string, object>
                 {
                     ["customer"] = new { id = customerId },
@@ -256,21 +257,7 @@ public class PaymentHandler : ITaskHandler
                     ["isPrioritizeAmountsIncludingVat"] = true
                 };
 
-                JsonElement orderResult;
-                try
-                {
-                    orderResult = await api.PostAsync("/order", orderBody);
-                }
-                catch (TripletexApiException ex) when (IsInvalidVatCodeError(ex))
-                {
-                    // Hardcoded VAT IDs invalid — use InvoiceHandler's full dynamic VAT resolver
-                    _logger.LogWarning("Hardcoded VAT rejected, resolving via InvoiceHandler");
-                    var (dynVatId, _) = await _invoiceHandler.ResolveVatTypesFull(api);
-                    vatTypeId = dynVatId;
-                    _logger.LogInformation("Resolved dynamic output VAT type ID: {Id}", vatTypeId);
-                    ((Dictionary<string, object>)((object[])orderBody["orderLines"])[0])["vatType"] = new { id = vatTypeId };
-                    orderResult = await api.PostAsync("/order", orderBody);
-                }
+                var orderResult = await api.PostAsync("/order", orderBody);
 
                 var orderId = orderResult.GetProperty("value").GetProperty("id").GetInt64();
 
@@ -312,19 +299,17 @@ public class PaymentHandler : ITaskHandler
         }
 
         // Step 6: Register partial payment on the overdue invoice
+        // Use the requested partial amount from the prompt (e.g. "5000 NOK"), NOT the full outstanding
         var requestedPartialAmount = ParseDecimalField(payment, "amount")
             ?? ParseDecimalField(reminderFee, "partialPaymentAmount");
-        var partialAmount = amountOutstanding;
+        var partialAmount = requestedPartialAmount ?? amountOutstanding;
         var paymentTypeId = await paymentTypeTask;
         var paymentDate = ResolvePaymentDate(extracted);
 
-        if (requestedPartialAmount.HasValue && requestedPartialAmount.Value != amountOutstanding)
-        {
-            _logger.LogInformation(
-                "Reminder fee task requested payment amount {RequestedAmount}, but paying full outstanding balance {OutstandingAmount} to satisfy validation",
-                requestedPartialAmount.Value,
-                amountOutstanding);
-        }
+        _logger.LogInformation(
+            "Reminder fee: paying {Amount} on overdue invoice {Id} (outstanding={Outstanding}, requested={Requested})",
+            partialAmount, overdueInvoiceId, amountOutstanding,
+            requestedPartialAmount?.ToString() ?? "n/a");
 
         await RegisterPayment(api, overdueInvoiceId, paymentTypeId, partialAmount, paymentDate);
         _logger.LogInformation("Registered payment of {Amount} on overdue invoice {Id}",
@@ -374,7 +359,8 @@ public class PaymentHandler : ITaskHandler
         var currencyId = await currencyTask;
 
         // Create invoice chain with foreign currency
-        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, extracted, currencyId);
+        var fxInvoiceExtraction = PrepareFxInvoiceExtraction(extracted, currencyCode, foreignAmount);
+        var (invoiceId, invoiceAmount) = await _invoiceHandler.CreateInvoiceChainAsync(api, fxInvoiceExtraction, currencyId);
         var paymentTypeId = await paymentTypeTask;
 
         // paidAmount = NOK amount (foreign × rate at payment)
@@ -386,6 +372,98 @@ public class PaymentHandler : ITaskHandler
 
         await RegisterPayment(api, invoiceId, paymentTypeId, nokAmount, paymentDate, paidAmountCurrency: foreignAmount);
         return PaymentResult(invoiceId, nokAmount);
+    }
+
+    private ExtractionResult PrepareFxInvoiceExtraction(ExtractionResult extracted, string currencyCode, decimal foreignAmount)
+    {
+        var clone = CloneExtractionResult(extracted);
+
+        if (!clone.Entities.TryGetValue("invoice", out var invoice))
+        {
+            invoice = new Dictionary<string, object>();
+            clone.Entities["invoice"] = invoice;
+        }
+
+        if (string.IsNullOrWhiteSpace(GetStringField(invoice, "currency")))
+            invoice["currency"] = currencyCode;
+
+        if (ParseDecimalField(invoice, "amount") is null && foreignAmount > 0m)
+            invoice["amount"] = foreignAmount;
+
+        if (ShouldDefaultFxAmountToVatInclusive(clone))
+            invoice["vatIncluded"] = true;
+
+        return clone;
+    }
+
+    private static ExtractionResult CloneExtractionResult(ExtractionResult extracted)
+    {
+        return new ExtractionResult
+        {
+            TaskType = extracted.TaskType,
+            Action = extracted.Action,
+            RawAmounts = new List<string>(extracted.RawAmounts),
+            Dates = new List<string>(extracted.Dates),
+            FilesNeeded = extracted.FilesNeeded,
+            Language = extracted.Language,
+            RawPrompt = extracted.RawPrompt,
+            Files = extracted.Files,
+            Relationships = new Dictionary<string, string>(extracted.Relationships),
+            Entities = extracted.Entities.ToDictionary(
+                pair => pair.Key,
+                pair => new Dictionary<string, object>(pair.Value))
+        };
+    }
+
+    private static bool ShouldDefaultFxAmountToVatInclusive(ExtractionResult extracted)
+    {
+        if (HasExplicitExVatLanguage(extracted))
+            return false;
+
+        if (HasExplicitVatInclusiveLanguage(extracted))
+            return true;
+
+        return true;
+    }
+
+    private static bool HasExplicitExVatLanguage(ExtractionResult extracted)
+    {
+        var keywords = new[]
+        {
+            "ekskl. mva", "ekskl mva", "eksklusiv mva", "uten mva",
+            "excluding vat", "excl. vat", "excl vat", "without vat", "vat excluded",
+            "hors tva", "ht", "hors taxe",
+            "ohne mwst", "exkl. mwst", "exkl mwst", "zzgl. mwst",
+            "sem iva", "iva excluido", "sin iva",
+            "sem mva"
+        };
+
+        return PromptContainsAny(extracted, keywords);
+    }
+
+    private static bool HasExplicitVatInclusiveLanguage(ExtractionResult extracted)
+    {
+        var keywords = new[]
+        {
+            "inkl. mva", "inkl mva", "inklusive mva", "inkludert mva", "inkl.mva",
+            "including vat", "incl. vat", "incl vat", "vat included", "vat-inclusive",
+            "con iva incluido", "iva incluido", "iva inclusa", "iva incluso",
+            "inkl. mwst", "inkl mwst", "inklusive mwst", "einschließlich mwst",
+            "ttc", "tva incluse", "tva comprise",
+            "inkl. moms", "inkl moms", "inklusive moms",
+            "com iva incluído", "com iva"
+        };
+
+        return PromptContainsAny(extracted, keywords);
+    }
+
+    private static bool PromptContainsAny(ExtractionResult extracted, IEnumerable<string> keywords)
+    {
+        var sources = EnumeratePromptCurrencySources(extracted)
+            .Select(source => source.ToLowerInvariant())
+            .ToList();
+
+        return keywords.Any(keyword => sources.Any(source => source.Contains(keyword)));
     }
 
     private (string CurrencyCode, decimal ForeignAmount) InferFxInvoiceCurrencyAndAmount(

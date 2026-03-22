@@ -8,8 +8,13 @@ namespace TripletexAgent.Handlers;
 public class ProjectHandler : ITaskHandler
 {
     private readonly ILogger<ProjectHandler> _logger;
+    private readonly InvoiceHandler _invoiceHandler;
 
-    public ProjectHandler(ILogger<ProjectHandler> logger) => _logger = logger;
+    public ProjectHandler(ILogger<ProjectHandler> logger, InvoiceHandler invoiceHandler)
+    {
+        _logger = logger;
+        _invoiceHandler = invoiceHandler;
+    }
 
     public async Task<HandlerResult> HandleAsync(TripletexApiClient api, ExtractionResult extracted)
     {
@@ -249,11 +254,15 @@ public class ProjectHandler : ITaskHandler
             var fn = GetScalarString(empEntity, "firstName");
             var ln = GetScalarString(empEntity, "lastName");
             var em = GetScalarString(empEntity, "email");
+            // Treat empty strings as null
+            if (string.IsNullOrWhiteSpace(fn)) fn = null;
+            if (string.IsNullOrWhiteSpace(ln)) ln = null;
+            if (string.IsNullOrWhiteSpace(em)) em = null;
             if (fn != null)
                 employeeId = await ResolveEmployeeByFields(api, fn, ln, em);
 
             // Create employee if not found
-            if (!employeeId.HasValue && fn != null)
+            if (!employeeId.HasValue && fn != null && ln != null)
             {
                 var empBody = new Dictionary<string, object> { ["firstName"] = fn };
                 if (ln != null) empBody["lastName"] = ln;
@@ -379,6 +388,9 @@ public class ProjectHandler : ITaskHandler
             {
                 await EnsureBankAccount(api);
 
+// Resolve VAT type dynamically via InvoiceHandler (GET is free)
+        var (vatTypeId, _) = await _invoiceHandler.ResolveVatTypesFull(api);
+
                 var invoiceDate = DateTime.Today.ToString("yyyy-MM-dd");
                 var orderResult = await api.PostAsync("/order", new
                 {
@@ -392,7 +404,8 @@ public class ProjectHandler : ITaskHandler
                         {
                             ["description"] = $"{activityName} - {hours}t × {hourlyRate} NOK/t",
                             ["count"] = hours,
-                            ["unitPriceExcludingVatCurrency"] = hourlyRate
+                            ["unitPriceExcludingVatCurrency"] = hourlyRate,
+                            ["vatType"] = new { id = vatTypeId }
                         }
                     }
                 });
@@ -502,7 +515,10 @@ public class ProjectHandler : ITaskHandler
         // Ensure bank account
         await EnsureBankAccount(api);
 
-        // Create order with a single line for the invoice amount, linked to project (no vatType — project-linked orders inherit vatType from project)
+        // Resolve VAT type dynamically via InvoiceHandler (GET is free)
+        var (vatTypeId, _) = await _invoiceHandler.ResolveVatTypesFull(api);
+
+        // Create order with a single line for the invoice amount, linked to project
         var invoiceDate = DateTime.Now.ToString("yyyy-MM-dd");
         var orderBody = new Dictionary<string, object>
         {
@@ -516,7 +532,8 @@ public class ProjectHandler : ITaskHandler
                 {
                     ["description"] = GetStringField(invoiceEntity, "description") ?? $"Delfakturering prosjekt",
                     ["count"] = 1,
-                    ["unitPriceExcludingVatCurrency"] = invoiceAmount
+                    ["unitPriceExcludingVatCurrency"] = invoiceAmount,
+                    ["vatType"] = new { id = vatTypeId }
                 }
             }
         };

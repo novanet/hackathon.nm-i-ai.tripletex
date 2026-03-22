@@ -657,15 +657,27 @@ public class VoucherHandler : ITaskHandler
                 }
         }
 
-        // 5. POST /supplierInvoice — creates a real supplierInvoice entity (not just a voucher)
+        // 5. Resolve voucherType "Leverandørfaktura" and create voucher via POST /ledger/voucher
         var (creditorId, _, _) = await ResolveAccountId(api, "2400");
         if (!creditorId.HasValue)
             throw new InvalidOperationException("Unable to resolve creditor account 2400 for supplier voucher.");
 
-        // Calculate due date (invoice date + 30 days)
-        var dueDate = DateTime.TryParse(date, out var parsedDate)
-            ? parsedDate.AddDays(30).ToString("yyyy-MM-dd")
-            : DateTime.Now.AddDays(30).ToString("yyyy-MM-dd");
+        // Resolve voucherType
+        long? voucherTypeId = null;
+        var vtResult = await api.GetAsync("/ledger/voucherType", new Dictionary<string, string>
+        {
+            ["name"] = "Leverandørfaktura",
+            ["count"] = "10",
+            ["fields"] = "id,name"
+        });
+        if (vtResult.TryGetProperty("values", out var vtVals))
+        {
+            foreach (var vt in vtVals.EnumerateArray())
+            {
+                voucherTypeId = vt.GetProperty("id").GetInt64();
+                break;
+            }
+        }
 
         var debitPosting = new Dictionary<string, object>
         {
@@ -688,26 +700,23 @@ public class VoucherHandler : ITaskHandler
             ["row"] = 2
         };
 
-        var supplierInvoiceBody = new Dictionary<string, object>
+        var voucherBody = new Dictionary<string, object>
         {
-            ["invoiceNumber"] = invoiceNumber ?? "INV-0000",
-            ["invoiceDate"] = date,
-            ["invoiceDueDate"] = dueDate,
-            ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
-            ["voucher"] = new Dictionary<string, object>
-            {
-                ["date"] = date,
-                ["description"] = description,
-                ["postings"] = new[] { debitPosting, creditPosting }
-            }
+            ["date"] = date,
+            ["description"] = description,
+            ["postings"] = new[] { debitPosting, creditPosting }
         };
+        if (voucherTypeId.HasValue)
+            voucherBody["voucherType"] = new Dictionary<string, object> { ["id"] = voucherTypeId.Value };
+        if (invoiceNumber != null)
+            voucherBody["externalVoucherNumber"] = invoiceNumber;
 
-        _logger.LogInformation("Creating supplier invoice via POST /supplierInvoice: {Description} amount={Amount}", description, amount);
+        _logger.LogInformation("Creating supplier voucher via POST /ledger/voucher: {Description} amount={Amount}", description, amount);
 
-        var siResult = await api.PostAsync("/supplierInvoice", supplierInvoiceBody);
-        var siId = siResult.GetProperty("value").GetProperty("id").GetInt64();
-        _logger.LogInformation("Created supplier invoice ID: {Id}", siId);
-        return new HandlerResult { EntityType = "supplierInvoice", EntityId = siId };
+        var vResult = await api.PostAsync("/ledger/voucher?sendToLedger=true", voucherBody);
+        var voucherId = vResult.GetProperty("value").GetProperty("id").GetInt64();
+        _logger.LogInformation("Created supplier voucher ID: {Id}", voucherId);
+        return new HandlerResult { EntityType = "voucher", EntityId = voucherId };
     }
 
     /// <summary>
