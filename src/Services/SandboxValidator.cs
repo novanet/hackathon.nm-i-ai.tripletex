@@ -2080,8 +2080,39 @@ public class SandboxValidator
                 : prop.GetRawText();
         }
 
-        var passed = string.Equals(expected?.Trim(), actual?.Trim(), StringComparison.OrdinalIgnoreCase);
+        // For email fields, normalize both sides to ASCII before comparing
+        // (Tripletex cannot store non-ASCII emails, so sánchez→sanchez is expected)
+        var expectedNorm = expected?.Trim() ?? "";
+        var actualNorm = actual?.Trim() ?? "";
+        if (field == "email")
+        {
+            expectedNorm = NormalizeToAscii(expectedNorm.ToLowerInvariant());
+            actualNorm = NormalizeToAscii(actualNorm.ToLowerInvariant());
+        }
+        var passed = string.Equals(expectedNorm, actualNorm, StringComparison.OrdinalIgnoreCase);
         report.Checks.Add(new ValidationCheck(field, expected ?? "", actual ?? "(null)", passed, points));
+    }
+
+    private static string NormalizeToAscii(string input)
+    {
+        var sb = new System.Text.StringBuilder(input.Length);
+        foreach (var ch in input)
+        {
+            var mapped = ch switch
+            {
+                'ø' or 'ö' => "o", 'æ' => "ae", 'å' or 'ä' => "a",
+                'ü' => "u", 'ß' => "ss", 'ñ' => "n", 'ç' => "c",
+                _ => null
+            };
+            if (mapped != null) { sb.Append(mapped); continue; }
+            if (ch < 128) { sb.Append(ch); continue; }
+            var decomposed = ch.ToString().Normalize(System.Text.NormalizationForm.FormD);
+            foreach (var dc in decomposed)
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(dc)
+                    != System.Globalization.UnicodeCategory.NonSpacingMark)
+                    sb.Append(dc < 128 ? dc : '_');
+        }
+        return sb.ToString();
     }
 
     private static void CheckDecimalField(JsonElement apiValue, Dictionary<string, object> entity,

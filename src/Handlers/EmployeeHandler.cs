@@ -189,6 +189,20 @@ public class EmployeeHandler : ITaskHandler
             body["employments"] = new[] { inlineEmployment };
         }
 
+        // Final ASCII guard — belt-and-suspenders safety net before any POST
+        if (body.TryGetValue("email", out var finalEmail))
+        {
+            var emailFinal = finalEmail?.ToString() ?? "";
+            if (emailFinal.Any(c => c > 127))
+            {
+                var safeParts = emailFinal.Split('@', 2);
+                var safeLocal = SanitizeEmailPart(safeParts[0], "employee");
+                var safeDomain = safeParts.Length > 1 ? NormalizeToAscii(safeParts[1].ToLowerInvariant()) : "example.org";
+                body["email"] = $"{safeLocal}@{safeDomain}";
+                _logger.LogWarning("Final ASCII guard triggered: '{Original}' → '{Safe}'", emailFinal, body["email"]);
+            }
+        }
+
         _logger.LogInformation("Creating employee: {FirstName} {LastName} (inlineEmployment={HasEmployment})",
             body.GetValueOrDefault("firstName"), body.GetValueOrDefault("lastName"), !string.IsNullOrEmpty(startDate));
 
@@ -822,7 +836,9 @@ public class EmployeeHandler : ITaskHandler
 
     private static bool IsDuplicateEmailError(TripletexApiException ex)
         => ex.Message.Contains("e-postadressen", StringComparison.OrdinalIgnoreCase)
-            || ex.Message.Contains("email", StringComparison.OrdinalIgnoreCase);
+            || ex.Message.Contains("already in use", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("allerede", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase);
 
     private static string BuildSyntheticEmail(string firstName, string lastName)
     {
@@ -838,8 +854,8 @@ public class EmployeeHandler : ITaskHandler
         {
             var parts = currentEmail.Split('@', 2);
             var local = SanitizeEmailPart(parts[0], "employee");
-            var domain = SanitizeEmailPart(parts[1], "example.org").Replace(".", "-");
-            return $"{local}.{stamp}@{parts[1]}";
+            var domain = NormalizeToAscii(parts[1].ToLowerInvariant());
+            return $"{local}.{stamp}@{domain}";
         }
 
         var fn = SanitizeEmailPart(firstName, "employee");
