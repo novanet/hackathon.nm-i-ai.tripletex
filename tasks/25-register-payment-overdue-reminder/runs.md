@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 2026-03-22T09:40:22.8550810Z |
+| Timestamp | 2026-03-22T10:25:59.7948390Z |
 | Task Type | `overdue_invoice_reminder` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 27275 ms |
+| Elapsed | 27470 ms |
 | API Calls | 10 |
 | Errors | 0 |
 
@@ -26,14 +26,14 @@
 | 6 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅ 200 |  |
 | 7 | `POST` | `/order` | ✅ 201 |  |
 | 8 | `POST` | `/invoice` | ✅ 201 |  |
-| 9 | `PUT` | `/invoice/2147689771/:send?sendType=EMAIL` | ✅ 204 |  |
-| 10 | `PUT` | `/invoice/2147689698/:payment?paymentDate=2026-03-22&paymentT...` | ✅ 200 |  |
+| 9 | `PUT` | `/invoice/2147694103/:send?sendType=EMAIL` | ✅ 204 |  |
+| 10 | `PUT` | `/invoice/2147694028/:payment?paymentDate=2026-03-22&paymentT...` | ✅ 200 |  |
 
 
 ### LLM Extraction
 
 ```json
-{"task_type":"overdue_invoice_reminder","action":"create","language":"es","entities":{"reminderFee":{"amount":55,"debitAccount":"1500","creditAccount":"3400","partialPaymentAmount":5000}},"relationships":{},"raw_amounts":["55","5000"],"dates":[],"files_needed":false}
+{"task_type":"overdue_invoice_reminder","action":"create","language":"fr","entities":{"reminderFee":{"amount":65,"debitAccount":"1500","creditAccount":"3400","partialPaymentAmount":5000}},"relationships":{},"raw_amounts":["65","5000"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run
