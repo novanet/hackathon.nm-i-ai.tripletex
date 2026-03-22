@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:55:07 |
+| Timestamp | 03/22/2026 01:54:28 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
 | Success | True |
-| Elapsed | 9368 ms |
+| Elapsed | 21742 ms |
 | API Calls | 4 |
 | Errors | 0 |
 
@@ -20,13 +20,13 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=lucia.garcia%40example.org&count=10&fields=i...` | ✅  |  |
+| 3 | `GET` | `/employee?email=ingrid.johansen%40example.org&count=10&field...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":null,"entities":{"employee":{"firstName":"Lucía","lastName":"García","email":"lucia.garcia@example.org","dateOfBirth":"1997-03-18","startDate":"2026-08-30"}},"relationships":{},"raw_amounts":[],"dates":[],"files_needed":false}
+{"task_type":"create_employee","action":"create","language":"nb","entities":{"employee":{"firstName":"Ingrid","lastName":"Johansen","email":"ingrid.johansen@example.org","dateOfBirth":"1995-11-09","startDate":"2026-01-13"}},"relationships":{},"raw_amounts":[],"dates":["1995-11-09","2026-01-13"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

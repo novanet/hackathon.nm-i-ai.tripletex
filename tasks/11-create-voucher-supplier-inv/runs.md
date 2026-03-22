@@ -35,27 +35,32 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 17:59:21 |
+| Timestamp | 03/22/2026 01:30:26 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
-| Success | False |
-| Elapsed | 2337 ms |
-| API Calls | 1 |
-| Errors | 1 |
-| Error | `name: Feltet må fylles ut.` |
+| Success | True |
+| Elapsed | 4947 ms |
+| API Calls | 7 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 3 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
+| 4 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 6 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 7 | `GET` | `/ledger/voucher/609262090?fields=id%2Cdescription%2Cdate%2Ce...` | ✅  |  |
 
 ## Latest Local Validation
 
 | Field | Value |
 |---|---|
 | Correctness | 1 |
-| Points | 19 / 19 |
+| Points | 13 / 13 |
 
 ### Checks
 
@@ -66,8 +71,5 @@
 | has_postings | `>= 2` | `3` | ✅ | 2 |
 | postings_balanced | `true` | `true` | ✅ | 2 |
 | correct_accounts | `true` | `true` | ✅ | 2 |
-| has_supplier_reference | `947591762` | `947591762` | ✅ | 2 |
-| has_invoice_reference | `KVITTERING - 04.05.2026` | `KVITTERING - 04.05.2026` | ✅ | 2 |
-| has_department | `Kvalitetskontroll` | `Kvalitetskontroll` | ✅ | 2 |
-| correct_amount | `6540,00` | `6540,00` | ✅ | 3 |
+| correct_amount | `12500,00` | `12500,00` | ✅ | 3 |
 

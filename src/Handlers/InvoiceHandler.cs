@@ -746,6 +746,15 @@ public class InvoiceHandler : ITaskHandler
             || olJson.ValueKind != JsonValueKind.Array)
             return;
 
+        // Detect multi-VAT: lines have different vatType IDs
+        var distinctVatIds = lines
+            .Select(l => l.TryGetValue("vatType", out var vt) ? vt : null)
+            .Where(v => v != null)
+            .Select(v => System.Text.Json.JsonSerializer.Serialize(v))
+            .Distinct()
+            .Count();
+        var isMultiVat = distinctVatIds > 1;
+
         var olArray = olJson.EnumerateArray().ToArray();
         for (int i = 0; i < Math.Min(olArray.Length, lines.Count); i++)
         {
@@ -764,12 +773,37 @@ public class InvoiceHandler : ITaskHandler
             {
                 ["number"] = productCode,
                 ["count"] = "1",
-                ["fields"] = "id"
+                ["fields"] = "id,vatType(id)"
             });
             if (searchResult.TryGetProperty("values", out var prodVals) && prodVals.GetArrayLength() > 0)
             {
-                productId = prodVals[0].GetProperty("id").GetInt64();
+                var existingProduct = prodVals[0];
+                productId = existingProduct.GetProperty("id").GetInt64();
                 _logger.LogInformation("Found existing product #{Code} ID: {Id}", productCode, productId);
+
+                // For multi-VAT invoices, skip product reference if product's vatType differs
+                // from the order line's vatType — Tripletex may override order line vatType with product's
+                if (isMultiVat && existingProduct.TryGetProperty("vatType", out var prodVat)
+                    && prodVat.ValueKind == JsonValueKind.Object && prodVat.TryGetProperty("id", out var prodVatId))
+                {
+                    long productVatTypeId = prodVatId.GetInt64();
+                    // Extract the line's vatType id for comparison
+                    long lineVatTypeId = defaultVatTypeId;
+                    if (lines[i].TryGetValue("vatType", out var lineVt))
+                    {
+                        var vtJson = System.Text.Json.JsonSerializer.Serialize(lineVt);
+                        using var doc = JsonDocument.Parse(vtJson);
+                        if (doc.RootElement.TryGetProperty("id", out var lvtId))
+                            lineVatTypeId = lvtId.GetInt64();
+                    }
+                    if (productVatTypeId != lineVatTypeId)
+                    {
+                        _logger.LogInformation(
+                            "Skipping product reference for line {I} (product #{Code}): product vatType {ProdVat} != line vatType {LineVat}",
+                            i, productCode, productVatTypeId, lineVatTypeId);
+                        continue; // Don't add product reference — use order line's vatType + price directly
+                    }
+                }
             }
             else
             {

@@ -6,27 +6,29 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:51:30 |
+| Timestamp | 03/22/2026 01:55:09 |
 | Task Type | `create_travel_expense` |
 | Handler | `TravelExpenseHandler` |
 | Success | True |
-| Elapsed | 4150 ms |
-| API Calls | 4 |
+| Elapsed | 11006 ms |
+| API Calls | 6 |
 | Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/employee?count=1&fields=id&firstName=Ricardo&lastName=Romer...` | ✅  |  |
+| 1 | `GET` | `/employee?count=1&fields=id&firstName=Charles&lastName=Willi...` | ✅  |  |
 | 2 | `POST` | `/travelExpense` | ✅  |  |
 | 3 | `GET` | `/travelExpense/paymentType?count=10&fields=id%2Cdescription` | ✅  |  |
 | 4 | `POST` | `/travelExpense/cost` | ✅  |  |
+| 5 | `POST` | `/travelExpense/cost` | ✅  |  |
+| 6 | `POST` | `/travelExpense/cost` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_travel_expense","action":"create","language":"es","entities":{"travelExpense":{"title":"Conferencia Ålesund","travelDetails":{"durationDays":5,"dailyAllowanceRate":800,"expenses":[{"type":"Airfare","amount":4700},{"type":"Taxi","amount":550}]}},"employee":{"firstName":"Ricardo","lastName":"Romero","email":"ricardo.romero@example.org"}},"relationships":{},"raw_amounts":["800","4700","550"],"dates":[],"files_needed":false}
+{"task_type":"create_travel_expense","action":"create","language":"en","entities":{"travelExpense":{"title":"Client visit Drammen","travelDetails":{"durationDays":5,"dailyAllowanceRate":800},"costItems":[{"description":"Flight ticket","amount":7650},{"description":"Taxi","amount":400}]},"employee":{"firstName":"Charles","lastName":"Williams","email":"charles.williams@example.org"}},"relationships":{},"raw_amounts":["800","7650","400"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

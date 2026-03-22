@@ -35,28 +35,28 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 21:52:58 |
+| Timestamp | 03/22/2026 01:43:53 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
 | Success | True |
-| Elapsed | 6100 ms |
+| Elapsed | 12895 ms |
 | API Calls | 10 |
-| Errors | 1 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/currency?code=EUR&count=1&fields=id%2Ccode` | ✅  |  |
-| 2 | `POST` | `/customer` | ✅  |  |
+| 1 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
+| 2 | `GET` | `/currency?code=EUR&count=1&fields=id%2Ccode` | ✅  |  |
 | 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 4 | `POST` | `/order` | ✅  |  |
-| 5 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 4 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 5 | `POST` | `/customer` | ✅  |  |
 | 6 | `POST` | `/order` | ✅  |  |
 | 7 | `POST` | `/invoice` | ✅  |  |
-| 8 | `PUT` | `/invoice/2147641959/:payment?paymentDate=2026-03-21&paymentT...` | ✅  |  |
-| 9 | `GET` | `/invoice/2147641959?fields=id%2CinvoiceNumber%2CinvoiceDate%...` | ✅  |  |
-| 10 | `GET` | `/ledger/posting?dateFrom=2026-03-21&dateTo=2026-03-22&accoun...` | ✅  |  |
+| 8 | `PUT` | `/invoice/2147664389/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 9 | `GET` | `/invoice/2147664389?fields=id%2CinvoiceNumber%2CinvoiceDate%...` | ✅  |  |
+| 10 | `GET` | `/ledger/posting?dateFrom=2026-03-22&dateTo=2026-03-23&accoun...` | ✅  |  |
 
 ## Latest Local Validation
 
@@ -76,5 +76,5 @@
 | has_amount | `> 0` | `131829,78` | ✅ | 1 |
 | has_currency | `!= NOK` | `EUR` | ✅ | 2 |
 | correct_amount_currency | `11671,00` | `11671,00` | ✅ | 2 |
-| exchange_rate_difference_posted | `true` | `8060: Payment: Faktura nummer 138 til Ironbridge Ltd (10111) Profit on exchange.` | ✅ | 2 |
+| exchange_rate_difference_posted | `true` | `8060: Payment: Faktura nummer 173 til Ironbridge Ltd (10133) Profit on exchange.` | ✅ | 2 |
 

@@ -6,11 +6,43 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:56:59 |
+| Timestamp | 03/22/2026 01:55:50 |
 | Task Type | `create_invoice` |
 | Handler | `InvoiceHandler` |
 | Success | True |
-| Elapsed | 5190 ms |
+| Elapsed | 10958 ms |
+| API Calls | 9 |
+| Errors | 0 |
+
+### API Calls
+
+| # | Method | Path | Status | Time |
+|---|---|---|---|---|
+| 1 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 2 | `POST` | `/customer` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 4 | `PUT` | `/ledger/account/484444928` | ✅  |  |
+| 5 | `GET` | `/product?number=2626&count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/product?number=7746&count=1&fields=id` | ✅  |  |
+| 7 | `GET` | `/product?number=5675&count=1&fields=id` | ✅  |  |
+| 8 | `POST` | `/order` | ✅  |  |
+| 9 | `POST` | `/invoice` | ✅  |  |
+
+### LLM Extraction
+
+```json
+{"task_type":"create_invoice","action":"create","language":"de","entities":{"customer":{"name":"Brückentor GmbH","orgNumber":"804379010"},"invoice":{"orderLines":[{"description":"Schulung","productNumber":"2626","unitPrice":17300,"vatRate":25},{"description":"Beratungsstunden","productNumber":"7746","unitPrice":12850,"vatRate":15},{"description":"Cloud-Speicher","productNumber":"5675","unitPrice":7050,"vatRate":0}]}},"relationships":{},"raw_amounts":["17300","12850","7050"],"dates":[],"files_needed":false}
+```
+
+## Latest Sandbox Run
+
+| Field | Value |
+|---|---|
+| Timestamp | 03/22/2026 01:31:29 |
+| Task Type | `create_invoice` |
+| Handler | `InvoiceHandler` |
+| Success | True |
+| Elapsed | 4247 ms |
 | API Calls | 6 |
 | Errors | 0 |
 
@@ -18,39 +50,12 @@
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `POST` | `/customer` | ✅  |  |
+| 1 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
 | 2 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 3 | `PUT` | `/ledger/account/479989806` | ✅  |  |
+| 3 | `POST` | `/customer` | ✅  |  |
 | 4 | `POST` | `/order` | ✅  |  |
 | 5 | `POST` | `/invoice` | ✅  |  |
-| 6 | `PUT` | `/invoice/2147655018/:send?sendType=EMAIL` | ✅  |  |
-
-### LLM Extraction
-
-```json
-{"task_type":"create_invoice","action":"create","language":"en","entities":{"customer":{"name":"Ridgepoint Ltd","orgNumber":"985190631"},"invoice":{"orderLines":[{"description":"Analysis Report","count":1,"unitPrice":32650}],"send":true}},"relationships":{"customer":"Ridgepoint Ltd"},"raw_amounts":["32650"],"dates":[],"files_needed":false}
-```
-
-## Latest Sandbox Run
-
-| Field | Value |
-|---|---|
-| Timestamp | 03/21/2026 09:12:40 |
-| Task Type | `create_invoice` |
-| Handler | `InvoiceHandler` |
-| Success | False |
-| Elapsed | 3185 ms |
-| API Calls | 3 |
-| Errors | 1 |
-| Error | `number: Listen med ID-er må være en kommaseparert liste med positive heltall.` |
-
-### API Calls
-
-| # | Method | Path | Status | Time |
-|---|---|---|---|---|
-| 1 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
-| 2 | `POST` | `/customer` | ✅  |  |
-| 3 | `GET` | `/product?number=STL-001&count=1&fields=id` | ✅  |  |
+| 6 | `GET` | `/invoice/2147663102?fields=%2A` | ✅  |  |
 
 ## Latest Local Validation
 
@@ -65,6 +70,6 @@
 |---|---|---|---|---|
 | invoice_found | `true` | `true` | ✅ | 2 |
 | has_customer | `true` | `true` | ✅ | 1 |
-| has_amount | `> 0` | `15000,0` | ✅ | 1 |
+| has_amount | `> 0` | `60000,0` | ✅ | 1 |
 | has_order_lines | `true` | `true` | ✅ | 1 |
 

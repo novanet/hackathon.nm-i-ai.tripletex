@@ -6,4 +6,50 @@
 
 No competition runs recorded.
 
+## Latest Sandbox Run
+
+| Field | Value |
+|---|---|
+| Timestamp | 03/22/2026 01:35:53 |
+| Task Type | `create_project` |
+| Handler | `ProjectHandler` |
+| Success | True |
+| Elapsed | 6151 ms |
+| API Calls | 14 |
+| Errors | 0 |
+
+### API Calls
+
+| # | Method | Path | Status | Time |
+|---|---|---|---|---|
+| 1 | `GET` | `/customer?organizationNumber=934567890&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/customer?name=Fjelltind%20AS&count=1&fields=id%2Cname` | ✅  |  |
+| 3 | `GET` | `/employee?count=1&fields=id` | ✅  |  |
+| 4 | `POST` | `/project` | ✅  |  |
+| 5 | `GET` | `/company/salesmodules?name=SMART_TIME_TRACKING&count=1&field...` | ✅  |  |
+| 6 | `GET` | `/employee?count=1&fields=id&firstName=Prosjektlederen` | ✅  |  |
+| 7 | `GET` | `/activity?name=Utvikling&count=1&fields=id` | ✅  |  |
+| 8 | `POST` | `/project/projectActivity` | ✅  |  |
+| 9 | `POST` | `/timesheet/entry` | ✅  |  |
+| 10 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 11 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage&ty...` | ✅  |  |
+| 12 | `POST` | `/order` | ✅  |  |
+| 13 | `POST` | `/invoice` | ✅  |  |
+| 14 | `GET` | `/project/402054821?fields=id%2Cname%2Ccustomer%2CprojectMana...` | ✅  |  |
+
+## Latest Local Validation
+
+| Field | Value |
+|---|---|
+| Correctness | 1 |
+| Points | 8 / 8 |
+
+### Checks
+
+| Check | Expected | Actual | Passed | Points |
+|---|---|---|---|---|
+| project_found | `true` | `true` | ✅ | 2 |
+| name | `Nettside for Fjelltind AS` | `Nettside for Fjelltind AS` | ✅ | 2 |
+| has_customer | `true` | `true` | ✅ | 2 |
+| has_project_manager | `true` | `true` | ✅ | 2 |
 

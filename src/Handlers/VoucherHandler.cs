@@ -630,18 +630,34 @@ public class VoucherHandler : ITaskHandler
 
         // 4. Resolve VAT type — respect account lock
         long? inputVatId = null;
+        bool manualVatSplit = false;
+        decimal vatPercent = 0.25m; // default 25% for input VAT
+        var vatRateStr = GetStringField(voucher, "vatRate") ?? GetStringField(voucher, "vatPercentage");
+
         if (acctVatLocked && lockedVatId.HasValue)
         {
             inputVatId = lockedVatId;
         }
+        else if (acctVatLocked && !lockedVatId.HasValue)
+        {
+            // Account is vatLocked to NO VAT (vatType=0). If prompt specifies a VAT rate,
+            // we need a manual 3-posting split: expense(net) + inputVAT(vat) + creditor(-gross)
+            if (vatRateStr != null)
+            {
+                if (vatRateStr.Contains("15")) vatPercent = 0.15m;
+                else if (vatRateStr.Contains("12")) vatPercent = 0.12m;
+                else vatPercent = 0.25m;
+                manualVatSplit = true;
+                _logger.LogInformation("Account {Account} is vatLocked to no-VAT but prompt specifies {Rate}% — using manual VAT split", account, vatPercent * 100);
+            }
+        }
         else if (!acctVatLocked)
         {
-            var vatRate = GetStringField(voucher, "vatRate") ?? GetStringField(voucher, "vatPercentage");
             var vatNumber = "1"; // Default: inbound 25%
-            if (vatRate != null)
+            if (vatRateStr != null)
             {
-                if (vatRate.Contains("15")) vatNumber = "11";
-                else if (vatRate.Contains("12")) vatNumber = "13";
+                if (vatRateStr.Contains("15")) vatNumber = "11";
+                else if (vatRateStr.Contains("12")) vatNumber = "13";
             }
             var vatResult = await api.GetAsync("/ledger/vatType", new Dictionary<string, string>
             {
@@ -679,32 +695,82 @@ public class VoucherHandler : ITaskHandler
             }
         }
 
-        var debitPosting = new Dictionary<string, object>
-        {
-            ["date"] = date,
-            ["amountGross"] = amount,
-            ["amountGrossCurrency"] = amount,
-            ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
-            ["row"] = 1
-        };
-        if (inputVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
-        if (departmentId.HasValue) debitPosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
+        // Build postings — manual split when account is vatLocked to no-VAT but prompt has VAT rate
+        var postings = new List<Dictionary<string, object>>();
 
-        var creditPosting = new Dictionary<string, object>
+        if (manualVatSplit)
         {
-            ["date"] = date,
-            ["amountGross"] = -amount,
-            ["amountGrossCurrency"] = -amount,
-            ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
-            ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
-            ["row"] = 2
-        };
+            // 3-posting manual split: expense(net) + inputVAT(vatAmount) + creditor(-gross)
+            var netAmount = Math.Round(amount / (1 + vatPercent), 2, MidpointRounding.AwayFromZero);
+            var vatAmount = amount - netAmount;
+
+            // Resolve input VAT account (2710)
+            var (inputVatAcctId, _, _) = await ResolveAccountId(api, "2710");
+            if (!inputVatAcctId.HasValue)
+                throw new InvalidOperationException("Unable to resolve input VAT account 2710 for manual VAT split.");
+
+            var expensePosting = new Dictionary<string, object>
+            {
+                ["date"] = date,
+                ["amountGross"] = (double)netAmount,
+                ["amountGrossCurrency"] = (double)netAmount,
+                ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
+                ["row"] = 1
+            };
+            if (departmentId.HasValue) expensePosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
+            postings.Add(expensePosting);
+
+            postings.Add(new Dictionary<string, object>
+            {
+                ["date"] = date,
+                ["amountGross"] = (double)vatAmount,
+                ["amountGrossCurrency"] = (double)vatAmount,
+                ["account"] = new Dictionary<string, object> { ["id"] = inputVatAcctId.Value },
+                ["row"] = 2
+            });
+
+            postings.Add(new Dictionary<string, object>
+            {
+                ["date"] = date,
+                ["amountGross"] = (double)(-amount),
+                ["amountGrossCurrency"] = (double)(-amount),
+                ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
+                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
+                ["row"] = 3
+            });
+
+            _logger.LogInformation("Manual VAT split: net={Net} vat={Vat} gross={Gross}", netAmount, vatAmount, amount);
+        }
+        else
+        {
+            var debitPosting = new Dictionary<string, object>
+            {
+                ["date"] = date,
+                ["amountGross"] = amount,
+                ["amountGrossCurrency"] = amount,
+                ["account"] = new Dictionary<string, object> { ["id"] = accountId.Value },
+                ["row"] = 1
+            };
+            if (inputVatId.HasValue) debitPosting["vatType"] = new Dictionary<string, object> { ["id"] = inputVatId.Value };
+            if (departmentId.HasValue) debitPosting["department"] = new Dictionary<string, object> { ["id"] = departmentId.Value };
+            postings.Add(debitPosting);
+
+            postings.Add(new Dictionary<string, object>
+            {
+                ["date"] = date,
+                ["amountGross"] = -amount,
+                ["amountGrossCurrency"] = -amount,
+                ["account"] = new Dictionary<string, object> { ["id"] = creditorId.Value },
+                ["supplier"] = new Dictionary<string, object> { ["id"] = supplierId },
+                ["row"] = 2
+            });
+        }
 
         var voucherBody = new Dictionary<string, object>
         {
             ["date"] = date,
             ["description"] = description,
-            ["postings"] = new[] { debitPosting, creditPosting }
+            ["postings"] = postings
         };
         if (voucherTypeId.HasValue)
             voucherBody["voucherType"] = new Dictionary<string, object> { ["id"] = voucherTypeId.Value };

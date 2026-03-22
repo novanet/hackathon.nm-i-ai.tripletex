@@ -37,6 +37,21 @@ public class EmployeeHandler : ITaskHandler
         SetIfPresent(body, emp, "lastName");
         SetIfPresent(body, emp, "email");
 
+        // Normalize non-ASCII chars in email (ø→o, å→a, etc.) — Tripletex rejects them with 422
+        if (body.TryGetValue("email", out var emailVal))
+        {
+            var emailStr = emailVal?.ToString() ?? "";
+            if (emailStr.Any(c => c > 127))
+            {
+                var parts = emailStr.Split('@', 2);
+                var localPart = SanitizeEmailPart(parts[0], "employee");
+                var domain = parts.Length > 1 ? parts[1] : "example.org";
+                var domainNormalized = NormalizeToAscii(domain.ToLowerInvariant());
+                body["email"] = $"{localPart}@{domainNormalized}";
+                _logger.LogInformation("Normalized non-ASCII email '{Original}' → '{Normalized}'", emailStr, body["email"]);
+            }
+        }
+
         // Generate synthetic email when missing or empty (e.g. PDF offer letters rarely include one).
         // STANDARD userType requires email — without it we get a 422.
         var emailMissing = !body.ContainsKey("email")
@@ -820,10 +835,9 @@ public class EmployeeHandler : ITaskHandler
         if (string.IsNullOrWhiteSpace(value))
             return fallback;
 
-        var cleaned = new string(value
-            .Trim()
-            .ToLowerInvariant()
-            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '.')
+        var ascii = NormalizeToAscii(value.Trim().ToLowerInvariant());
+        var cleaned = new string(ascii
+            .Select(ch => (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ? ch : '.')
             .ToArray())
             .Trim('.');
 
@@ -831,6 +845,41 @@ public class EmployeeHandler : ITaskHandler
             cleaned = cleaned.Replace("..", ".", StringComparison.Ordinal);
 
         return string.IsNullOrWhiteSpace(cleaned) ? fallback : cleaned;
+    }
+
+    /// <summary>
+    /// Normalize non-ASCII characters to their closest ASCII equivalents.
+    /// Handles Nordic chars (ø→o, æ→ae, å→a, ü→u, etc.) plus general Unicode diacritics.
+    /// </summary>
+    private static string NormalizeToAscii(string input)
+    {
+        var sb = new System.Text.StringBuilder(input.Length);
+        foreach (var ch in input)
+        {
+            var mapped = ch switch
+            {
+                'ø' or 'ö' => "o",
+                'æ' => "ae",
+                'å' => "a",
+                'ä' => "a",
+                'ü' => "u",
+                'ß' => "ss",
+                'ð' => "d",
+                'þ' => "th",
+                'ñ' => "n",
+                'ç' => "c",
+                _ => null
+            };
+            if (mapped != null) { sb.Append(mapped); continue; }
+            if (ch < 128) { sb.Append(ch); continue; }
+            // Generic Unicode decomposition for accented chars (é→e, ô→o, etc.)
+            var decomposed = ch.ToString().Normalize(System.Text.NormalizationForm.FormD);
+            foreach (var dc in decomposed)
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(dc)
+                    != System.Globalization.UnicodeCategory.NonSpacingMark)
+                    sb.Append(dc < 128 ? dc : '_');
+        }
+        return sb.ToString();
     }
 
     private static List<string> ParseStringList(object? val)

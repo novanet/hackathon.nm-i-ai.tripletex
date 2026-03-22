@@ -6,12 +6,12 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:43:08 |
+| Timestamp | 03/22/2026 01:52:56 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 5347 ms |
-| API Calls | 7 |
+| Elapsed | 27671 ms |
+| API Calls | 5 |
 | Errors | 0 |
 
 ### API Calls
@@ -19,17 +19,15 @@
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
-| 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=6800&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
-| 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
+| 2 | `GET` | `/ledger/account?number=7100&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 4 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
+| 5 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Clas Ohlson","supplierOrgNumber":"946693839","invoiceNumber":"KVITTERING - 17.03.2026","account":"6800","amount":"10760.00","date":"2026-03-17","vatRate":"25"},"department":{"name":"Kvalitetskontroll"}},"relationships":{},"raw_amounts":["10760.00","10000.00","2690.00"],"dates":["2026-03-17"],"files_needed":true}
+{"task_type":"create_voucher","action":"create","language":"fr","entities":{"voucher":{"supplierName":"Montagne SARL","supplierOrgNumber":"937826192","invoiceNumber":"INV-2026-8172","account":"7100","amount":71150,"vatRate":"25","date":null}},"relationships":{},"raw_amounts":["71150"],"dates":[],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

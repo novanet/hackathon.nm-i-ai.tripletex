@@ -6,13 +6,14 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/21/2026 23:44:39 |
+| Timestamp | 03/22/2026 01:53:55 |
 | Task Type | `create_employee` |
 | Handler | `EmployeeHandler` |
-| Success | True |
-| Elapsed | 6337 ms |
-| API Calls | 10 |
-| Errors | 0 |
+| Success | False |
+| Elapsed | 40765 ms |
+| API Calls | 7 |
+| Errors | 3 |
+| Error | `email: Ugyldig format.` |
 
 ### API Calls
 
@@ -20,19 +21,16 @@
 |---|---|---|---|---|
 | 1 | `GET` | `/department?count=100&fields=id%2Cname` | ✅  |  |
 | 2 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 3 | `GET` | `/employee?email=camille.moreau%40example.org&count=10&fields...` | ✅  |  |
+| 3 | `GET` | `/employee?email=kristian.%C3%B8deg%C3%A5rd%40example.org&cou...` | ✅  |  |
 | 4 | `POST` | `/employee` | ✅  |  |
-| 5 | `GET` | `/division?count=1&fields=id` | ✅  |  |
-| 6 | `GET` | `/employee/employment?employeeId=18697637&count=1&fields=id%2...` | ✅  |  |
-| 7 | `GET` | `/employee/employment/occupationCode?from=0&count=1000&fields...` | ✅  |  |
-| 8 | `GET` | `/employee/employment/occupationCode?nameNO=Regnskapsf%C3%B8r...` | ✅  |  |
-| 9 | `GET` | `/employee/employment/2851060?fields=id%2CemploymentDetails%2...` | ✅  |  |
-| 10 | `POST` | `/employee/employment/details` | ✅  |  |
+| 5 | `POST` | `/employee` | ✅  |  |
+| 6 | `GET` | `/employee?email=kristian.%C3%B8deg%C3%A5rd%40example.org&cou...` | ✅  |  |
+| 7 | `POST` | `/employee` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_employee","action":"create","language":"fr","entities":{"employee":{"firstName":"Camille","lastName":"Moreau","dateOfBirth":"1984-01-12","nationalIdentityNumber":"12018486901","email":"camille.moreau@example.org","bankAccountNumber":"27925957246","startDate":"2026-04-23","occupationCode":"3323","occupationName":"Regnskapsfører","employmentPercentage":80.0,"annualSalary":860000,"employmentType":"permanent","salaryType":"monthly salary"},"department":{"name":"Lager"}},"relationships":{},"raw_amounts":["860000"],"dates":["2026-04-23","1984-01-12"],"files_needed":true}
+{"task_type":"create_employee","action":"create","language":"nb","entities":{"employee":{"firstName":"Kristian","lastName":"Ødegård","dateOfBirth":"1987-12-30","startDate":"2026-05-24","employmentType":"permanent","employmentPercentage":100.0,"annualSalary":560000,"workingHoursPerDay":7.5},"department":{"name":"IT"}},"relationships":{},"raw_amounts":["560000"],"dates":["1987-12-30","2026-05-24"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

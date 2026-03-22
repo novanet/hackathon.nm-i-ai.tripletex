@@ -6,11 +6,11 @@
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/22/2026 00:02:33 |
+| Timestamp | 03/22/2026 01:51:09 |
 | Task Type | `create_voucher` |
 | Handler | `VoucherHandler` |
 | Success | True |
-| Elapsed | 5629 ms |
+| Elapsed | 16608 ms |
 | API Calls | 7 |
 | Errors | 0 |
 
@@ -20,16 +20,16 @@
 |---|---|---|---|---|
 | 1 | `POST` | `/supplier` | ✅  |  |
 | 2 | `GET` | `/department?from=0&count=1000&fields=id%2Cname%2CdepartmentN...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=7320&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 3 | `GET` | `/ledger/account?number=7140&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
 | 4 | `GET` | `/ledger/vatType?number=1&count=1&fields=id` | ✅  |  |
-| 5 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
-| 6 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 5 | `GET` | `/ledger/account?number=2400&count=1&fields=id%2Cnumber%2Cvat...` | ✅  |  |
+| 6 | `GET` | `/ledger/voucherType?name=Leverand%C3%B8rfaktura&count=10&fie...` | ✅  |  |
 | 7 | `POST` | `/ledger/voucher?sendToLedger=true` | ✅  |  |
 
 ### LLM Extraction
 
 ```json
-{"task_type":"create_voucher","action":"create","language":"pt","entities":{"voucher":{"supplierName":"Egon","supplierOrgNumber":"901551839","invoiceNumber":"KVITTERING - 14.02.2026","account":"7320","amount":"6650.00","date":"2026-02-14","vatRate":"25"},"department":{"name":"HR"}},"relationships":{},"raw_amounts":["6650.00","6100.00","1662.50"],"dates":["2026-02-14"],"files_needed":false}
+{"task_type":"create_voucher","action":"create","language":"en","entities":{"voucher":{"supplierName":"NSB","supplierOrgNumber":"998966345","invoiceNumber":"KVITTERING - 13.03.2026","account":"7140","amount":"11360.00","date":"2026-03-13","vatRate":"25"},"department":{"name":"Produksjon"}},"relationships":{},"raw_amounts":["10900.00","11360.00","2840.00"],"dates":["2026-03-13"],"files_needed":false}
 ```
 
 ## Latest Sandbox Run

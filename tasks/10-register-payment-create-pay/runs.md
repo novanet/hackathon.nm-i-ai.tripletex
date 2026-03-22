@@ -10,24 +10,39 @@ No competition runs recorded.
 
 | Field | Value |
 |---|---|
-| Timestamp | 03/20/2026 19:31:48 |
+| Timestamp | 03/22/2026 01:36:14 |
 | Task Type | `register_payment` |
 | Handler | `PaymentHandler` |
-| Success | False |
-| Elapsed | 4526 ms |
-| API Calls | 7 |
-| Errors | 1 |
-| Error | `orderGroups.orderLines.vatType.id,orderLines.vatType.id: Ugyldig mva-kode.` |
+| Success | True |
+| Elapsed | 4135 ms |
+| API Calls | 6 |
+| Errors | 0 |
 
 ### API Calls
 
 | # | Method | Path | Status | Time |
 |---|---|---|---|---|
-| 1 | `GET` | `/customer?organizationNumber=987654321&count=1&fields=id%2Cn...` | ✅  |  |
-| 2 | `GET` | `/invoice?customerId=108241590&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
-| 3 | `GET` | `/ledger/account?number=1920&count=1&fields=id%2Cversion%2Cba...` | ✅  |  |
+| 1 | `GET` | `/customer?organizationNumber=945678901&count=1&fields=id%2Cn...` | ✅  |  |
+| 2 | `GET` | `/customer?name=Haugen%20Bygg%20AS&count=1&fields=id%2Cname` | ✅  |  |
+| 3 | `GET` | `/invoice?customerId=108153281&invoiceDateFrom=2020-01-01&inv...` | ✅  |  |
 | 4 | `GET` | `/invoice/paymentType?count=100&fields=id%2Cdescription` | ✅  |  |
-| 5 | `GET` | `/ledger/vatType?count=100&fields=id%2Cnumber%2Cpercentage` | ✅  |  |
-| 6 | `POST` | `/order` | ✅  |  |
+| 5 | `PUT` | `/invoice/2147526322/:payment?paymentDate=2026-03-22&paymentT...` | ✅  |  |
+| 6 | `GET` | `/invoice/2147526322?fields=id%2CinvoiceNumber%2CinvoiceDate%...` | ✅  |  |
 
+## Latest Local Validation
+
+| Field | Value |
+|---|---|
+| Correctness | 1 |
+| Points | 8 / 8 |
+
+### Checks
+
+| Check | Expected | Actual | Passed | Points |
+|---|---|---|---|---|
+| invoice_found | `true` | `true` | ✅ | 2 |
+| payment_registered | `0` | `0,00` | ✅ | 2 |
+| correct_paid_amount | `149656,25` | `149656,25` | ✅ | 2 |
+| has_customer | `true` | `true` | ✅ | 1 |
+| has_amount | `> 0` | `149656,25` | ✅ | 1 |
 

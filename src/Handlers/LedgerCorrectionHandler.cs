@@ -144,24 +144,24 @@ public class LedgerCorrectionHandler : ITaskHandler
 
             case "missing_vat":
                 {
-                    // Find original posting to identify the counter-account
-                    var (_, counterId) = FindAndGetCounter(c.Account, c.Amount, allPostings, byVoucher);
-                    if (counterId == null)
-                        counterId = await ResolveFallbackCounterId(api, c.Account, numberToId);
+                    // Missing VAT correction: the expense was posted at gross (VAT included).
+                    // We need to move the VAT portion from the expense account to the VAT account.
+                    // Debit VAT account (2710), credit expense account (reduce it by VAT amount).
                     var vatAcct = c.VatAccount ?? "2710";
                     var vatId = await ResolveId(api, vatAcct, numberToId);
-                    if (vatId == null || counterId == null)
+                    var expenseId = await ResolveId(api, c.Account, numberToId);
+                    if (vatId == null || expenseId == null)
                     {
-                        _logger.LogWarning("Cannot resolve VAT account or counter for missing_vat on {A}", c.Account);
+                        _logger.LogWarning("Cannot resolve VAT account {V} or expense account {A} for missing_vat", vatAcct, c.Account);
                         return null;
                     }
                     var vatAmt = Math.Round(c.Amount * 0.25m, 2);
                     description = $"Korreksjon: manglende mva konto {c.Account}";
-                    // Add missing VAT: debit 2710, credit counter-account
+                    // Debit VAT account, credit expense account
                     postings = new List<object>
                 {
                     new { account = new { id = vatId.Value }, amountGross = (double)vatAmt, amountGrossCurrency = (double)vatAmt, row = 1, date, description },
-                    new { account = new { id = counterId.Value }, amountGross = -(double)vatAmt, amountGrossCurrency = -(double)vatAmt, row = 2, date, description }
+                    new { account = new { id = expenseId.Value }, amountGross = -(double)vatAmt, amountGrossCurrency = -(double)vatAmt, row = 2, date, description }
                 };
                     break;
                 }

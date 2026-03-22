@@ -300,8 +300,10 @@ public class PaymentHandler : ITaskHandler
 
         // Step 6: Register partial payment on the overdue invoice
         // Use the requested partial amount from the prompt (e.g. "5000 NOK"), NOT the full outstanding
-        var requestedPartialAmount = ParseDecimalField(payment, "amount")
-            ?? ParseDecimalField(reminderFee, "partialPaymentAmount");
+        // Prioritize explicit partialPaymentAmount over generic amount to avoid paying full outstanding
+        var requestedPartialAmount = ParseDecimalField(payment, "partialPaymentAmount")
+            ?? ParseDecimalField(reminderFee, "partialPaymentAmount")
+            ?? ParseDecimalField(payment, "amount");
         var partialAmount = requestedPartialAmount ?? amountOutstanding;
         var paymentTypeId = await paymentTypeTask;
         var paymentDate = ResolvePaymentDate(extracted);

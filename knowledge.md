@@ -97,6 +97,12 @@ Keep entries short (1–2 lines). Include the date discovered.
 | create_credit_note    | 6             | Find invoice + create credit note                                         |
 | delete_entity         | 2             | Find entity + DELETE                                                      |
 
+- **Supplier invoice vatLocked=true+vatType=0 needs manual VAT split** — when an expense account (e.g. 7100) has `vatLocked=true` and `vatType={id:0}`, the account rejects any vatType on postings. If the prompt specifies a VAT rate (e.g. 25%), `HandleSupplierInvoice` must create a 3-posting voucher: debit expense(NET, no vatType) + debit input VAT 2710(VAT amount) + credit 2400(-GROSS). Net = gross/(1+rate), VAT = gross-net. Without this, the full gross goes to expense with zero VAT → all checks fail. _(2026-03-22)_
+- **Tripletex email rejects non-ASCII chars** — `POST /employee` with email containing ø, å, æ etc. returns 422 "Ugyldig format". `EmployeeHandler.SanitizeEmailPart` now normalizes Nordic chars (ø→o, æ→ae, å→a) via `NormalizeToAscii` before filtering to ASCII a-z/0-9. Applied both to synthetic emails and prompt-extracted emails. _(2026-03-22)_
+- **Multi-VAT invoice product reference conflict** — when a pre-existing product's stored vatType differs from the order line's needed vatType, Tripletex uses the product's vatType, causing wrong amounts. `InvoiceHandler.CreateProductsForLines` now detects multi-VAT invoices (>1 distinct vatType across lines), fetches product vatType, and skips product reference when there's a mismatch. _(2026-03-22)_
+- **Reminder fee partialPaymentAmount ignored** — `PaymentHandler.HandleReminderFeesAsync` used `ParseDecimalField(payment, "amount")` first, which returned the full `amountOutstanding` (e.g. 31625), before checking `reminderFee.partialPaymentAmount` (e.g. 5000). Fixed: check `partialPaymentAmount` first from both `payment` and `reminderFee` entities. _(2026-03-22)_
+- **Ledger correction missing_vat posted to same account** — `FindAndGetCounter` resolved counterId to the same account as vatId (both 2710), so both postings netted to zero. Fixed: credit posting now goes to the expense account (c.Account, e.g. 6500), not the counter-account. _(2026-03-22)_
+
 ## Reference Documents
 
 - **`entity-model.md`** — Complete entity relationship reference: all entity schemas, required fields, cross-references, dependency chains per task type, action endpoints, and common pitfalls. Consult when implementing handlers or debugging entity relationship issues. _(2026-03-20)_
